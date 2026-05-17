@@ -1,139 +1,111 @@
 # AlifeBalance Architecture
 
-## TODO: Diagrams
-
-Two diagrams to add to `doc/img/`:
-
-1. **Internal flow.** Producer/consumer split: death callback fills `_deaths` table, periodic 60-second tick reads it, picks one faction over threshold, filters SIMBOARD, weighted-picks one smart, backdates its cooldown timestamp. Engine's own try_respawn fires later and refills from the smart's own LTX pool.
-
-2. **Layered position.** X-Ray engine at the base. AlifeBalance one layer above (reads/writes smart-terrain server fields, no spawn calls). Spawner mods (vanilla LTX, ZCP, Redone, GAMMA NPC Spawns) above that or beside, configuring WHAT spawns. AlifeBalance does not sit above them; it sits beside them on the same vanilla state layer. Show that AB and ZCP/Redone are peers, both consuming the engine's state, both written by vanilla's configuration.
-
 ## The big idea
 
-We do not spawn. The engine already spawns. When combat thins a faction's presence on a level, we nudge a quiet smart on that level to refill sooner. The nudge is a single write to one server-entity field. The engine does the rest on its own schedule using its own configured spawn pools.
+We do not spawn. The engine already spawns. When a squad takes losses in combat, we tell the engine that the smart that spawned that squad is allowed to refill it sooner.
+
+The nudge is a single write to one server-entity field. The engine does the rest on its own schedule, using its own configured spawn pool.
 
 ## The signal
 
-Per level, one death counter per faction. Twelve stalker factions (stalker, bandit, csky, dolg, freedom, ecolog, killer, monolith, renegade, army, greh, isg) plus mutant prop keys (monster_predatory_day, monster_predatory_night, monster_vegetarian, monster_zombied_day, monster_zombied_night, monster_special). Cowardly-tier mutants (rats, tushkanos, flesh, zombies, karliks) do not count. Protected squads (story, companions, task targets) do not count.
+Per origin smart, one death counter. When an NPC dies, we look at `squad.respawn_point_id` -- the smart that spawned the squad. We increment that smart's counter.
 
-## The trigger
+Squads without `respawn_point_id` (scripted, save-loaded with broken link, Warfare-managed) are skipped. There is no origin to nudge.
 
-A real-time 60-second tick scans every counter. One faction with a count at or above the threshold wins (random among ties). The intervention runs once. That faction's counter resets to zero.
+## The threshold
 
-The death handler does not trigger interventions. It only increments counters. Producer and consumer are decoupled. Bursts of deaths cannot produce bursts of interventions because the consumer runs on its own clock.
+Per smart, the threshold is `MAX(npc_in_squad upper bound)` across every squad section the smart can spawn. Computed lazily on first death from that smart, cached.
 
-## The pick
+Engine creates ONE squad per `try_respawn` (`smart_terrain.script:1714-1722`) with `npc_in_squad` random within range. Setting the threshold to this MAX guarantees that, between any two nudges of the same smart, at least as many NPCs died as the next refill could possibly spawn. Refill never outpaces death, in absolute terms.
 
-Among smarts on the dying faction's level, three conditions must hold:
+A smart whose recipes include rat-lair squads has a threshold around 20. A stalker-only smart has a threshold around 4-5. No MCM knob: the threshold is derived from engine data.
 
-- Has `respawn_params` (is a respawn point at all).
-- Accepts the faction (engine's own props check via `xsmart.has_faction` or `xsmart.accepts_mutant`).
-- Has at least one matching-kind recipe with currently zero alive squads. The smart already lost something there; the slot is open.
+## The tick
 
-If no smart satisfies all three, the intervention drops. The counter stays where it was, ready for next tick.
+A real-time 60-second tick walks the death counters. For each smart over its threshold, the tick nudges that smart and resets that smart's count.
 
-If multiple smarts qualify, weighted random pick by `1 / (1 + npc_info count)`. Emptier smarts win more often.
+The death handler does not trigger nudges. It only increments counters. Producer and consumer are decoupled. Bursts of deaths cannot produce bursts of nudges.
 
 ## The nudge
 
-One write on the chosen smart's server entity. Overwrite `last_respawn_update` with `current_game_time - 24h`.
+One write on the chosen smart's server entity. Set `last_respawn_update = nil`.
 
-That is the entire intervention. No budget decrement. No injection into `respawn_params`. No timestamp set to nil. 24h exceeds vanilla `respawn_idle` (12h) and ZCP (6h), so the cooldown gate passes on the next engine alife tick regardless of which modpack configures the cooldown.
+`nil` short-circuits the engine's cooldown gate at `smart_terrain.script:1651`:
+```
+if self.last_respawn_update == nil or curr_time:diffSec(...) > self.respawn_idle then
+```
+
+Same short-circuit in ZCP at `smr_pop.script:352-354`. Save round-trips `nil` correctly via `utils_data.w_CTime` / `r_CTime` (`utils_data.script:253-286`): nil writes a `false` bool, reads back as nil.
+
+That is the entire nudge. No backdated timestamp. No budget decrement. No injection into `respawn_params`. No engine bookkeeping touched.
 
 ## What the engine does
 
-On its next alife tick, the smart's `update()` runs. Inside, `try_respawn` reads `last_respawn_update`. Our backdate makes the engine see "more time has passed since the last respawn than really has." The cooldown gate (`diffSec > respawn_idle`) passes earlier than it otherwise would.
+On its next alife tick at the nudged smart, `try_respawn` reads `last_respawn_update`, sees nil, passes the cooldown gate. Engine walks its recipes, finds those with open budget (`max > already_spawned[k].num`), picks one at random, picks a squad section at random from that recipe's pool, calls `SIMBOARD:create_squad`. The squad spawns. The engine increments `already_spawned[k].num`. The cooldown timestamp is set to "now."
 
-After the cooldown gate, the engine walks its recipes, finds the ones with open budget (which we know exists because we filtered for it), picks one at random, picks a squad section at random from that recipe's pool, calls `SIMBOARD:create_squad`. The squad spawns. The engine increments `already_spawned[k].num`. The cooldown timestamp is set to "now."
-
-We never touch budget. The engine's own death tracking owns it.
-
-## What the player observes
-
-A firefight thins duty squads on Garbage. Within a game-hour or two, one duty squad shows up at a quiet duty-friendly smart on Garbage. The smart was already low because combat killed its previous squads; the cooldown timer was the only thing holding refill back. We removed the hold.
-
-Different smarts each time, different squad sections each time, different game-hours-of-delay each time. Nothing scripted, nothing predictable per single death.
+We never touch budget. The engine's own death-decrement at `sim_squad_scripted.script:1027-1029` owns it.
 
 ## What we own
 
-Two integer tables, a few timer values, one callback subscription.
+- `_deaths[smart_id]`: death counter per origin smart, reset on nudge.
+- `_thresholds[smart_id]`: cached MAX npc_in_squad upper bound per smart.
+- `_stats`: 4 diagnostic counters (deaths, counted, ticks, nudges).
+- Callbacks: `squad_on_npc_death`, `on_option_change`, `load_state`, `actor_on_first_update`.
+- One `CreateTimeEvent` timer at 60-second wall interval.
 
-- `_deaths[level_id][faction_key]`: 14 levels x ~18 factions worst case, sparse in practice.
-- `_stats`: 8 diagnostic counters.
-- `_last_tick`, `_last_summary`: real-time wall clock values.
-- Callbacks: `squad_on_npc_death`, `on_option_change`, `load_state`, `actor_on_update`.
-
-No persistence. Death counters reset on game load. In-flight cooldown writes survive because the engine saves smart fields in its own state.
+No persistence. State resets on game load. Already-written `last_respawn_update = nil` values survive in the engine's own save data.
 
 ## What we do not own
 
-Squad type that spawns (smart's LTX pool). Squad count within a section (engine random in section's `npc_in_squad` range). Spawn timing within the cooldown window (engine alife tick cadence). Substitution (ZCP `smr_handle_spawn` may replace squad sections). Online cap enforcement (Dynamic Despawner's territory).
+Which faction the engine spawns from the smart's pool (random over eligible recipes). Which squad section within that recipe (random). NPC count within the section's `npc_in_squad` range (random). Substitution (ZCP `smr_handle_spawn` may swap squad sections). Online cap enforcement (Dynamic Despawner, AlifeGuard).
 
-## Why it stays compatible with anything
-
-The mod writes one vanilla engine field: `smart.last_respawn_update`. Every spawner mod in GAMMA either reads this field through the same code path the engine itself uses (vanilla, ZCP), or does not interact with smart-terrain respawn at all (Night Mutants's parallel path, Nocturnal Mutants's raw alife_create, despawn mods).
-
-The only field we write is one the engine itself writes at every successful respawn. We are not introducing a new interface. We are operating on the engine's own state in the engine's own pattern.
-
-## Producer / consumer pipeline
+## Pipeline
 
 ```
 DEATH (engine fires squad_on_npc_death)
   |
   v
 _on_npc_death(squad, npc, killer)
-  - filter: protected? skip
-  - filter: cowardly species? skip (rat/tushkano/flesh/zombie/karlik)
-  - faction_key = squad.player_id
-  - level_id = xlevel.get_level_id(npc or squad)
-  - _deaths[level_id][faction_key] += 1
-  - END (no further action)
+  - if not enabled: skip
+  - if no squad: skip
+  - _stats.deaths += 1
+  - smart_id = squad.respawn_point_id
+  - if nil (no origin): skip
+  - _stats.counted += 1
+  - _deaths[smart_id] += 1
 
 
-TICK (every 60 wall-seconds, via actor_on_update interval gate)
+TICK (every 60 wall-seconds via CreateTimeEvent)
   |
   v
 _periodic_tick()
-  - candidates = factions where _deaths[L][F] >= threshold
-  - if no candidates: return
-  - pick = random(candidates)
-  - _intervene(pick.level_id, pick.faction_key, is_mutant)
-  - if ok: _deaths[pick.level_id][pick.faction_key] = 0
-  - END
+  - ResetTimeEvent first
+  - _stats.ticks += 1
+  - for each (smart_id, count) in _deaths:
+      smart = alife_object(smart_id)
+      if not smart: skip (entity gone)
+      threshold = _get_threshold(smart_id, smart)  -- lazy compute + cache
+      if count >= threshold:
+          smart.last_respawn_update = nil
+          _deaths[smart_id] = 0
+          _stats.nudges += 1
 
 
-_intervene(level_id, faction_key, is_mutant)
-  - eligible = SIMBOARD.smarts filter:
-      xlevel.get_level_id(smart) == level_id
-      xsmart.has_faction(smart, faction_key) [stalker] or
-      xsmart.accepts_mutant(smart, faction_key) [mutant]
-      _check_smart_budget(smart, is_mutant): any matching recipe with
-          pick_section_from_condlist(actor, smart, v.num) > already_spawned[k].num
-  - if empty: return false
-  - smart = weighted random pick by 1 / (1 + npc_info count)
-  - _backdate_cooldown(smart):
-      backdated = xtime.game_time()
-      backdated:sub(0, 0, 0, 0, 0, 86400, 0)
-      smart.last_respawn_update = backdated
-  - return true
-
-
-ENGINE (on its own alife tick)
+ENGINE (its own alife tick on the nudged smart)
   - se_smart_terrain:update() -> try_respawn()
-  - cooldown gate (smart_terrain.script:1651): diffSec(last_respawn_update) > respawn_idle
-      our backdate makes this pass earlier
+  - cooldown gate (smart_terrain.script:1651): nil -> pass
   - budget gate (smart_terrain.script:1696): max > already_spawned[k].num
-      already passing because we filtered for it
   - picks recipe at random from eligibles
   - picks squad section at random from recipe.squads
   - SIMBOARD:create_squad(smart, squad_section)
+  - sets squad.respawn_point_id = smart.id
   - increments already_spawned[k].num
   - sets last_respawn_update = curr_time
 ```
 
 ## Engine gates inside try_respawn
 
-The engine's own respawn check at `smart_terrain.script:1597-1762` has eight gates. We affect one:
+`smart_terrain.script:1597-1762` has eight gates. We affect one:
 
 | Gate | Source line | Our effect |
 |------|-------------|-----------|
@@ -141,31 +113,26 @@ The engine's own respawn check at `smart_terrain.script:1597-1762` has eight gat
 | Peace info | 1607 | Untouched |
 | Level filter (`respawn_only_level`) | 1611 | Untouched |
 | Actor distance (`respawn_radius`) | 1619 | Untouched |
-| `respawn_params and already_spawned` exist | 1625 | Untouched (we only target smarts that pass) |
+| `respawn_params and already_spawned` exist | 1625 | Untouched |
 | Simulation availability | 1630 | Untouched |
-| Cooldown timer | 1651 | Backdated by our nudge |
-| Per-recipe budget | 1696 | Untouched (engine's own decrement on death owns this) |
+| Cooldown timer | 1651 | Set `last_respawn_update = nil` |
+| Per-recipe budget | 1696 | Untouched |
 
-After both touchable gates pass, the engine's own random pick from `available_sects` (line 1714) plus `SIMBOARD:create_squad(self, ...)` (line 1716) does the actual spawn. Counter restored at line 1759.
+After both touchable gates pass, the engine's own random pick from `available_sects` (line 1714) plus `SIMBOARD:create_squad(self, ...)` (line 1716) does the actual spawn.
 
 ## ZCP integration
 
-ZCP's `smr_pop.smart_can_respawn` (smr_pop.script:342-368) replaces the cooldown gate inside its forked smart_terrain.script. It reads `smart.last_respawn_update` the same way vanilla does and compares against ZCP's MCM `respawn_idle` value (default 6 game-hours) instead of vanilla's 12. Our backdate works under ZCP identically: the timestamp is what both vanilla and ZCP read.
+ZCP's `smr_pop.smart_can_respawn` (`smr_pop.script:342-368`) replaces the cooldown gate. It returns `true` immediately when `last_respawn_update == nil` (`:352-354`). Our nudge works identically under ZCP.
 
-ZCP's `smr_handle_spawn` (smr_pop.script:288-338) replaces the squad section in flight. Under GAMMA defaults, all substitution features are off and the squad section passes through. The squad still gets `respawn_point_id` and `respawn_point_prop_section` set (smart_terrain.script:1726-1727 in ZCP fork), so the engine's own budget accounting stays intact.
+ZCP's `smr_handle_spawn` (`smr_pop.script:288-339`) substitutes the squad section in flight. The replacement squad still gets `respawn_point_id` and `respawn_point_prop_section` set (`smart_terrain.script:1726-1727` in ZCP fork), so the engine's own budget accounting stays intact. When that substituted squad eventually dies, its deaths still count against our origin smart's threshold.
 
-## Variance sources
+## Population invariant
 
-| Source | Where |
-|--------|-------|
-| Counter accumulation timing | Deaths arrive irregularly |
-| Threshold value | MCM knob (deaths_per_nudge) |
-| Random pick among over-threshold factions | When multiple factions cross threshold in the same tick |
-| Weighted smart pick | `1 / (1 + npc_info count)` |
-| Engine's own recipe pick | Random across `available_sects` |
-| Engine's own squad pool pick | Random across recipe's `squads[]` |
-| Engine's own NPC count pick | Random across squad section's `npc_in_squad` range |
-| ZCP substitution | If user enabled it |
+For any single origin smart, between any two consecutive nudges of that smart, the engine cannot refill more NPCs than have died since the last nudge.
+
+Proof: a nudge fires only when `_deaths[smart_id] >= MAX(npc_in_squad upper bound)`. A nudge causes at most one `try_respawn`, which creates at most one squad with at most MAX(npc_in_squad upper bound) NPCs. After the nudge, `_deaths[smart_id] = 0`. The next nudge requires another full threshold of deaths to accumulate.
+
+Refill <= death, in absolute terms, for every smart.
 
 ## Files
 
@@ -173,41 +140,43 @@ ZCP's `smr_handle_spawn` (smr_pop.script:288-338) replaces the squad section in 
 |------|---------|
 | `gamedata/scripts/_ab_deps.script` | Version string, xlibs dependency gate |
 | `gamedata/scripts/ab_mcm.script` | MCM defaults, UI definition, button handlers |
-| `gamedata/scripts/ab_pacing.script` | Death handler, periodic tick, smart filter, backdate |
+| `gamedata/scripts/ab_pacing.script` | Death handler, periodic tick, threshold cache, nudge |
 | `gamedata/configs/text/eng/ui_st_mcm_ab.xml` | MCM strings (English) |
 | `gamedata/textures/ab_mcm_banner.dds` | MCM banner (512x50) |
 
 ## MCM Settings
 
-| Setting | Default | Range | Effect |
-|---------|---------|-------|--------|
-| `enabled` | true | bool | Master toggle |
-| `deaths_per_nudge` | 5 | 5-20 | Deaths in one faction/level needed before one intervention |
-| `log_level` | WARN | ERROR/WARN/INFO/DEBUG | Logger verbosity |
+| Setting | Default | Effect |
+|---------|---------|--------|
+| `enabled` | true | Master toggle |
+| `log_level` | WARN | Logger verbosity (ERROR/WARN/INFO/DEBUG) |
 
-Backdate amount is hardcoded at 24 game-hours (`BACKDATE_SEC` in `ab_pacing.script`). 24 exceeds vanilla `respawn_idle` (12h) and ZCP (6h), so the cooldown gate passes on the next engine alife tick under any known modpack. No min/max randomization: variance lives in the picker (faction, smart) and the engine (recipe, squad section, NPC count).
+No threshold knob. Threshold is per-smart, derived from `ini_sys:r_string_ex(squad_section, "npc_in_squad")`.
 
 ## Performance
 
 | Operation | Cost |
 |-----------|------|
-| Per death | O(1): protection check, cowardly check, counter increment |
-| Per tick (60s) | O(L * F) candidate scan + O(S) smart filter + O(K) recipe scan per smart. L = levels, F = factions per level, S = smarts on level, K = recipes per smart. Sub-millisecond in practice. |
-| Per intervention | O(S) eligibility scan, O(S_eligible) weighted pick, 3 luabind (xtime.game_time, CTime:sub, field write) |
-| Persistence | None. Counters reset on game load. |
+| Per death | O(1): nil-guard, field read (`squad.respawn_point_id`), counter increment |
+| Threshold compute (first death per smart) | O(recipes * squads_per_recipe), 1 luabind per squad (`ini_sys:r_string_ex` medium). Cached. |
+| Threshold lookup | O(1) cache hit |
+| Per tick (60s) | O(N) over `_deaths`, N = smarts with recent deaths |
+| Per nudge | O(1): one field write |
+| Persistence | None. State resets on game load. |
 
 ## Compatibility
 
 | Mod | Interaction |
 |-----|-------------|
-| Vanilla try_respawn | Reads `last_respawn_update` at smart_terrain.script:1651. Our backdate works. |
-| ZCP (forked try_respawn) | Reads the same field at ZCP smart_terrain.script:1703. Our backdate works. |
+| Vanilla try_respawn | Reads `last_respawn_update` at `smart_terrain.script:1651`. nil short-circuits. |
+| ZCP (forked try_respawn) | Reads the same field at `smr_pop.script:352-354`. nil short-circuits. |
 | Redone Collection | Pure LTX configuration. AlifeBalance writes runtime state. No conflict. |
 | GAMMA NPC Spawns | Pure LTX. No conflict. |
-| Night Mutants | Parallel SIMBOARD:create_squad path. Does not touch `last_respawn_update`. No conflict. |
-| Nocturnal Mutants | Raw `alife_create`. Bypasses smart terrains. No conflict. |
-| GAMMA Dynamic Despawner | Enforces online cap. Does not touch respawn fields. Independent. |
-| AlifeGuard | Squad-aware despawner. Different layer. No overlap. |
-| AlifePlus | Reactive A-Life framework. Different fields and different patterns. No overlap. |
+| Night Mutants | Parallel `SIMBOARD:create_squad` path. Spawned squads still get `respawn_point_id` set. No conflict. |
+| Nocturnal Mutants | Raw `alife_create`. Bypasses smart terrains entirely. Those squads have no `respawn_point_id`, ignored. |
+| GAMMA Dynamic Despawner | Enforces online cap. Does not touch respawn fields. Despawned squads do not fire `squad_on_npc_death`, so they don't trigger nudges. Independent. |
+| AlifeGuard | Squad-aware despawner. Same: despawn != death, no nudge. |
+| AlifePlus | Reactive A-Life framework. Different fields and patterns. No overlap. |
+| Warfare | Manages its own squads. Warfare squads typically have no `respawn_point_id`, ignored. |
 
 No base script edits. No engine patches. Runtime callbacks only.
