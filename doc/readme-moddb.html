@@ -1,0 +1,44 @@
+<h3>Version: 1.0.0 (xlibs 1.4.1)</h3>
+<h3>GitHub: <a href="https://github.com/damiansirbu-stalker/AlifeBalance">https://github.com/damiansirbu-stalker/AlifeBalance</a></h3>
+<h3>Changelog: <a href="https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/changelog">doc/changelog</a> | <a href="https://github.com/damiansirbu-stalker/AlifeBalance/issues">Bugs, suggestions</a></h3>
+<p>Combat thins the Zone faster than the engine refills it. Vanilla smart terrains respawn on a 12 game-hour cooldown, ZCP and Redone change the rules but the fundamental drain remains: kills outpace refills, active zones empty out, and the engine waits its full cycle before reconsidering.</p>
+<p>AlifeBalance watches faction-level death pressure and quietly nudges quiet smart terrains to refill sooner using their own configured spawn pools. It does not spawn anything itself. It writes two fields on smart terrains that the engine itself reads on its own update tick: opens one budget slot, optionally clears the smart's cooldown clock. The engine handles the rest at its own pace using its own configured squad pools.</p>
+<p>Works alongside vanilla, ZCP, Redone, GAMMA NPC Spawns, Night Mutants, Dynamic Despawner, and any other spawner mod because they all read and write the same engine state.</p>
+<h2>Faction-keyed death counters</h2>
+<p>Per level, per faction. Twelve stalker factions (stalker, bandit, csky, dolg, freedom, ecolog, killer, monolith, renegade, army, greh, isg) and a smaller set of mutant prop keys (predatory_day, predatory_night, vegetarian, zombied_day, zombied_night, special). Each death increments its matching bucket.</p>
+<h2>Threshold trip</h2>
+<p>When a bucket hits its threshold (default 5), it resets and a refill nudge is queued. Variable per stalker / mutant via MCM.</p>
+<h2>Emptiness-weighted smart pick</h2>
+<p>From smarts on the level that accept the dying faction, weighted random pick biased toward smarts with low NPC occupancy. Empty smarts more likely than crowded smarts. The Zone refills where it needs refilling, not where it's already crowded.</p>
+<h2>Recipe match</h2>
+<p>On the chosen smart, find a respawn recipe whose pool matches the dying kind (sim_squad for stalkers, simulation or zombied for mutants), with budget headroom. The smart spawns its own configured squad type, not anything we picked.</p>
+<h2>Two writes per nudge</h2>
+<p>Decrement that recipe's already_spawned counter by 1 (opens budget). With probability set by Pacing Strength, also clear last_respawn_update (forces respawn cycle on next engine tick). The engine handles the actual spawn.</p>
+<h2>Frame-spread processing</h2>
+<p>Trips queue and process at one per frame via xslice (cooperative time-slicing from xlibs). Heavy combat that produces many trips in a single frame is smoothed across subsequent frames.</p>
+<h2>Variance</h2>
+<p>Eight independent random sources between a death and a spawn: counter accumulation timing, threshold value, weighted smart pick, recipe pick on smart, engine's own recipe random across eligible recipes, engine's own squad pool random, cooldown probability, ZCP substitution if active. Player cannot trace a death to a spawn.</p>
+<h2>Mod compatibility</h2>
+<p>AlifeBalance writes vanilla engine fields. Every spawner mod in GAMMA either reads these fields through the same code path (vanilla try_respawn, ZCP's forked try_respawn) or doesn't interact with respawn bookkeeping at all (Redone is pure LTX, GAMMA NPC Spawns is pure LTX, Night Mutants uses a parallel SIMBOARD:create_squad path, Dynamic Despawner enforces an online cap independently). No conflict with AlifeGuard, AlifePlus, Warfare, Guards Spawner.</p>
+<h2>Performance</h2>
+<p>Lookups: dying squad's faction key (direct field read). Counter increment: O(1) per death. Trip processing: O(smarts on level) for the eligible filter, one trip per frame via xslice. Sub-millisecond per trip. No persistence.</p>
+<h2>MCM</h2>
+<p>General: enable, stalker death threshold, mutant death threshold, pacing strength (cooldown reset probability).<br />Development: log level (ERROR / WARN / INFO / DEBUG), diagnostics (status, reset counters).</p>
+<h2>Requirements</h2>
+<p>Anomaly 1.5.3<br /><a href="https://www.moddb.com/mods/stalker-anomaly/addons/xlibs-1001">xlibs</a><br />MCM</p>
+<h2>Install (MO2)</h2>
+<p>1. Install xlibs<br />2. Install AlifeBalance<br />3. Load order does not matter<br />4. Configure via MCM</p>
+<h2>Uninstall (MO2)</h2>
+<p>Disable or remove in MO2.</p>
+<h2>Compatibility</h2>
+<p>Tested with vanilla Anomaly 1.5.3 and GAMMA modpack.<br />Does not modify base scripts. Does not call alife_create or SIMBOARD:create_squad. Only writes vanilla engine fields the engine itself reads on every update tick.</p>
+<h2>Architecture</h2>
+<ul>
+<li>AlifeBalance runs on xlibs, a reverse-engineered API that wraps the X-Ray engine source.</li>
+<li>No base script edits, no engine patches. Runtime callbacks only.</li>
+<li>Trip queue is frame-spread via xslice to smooth combat bursts.</li>
+<li>See doc/architecture.md for full design documentation.</li>
+</ul>
+<p>Credits:<br />Altogolik - support, ideas, source materials</p>
+<h2>Usage and License</h2>
+<p>Modpacks: allowed and encouraged. Keep the readme and license files.<br />Addons, patches, integrations: allowed. Credit "AlifeBalance by Damian Sirbu" visibly on your mod page.<br />Reproducing the implementation in other software: not allowed, even with credit.<br />Full license in LICENSE file and on GitHub.</p>

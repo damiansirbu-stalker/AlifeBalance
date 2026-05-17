@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="windows-1251"?>
+<string_table>
+    <!-- ==================== MAIN MENU ==================== -->
+    <string id="ui_mcm_menu_ab">
+        <text>AlifeBalance</text>
+    </string>
+
+    <!-- ==================== TAB NAMES ==================== -->
+    <string id="ui_mcm_menu_general">
+        <text>General</text>
+    </string>
+    <string id="ui_mcm_menu_development">
+        <text>Development</text>
+    </string>
+
+    <!-- ==================== GENERAL TAB ==================== -->
+    <string id="ui_mcm_ab_title">
+        <text>AlifeBalance</text>
+    </string>
+    <string id="ui_mcm_ab_general_info">
+        <text>Combat thins the Zone faster than the engine refills it. AlifeBalance watches faction-level death pressure and quietly nudges quiet smart terrains to refill sooner using their own configured spawn pools. It does not spawn anything. Works alongside vanilla, ZCP, Redone, and any other spawner mod.</text>
+    </string>
+
+    <!-- General - Smart Pacing -->
+    <string id="ui_mcm_ab_hdr_pacing">
+        <text>Smart Pacing</text>
+    </string>
+    <string id="ui_mcm_ab_general_enabled">
+        <text>Enable Smart Pacing</text>
+    </string>
+    <string id="ui_mcm_ab_general_enabled_desc">
+        <text>Master toggle. When off, no death tracking and no nudges.</text>
+    </string>
+    <string id="ui_mcm_ab_general_deaths_per_nudge">
+        <text>Deaths per nudge</text>
+    </string>
+    <string id="ui_mcm_ab_general_deaths_per_nudge_desc">
+        <text>How many deaths in one faction on one level before AlifeBalance triggers a single intervention. Cowardly mutants (rats, tushkanos, flesh, zombies, karliks) do not count. Higher = fewer interventions, slower recovery. Lower = more frequent interventions. Minimum 5 keeps the rate balanced against typical squad sizes.</text>
+    </string>
+
+    <!-- ==================== DEVELOPMENT TAB ==================== -->
+    <string id="ui_mcm_ab_development_desc">
+        <text>Debug and development tools. DEBUG level enables structured tracing of every death classification, trip, and nudge to alifebalance.log. Has performance cost.</text>
+    </string>
+
+    <!-- Development - Logging -->
+    <string id="ui_mcm_ab_hdr_logging">
+        <text>Logging</text>
+    </string>
+    <string id="ui_mcm_ab_development_log_level">
+        <text>Log level</text>
+    </string>
+    <string id="ui_mcm_ab_development_log_level_desc">
+        <text>Controls log verbosity. ERROR: crashes only. WARN: anomalies. INFO: config and totals. DEBUG: every trip and nudge.</text>
+    </string>
+    <string id="ab_development_log_level_lst_error">
+        <text>Error</text>
+    </string>
+    <string id="ab_development_log_level_lst_warn">
+        <text>Warn</text>
+    </string>
+    <string id="ab_development_log_level_lst_info">
+        <text>Info</text>
+    </string>
+    <string id="ab_development_log_level_lst_debug">
+        <text>Debug</text>
+    </string>
+
+    <!-- Development - Diagnostics -->
+    <string id="ui_mcm_ab_hdr_diagnostics">
+        <text>Diagnostics</text>
+    </string>
+    <string id="ui_mcm_ab_development_btn_show_status">
+        <text>Show status</text>
+    </string>
+    <string id="ui_mcm_ab_development_btn_show_status_desc">
+        <text>Display death totals, counted deaths, filtered deaths, intervention attempts, and successful nudges via PDA.</text>
+    </string>
+    <string id="ui_mcm_ab_development_btn_reset_counters">
+        <text>Reset counters</text>
+    </string>
+    <string id="ui_mcm_ab_development_btn_reset_counters_desc">
+        <text>Clear all death counters and diagnostic stats. Existing nudges already written to smart-terrain timestamps persist; the engine resolves them on its next try_respawn.</text>
+    </string>
+</string_table>

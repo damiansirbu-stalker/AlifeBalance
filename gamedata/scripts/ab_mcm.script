@@ -1,0 +1,110 @@
+--- ab_mcm: MCM configuration for AlifeBalance Smart Pacing
+
+-- ==================== DEFAULTS ====================
+
+defaults = {
+    -- Smart Pacing
+    enabled = true,
+    deaths_per_nudge = 5,
+
+    -- Development
+    log_level = "WARN",
+}
+
+-- ==================== CONFIG ====================
+
+local RegisterScriptCallback = RegisterScriptCallback
+
+local _key_to_tab = {
+    log_level = "development",
+}
+
+local function path_builder(key)
+    local tab = _key_to_tab[key] or "general"
+    return "ab/" .. tab .. "/" .. key
+end
+
+cfg, get_config, load_config = xmcm.create_config("ab", defaults, path_builder)
+
+-- ==================== BUTTON HANDLERS ====================
+
+function btn_show_status()
+    if ab_pacing and ab_pacing.show_status then
+        ab_pacing.show_status()
+    end
+end
+
+function btn_reset_counters()
+    if ab_pacing and ab_pacing.reset_counters then
+        ab_pacing.reset_counters()
+    end
+end
+
+-- ==================== MCM DEFINITION ====================
+
+function on_mcm_load()
+    return {
+        id = "ab",
+        gr = {
+            -- ============ GENERAL TAB ============
+            {
+                id = "general",
+                sh = true,
+                gr = {
+                    { id = "title", type = "slide", link = "ab_mcm_banner",
+                        text = "ui_mcm_ab_title", size = {512, 50}, spacing = 20 },
+                    { id = "desc", type = "desc", text = "ui_mcm_ab_general_info" },
+
+                    -- Smart Pacing
+                    { id = "div_pacing", type = "line" },
+                    { id = "hdr_pacing", type = "desc", text = "ui_mcm_ab_hdr_pacing", clr = {255, 200, 200, 200} },
+                    { id = "enabled", type = "check", val = 1, def = true },
+                    { id = "deaths_per_nudge", type = "track", val = 2, min = 5, max = 20, step = 1, def = 5 },
+
+                    -- Version footer
+                    { id = "div_version", type = "line" },
+                    { id = "version", type = "desc", text = "ui_mcm_ab_title",
+                        ui_hook_functor = { set_version_text }, clr = {255, 212, 201, 168} },
+                },
+            },
+            -- ============ DEVELOPMENT TAB ============
+            {
+                id = "development",
+                sh = true,
+                gr = {
+                    { id = "title", type = "slide", link = "ab_mcm_banner",
+                        text = "ui_mcm_ab_title", size = {512, 50}, spacing = 20 },
+                    { id = "desc", type = "desc", text = "ui_mcm_ab_development_desc" },
+
+                    -- Logging
+                    { id = "div_logging", type = "line" },
+                    { id = "hdr_logging", type = "desc", text = "ui_mcm_ab_hdr_logging", clr = {255, 200, 200, 200} },
+                    { id = "log_level", type = "list", val = 0, def = "WARN",
+                        content = {
+                            {"ERROR", "error"},
+                            {"WARN", "warn"},
+                            {"INFO", "info"},
+                            {"DEBUG", "debug"},
+                        },
+                    },
+
+                    -- Diagnostics
+                    { id = "div_diagnostics", type = "line" },
+                    { id = "hdr_diagnostics", type = "desc", text = "ui_mcm_ab_hdr_diagnostics", clr = {255, 200, 200, 200} },
+                    { id = "btn_show_status", type = "button", functor = { btn_show_status } },
+                    { id = "btn_reset_counters", type = "button", functor = { btn_reset_counters } },
+                },
+            },
+        },
+    }
+end
+
+function set_version_text(_anchor, handlers)
+    handlers.desc:SetText(_ab_deps.get_version())
+end
+
+function on_game_start()
+    load_config()
+    RegisterScriptCallback("on_option_change", load_config)
+    RegisterScriptCallback("mcm_option_restore_default", load_config)
+end
