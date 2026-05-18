@@ -1,4 +1,4 @@
---- ab_pacing: Smart Pacing - per-(level, faction) death pressure nudges smarts on that level
+--- ab_pacing: Smart Pacing - per-(level, faction) death pressure advances smart cooldowns by 1/waves per wave
 
 local pairs, ipairs, tonumber, tostring = pairs, ipairs, tonumber, tostring
 local math_random, math_floor = math.random, math.floor
@@ -14,6 +14,7 @@ local log = xlog.get_logger("AB.PACE", { outfile = "alifebalance.log" })
 local TIMER_EV = "ab_pacing"
 local TIMER_TICK = "tick"
 local TICK_INTERVAL_SEC = 60
+local SEC_PER_HOUR = 3600
 
 local CALLBACK = {
     SQUAD_ON_NPC_DEATH             = "squad_on_npc_death",
@@ -42,6 +43,8 @@ local _protection_opts = {
 
 local cfg = {
     enabled = true,
+    waves = 4,
+    min_hours = 1,
     show_markers = false,
     log_level = "WARN",
 }
@@ -49,17 +52,19 @@ local cfg = {
 local _dbg = false
 
 -- _deaths[level_id][faction]      = NPC deaths from squads of this faction on this level,
---                                   since last nudge for this (level, faction) pair.
+--                                   since last wave for this (level, faction) pair.
 -- _eligible[level_id][faction]    = array of smart_ids on this level that accept this faction
 --                                   (Tier 1 of target_precondition). Lazy cached.
 -- _thresholds[level_id][faction]  = MAX(npc_in_squad upper bound) across all squad sections
 --                                   in every recipe of every eligible smart. Lazy cached.
+-- _delta_cache[smart_id]          = CTime of respawn_idle/waves seconds for this smart. Lazy
+--                                   cached; reset on waves change in MCM and on _reset_state.
 -- _seen_squads[squad.id]          = true. Dedup for spawn tracing (DEBUG only).
 -- _markers[smart_id]              = real-time os.clock when marker should be removed.
--- _smart_stats[smart_id]          = per-smart bookkeeping for nudges we've issued:
+-- _smart_stats[smart_id]          = per-smart bookkeeping for waves we've issued:
 --     {
 --       name, level_id, factions = {f1, f2, ...},
---       nudges, first_at, last_at,
+--       waves, first_at, last_at,
 --       last_trigger = { level_id, faction, count, threshold },
 --       last_before_cooldown,                         -- string snapshot
 --       last_budget,                                  -- string snapshot
@@ -67,11 +72,12 @@ local _dbg = false
 local _deaths       = {}
 local _eligible     = {}
 local _thresholds   = {}
+local _delta_cache  = {}
 local _seen_squads  = {}
 local _markers      = {}
 local _smart_stats  = {}
 local _stats        = { deaths = 0, counted = 0, protected = 0, trash = 0,
-                        ticks = 0, nudges = 0, organic = 0, spawns = 0 }
+                        ticks = 0, waves = 0, spawns = 0 }
 
 -- ==================== SMART STATE FORMATTERS ====================
 
@@ -151,22 +157,22 @@ end
 -- ==================== SMART STATS BOOKKEEPING ====================
 
 -- Create or update the per-smart stats record. before_cooldown is captured BEFORE
--- _nudge_smart runs; the after-state is always nil by design (our nudge writes nil),
--- so we don't store it. level_id and trigger details come from the nudge context.
-local function _record_nudge(smart, level_id, faction, count, threshold,
-                             before_cooldown, before_budget)
+-- _advance_smart runs; we don't store the after-state since the live cooldown is read on
+-- demand in _show_smart_stats. level_id and trigger details come from the wave context.
+local function _record_wave(smart, level_id, faction, count, threshold,
+                            before_cooldown, before_budget)
     local entry = _smart_stats[smart.id]
     if not entry then
         entry = {
             name      = smart:name() or "?",
             level_id  = level_id,
             factions  = _accepted_factions(smart),
-            nudges    = 0,
+            waves     = 0,
             first_at  = os_clock(),
         }
         _smart_stats[smart.id] = entry
     end
-    entry.nudges               = entry.nudges + 1
+    entry.waves                = entry.waves + 1
     entry.last_at              = os_clock()
     entry.last_trigger         = { level_id = level_id, faction = faction,
                                    count = count, threshold = threshold }
@@ -212,14 +218,20 @@ local function _load_config()
     local mcm = ab_mcm and ab_mcm.cfg
     if not mcm then return end
     local was_show_markers = cfg.show_markers
+    local was_waves        = cfg.waves
+    local was_min_hours    = cfg.min_hours
     cfg.enabled      = mcm.enabled
+    cfg.waves      = mcm.waves or 4
+    cfg.min_hours    = mcm.min_hours or 1
     cfg.show_markers = mcm.show_markers
     cfg.log_level    = mcm.log_level
     log.set_level(cfg.log_level)
     -- DEBUG = 5 per xlog.script:8
     _dbg = log.get_level() >= 5
-    log.info("[CONFIG] enabled=%s show_markers=%s log=%s",
-        tostring(cfg.enabled), tostring(cfg.show_markers), cfg.log_level)
+    -- waves or min-hours change invalidates the per-smart cached CTime advance.
+    if was_waves ~= cfg.waves or was_min_hours ~= cfg.min_hours then _delta_cache = {} end
+    log.info("[CONFIG] enabled=%s waves=%d min_hours=%d show_markers=%s log=%s",
+        tostring(cfg.enabled), cfg.waves, cfg.min_hours, tostring(cfg.show_markers), cfg.log_level)
     if was_show_markers and not cfg.show_markers then _clear_all_markers() end
 end
 
@@ -338,14 +350,49 @@ local function _get_eligible_and_threshold(level_id, faction)
     return smarts, threshold
 end
 
--- ==================== NUDGE ====================
+-- ==================== PACING ====================
 
--- Setting last_respawn_update = nil short-circuits the engine cooldown gate at
--- smart_terrain.script:1651 ("== nil or diffSec > respawn_idle"). Same short-circuit in
--- ZCP at smr_pop.script:352-354. Save round-trips nil correctly via utils_data.w_CTime /
--- r_CTime at utils_data.script:253-286.
-local function _nudge_smart(smart)
-    smart.last_respawn_update = nil
+-- Build a CTime whose m_time equals exactly `seconds` (as ms). setHMSms(h,m,s,0) zeros
+-- m_time then adds generate_time(1,1,1,h,m,s,0). Two CTimes constructed this way differ
+-- in m_time by exactly the H/M/S delta in ms -- the (year=1, month=1, day=1) base cancels
+-- under operator-. Result is a pure duration usable with xrTime:sub for backdating.
+local function _make_delta_ctime(seconds)
+    local secs    = math_floor(seconds)
+    local hours   = math_floor(secs / 3600)
+    local minutes = math_floor((secs - hours * 3600) / 60)
+    local rem_sec = secs - hours * 3600 - minutes * 60
+    local zero    = game.CTime()
+    zero:setHMSms(0, 0, 0, 0)
+    local stamp   = game.CTime()
+    stamp:setHMSms(hours, minutes, rem_sec, 0)
+    return stamp - zero
+end
+
+-- Per-smart cache of the respawn_idle/waves duration CTime. respawn_idle varies per smart,
+-- waves is the same across all smarts; cache is invalidated in _load_config when waves changes
+-- and in _reset_state.
+local function _get_advance_delta(smart)
+    local cached = _delta_cache[smart.id]
+    if cached then return cached end
+    local idle = smart.respawn_idle or 43200
+    local advance = idle / cfg.waves
+    local floor   = cfg.min_hours * SEC_PER_HOUR
+    if advance < floor then advance = floor end
+    local delta = _make_delta_ctime(advance)
+    _delta_cache[smart.id] = delta
+    return delta
+end
+
+-- Advance a smart's respawn cooldown by respawn_idle/waves seconds. Each wave moves it
+-- 1/waves closer to expiry; after the full wave count the engine spawns naturally on its
+-- next alife tick. last_respawn_update can be nil for a smart that has never spawned --
+-- initialize to now so the first wave's sub yields "now - respawn_idle/waves", same as
+-- if the smart had just spawned. xrTime:sub clamps at 0 on underflow (= fully expired).
+local function _advance_smart(smart)
+    local lru = smart.last_respawn_update
+    if lru == nil then lru = xtime.game_time() end
+    lru:sub(_get_advance_delta(smart))
+    smart.last_respawn_update = lru
     if cfg.show_markers then _mark_smart_with_linger(smart) end
 end
 
@@ -387,7 +434,7 @@ end
 -- so multi-NPC squads count once. Uses the callback's spawn_smart arg (sim_board.script:149)
 -- because squad.respawn_point_id is only set AFTER SIMBOARD:create_squad returns
 -- (smart_terrain.script:1720-1721) and the callback fires DURING create_squad.
--- Includes spawns the engine made without our nudge; the ratio nudges/spawns is a
+-- Includes spawns the engine made without a wave from us; the ratio waves/spawns is a
 -- debug signal, not production logic.
 local function _on_npc_creation(squad, _se_obj, spawn_smart)
     if not _dbg then return end
@@ -403,46 +450,28 @@ end
 -- ==================== PERIODIC TICK ====================
 
 -- Walk eligible smarts once. For each, evaluate budget for `faction` in a single pass
--- (one pick_section_from_condlist per recipe). Returns two arrays of entries
--- { smart, budget_str }: `needs_nudge` (matched recipe + cooldown is set; a nudge would
--- unlock the cooldown gate) and `already_open` (matched recipe + cooldown already nil;
--- engine will refill organically on its next alife tick at this smart). Caller uses the
--- presence of any `already_open` entry to skip the nudge entirely -- nudging a different
--- smart on the same level would produce TWO refills for one threshold's worth of deaths,
--- violating the refill <= death invariant.
+-- (one pick_section_from_condlist per recipe) and keep those with a matched open recipe.
+-- Returns array of { smart, budget_str } so the wave log line can reuse the same string
+-- the gate decided on -- no second evaluation that could disagree.
 local function _collect_with_budget(smart_ids, faction)
-    local needs_nudge, already_open = {}, {}
+    local with_budget = {}
     for i = 1, #smart_ids do
         local smart = alife_object(smart_ids[i])
         if not smart then goto continue end
         local matched, budget_str = _evaluate_budget_for_faction(smart, faction)
         if not matched then goto continue end
-        local entry = { smart = smart, budget_str = budget_str }
-        if smart.last_respawn_update == nil then
-            already_open[#already_open + 1] = entry
-        else
-            needs_nudge[#needs_nudge + 1] = entry
-        end
+        with_budget[#with_budget + 1] = { smart = smart, budget_str = budget_str }
         ::continue::
     end
-    return needs_nudge, already_open
+    return with_budget
 end
 
--- Format an entry array (output of _collect_with_budget) as a comma-joined name list.
-local function _entry_names_str(entries)
-    local names = {}
-    for i = 1, #entries do
-        names[i] = entries[i].smart:name() or "?"
-    end
-    return table_concat(names, ",")
-end
-
--- Try to nudge one (level, faction) pair when the death count crosses threshold and at
--- least one eligible smart has open budget AND a set cooldown. Logs every gate outcome at
--- DEBUG: [NOELIG] no recipe on this level produces the faction; [BELOW] count below
--- threshold; [ORGANIC] threshold met but an eligible smart already has nil cooldown so the
--- engine will refill on its own -- release pressure without nudging; [DEFER] threshold met
--- and every eligible is at budget cap -- hold pressure; [NUDGE] fired.
+-- Try to fire one wave for one (level, faction) when the death count crosses threshold
+-- and at least one eligible smart has open budget. A wave subtracts respawn_idle/waves
+-- from the picked smart's cooldown; after the full wave count the cooldown expires and
+-- on its next alife tick. Logs every gate outcome at DEBUG: [NOELIG] no recipe on this
+-- level produces the faction; [BELOW] count below threshold; [DEFER] threshold met but
+-- every eligible is at budget cap -- hold pressure; [WAVE] fired.
 local function _try_nudge_for_faction(level_id, by_faction, faction, count)
     local smart_ids, threshold = _get_eligible_and_threshold(level_id, faction)
     if #smart_ids == 0 then
@@ -459,37 +488,28 @@ local function _try_nudge_for_faction(level_id, by_faction, faction, count)
         end
         return
     end
-    local needs_nudge, already_open = _collect_with_budget(smart_ids, faction)
-    if #already_open > 0 then
-        by_faction[faction] = 0
-        _stats.organic = _stats.organic + 1
-        if _dbg then
-            log.debug("[ORGANIC] level=%d faction=%s count=%d/threshold=%d open=%d [%s]",
-                level_id, faction, count, threshold, #already_open, _entry_names_str(already_open))
-        end
-        return
-    end
-    if #needs_nudge == 0 then
+    local with_budget = _collect_with_budget(smart_ids, faction)
+    if #with_budget == 0 then
         if _dbg then
             log.debug("[DEFER] level=%d faction=%s count=%d/threshold=%d eligibles=%d [%s]",
                 level_id, faction, count, threshold, #smart_ids, _smart_names_str(smart_ids))
         end
         return
     end
-    local pick = needs_nudge[math_random(#needs_nudge)]
+    local pick = with_budget[math_random(#with_budget)]
     local smart = pick.smart
     local before_cooldown = _format_cooldown(smart)
     local pop_str         = _format_pop(smart)
-    _nudge_smart(smart)
+    _advance_smart(smart)
     by_faction[faction] = 0
-    _stats.nudges = _stats.nudges + 1
-    _record_nudge(smart, level_id, faction, count, threshold,
-                  before_cooldown, pick.budget_str)
+    _stats.waves = _stats.waves + 1
+    _record_wave(smart, level_id, faction, count, threshold,
+                 before_cooldown, pick.budget_str)
     if _dbg then
         log.debug(
-            "[NUDGE] smart=%s level=%d faction=%s count=%d/threshold=%d pop=%s cooldown[%s -> NIL] budget=%s",
-            smart:name() or "?", level_id, faction, count, threshold,
-            pop_str, before_cooldown, pick.budget_str)
+            "[WAVE] smart=%s level=%d faction=%s count=%d/threshold=%d waves=%d pop=%s cooldown[%s -> %s] budget=%s",
+            smart:name() or "?", level_id, faction, count, threshold, cfg.waves,
+            pop_str, before_cooldown, _format_cooldown(smart), pick.budget_str)
     end
 end
 
@@ -508,9 +528,9 @@ local function _periodic_tick()
     end
     _prune_markers()
     if _dbg then
-        log.debug("[SUMMARY] deaths=%d counted=%d protected=%d trash=%d ticks=%d nudges=%d organic=%d spawns=%d",
+        log.debug("[SUMMARY] deaths=%d counted=%d protected=%d trash=%d ticks=%d waves=%d spawns=%d",
             _stats.deaths, _stats.counted, _stats.protected, _stats.trash,
-            _stats.ticks, _stats.nudges, _stats.organic, _stats.spawns)
+            _stats.ticks, _stats.waves, _stats.spawns)
     end
 end
 
@@ -534,15 +554,15 @@ local function _on_map_spot_menu_add(property_ui, id, _level_name)
     property_ui:AddItem(_stats_menu_label(name))
 end
 
--- Show tracked stats for a nudged smart via PDA tips. Pulls from _smart_stats and reads
--- live engine state for current cooldown/budget so the player sees both the recorded
--- snapshot and the present situation.
+-- Show tracked stats for a smart that received waves via PDA tips. Pulls from
+-- _smart_stats and reads live engine state for current cooldown/budget so the player
+-- sees both the recorded snapshot and the present situation.
 local function _show_smart_stats(se_obj)
     if not db or not db.actor then return end
     local entry = _smart_stats[se_obj.id]
     local name  = se_obj:name() or "?"
     if not entry then
-        news_manager.send_tip(db.actor, name .. ": never nudged", nil, nil, STATUS_TIP_MS)
+        news_manager.send_tip(db.actor, name .. ": no waves yet", nil, nil, STATUS_TIP_MS)
         return
     end
     local now = os_clock()
@@ -550,8 +570,8 @@ local function _show_smart_stats(se_obj)
     local last_ago  = math_floor(now - (entry.last_at or entry.first_at))
     local trigger   = entry.last_trigger or {}
     news_manager.send_tip(db.actor, string_format(
-        "%s: nudges=%d (first %ds ago, last %ds ago)",
-        name, entry.nudges, first_ago, last_ago), nil, nil, STATUS_TIP_MS)
+        "%s: waves=%d (first %ds ago, last %ds ago)",
+        name, entry.waves, first_ago, last_ago), nil, nil, STATUS_TIP_MS)
     news_manager.send_tip(db.actor, string_format(
         "factions: %s", table_concat(entry.factions, ", ")),
         nil, nil, STATUS_TIP_MS)
@@ -561,11 +581,11 @@ local function _show_smart_stats(se_obj)
         trigger.count or 0, trigger.threshold or 0),
         nil, nil, STATUS_TIP_MS)
     news_manager.send_tip(db.actor, string_format(
-        "last nudge cleared cooldown from: %s",
+        "cooldown before last wave: %s",
         entry.last_before_cooldown or "?"),
         nil, nil, STATUS_TIP_MS)
     news_manager.send_tip(db.actor, string_format(
-        "last nudge budget: %s", entry.last_budget or "?"),
+        "budget before last wave: %s", entry.last_budget or "?"),
         nil, nil, STATUS_TIP_MS)
     news_manager.send_tip(db.actor, string_format(
         "now: cooldown=%s pop=%s budget=%s",
@@ -602,10 +622,11 @@ local function _reset_state()
     _deaths       = {}
     _eligible     = {}
     _thresholds   = {}
+    _delta_cache  = {}
     _seen_squads  = {}
     _smart_stats  = {}
     _stats        = { deaths = 0, counted = 0, protected = 0, trash = 0,
-                      ticks = 0, nudges = 0, organic = 0, spawns = 0 }
+                      ticks = 0, waves = 0, spawns = 0 }
 end
 
 local function _on_load_state(_m_data)
@@ -638,9 +659,9 @@ function show_status()
     news_manager.send_tip(db.actor,
         "AlifeBalance " .. _ab_deps.get_version(), nil, nil, STATUS_TIP_MS)
     news_manager.send_tip(db.actor, string_format(
-        "deaths=%d counted=%d protected=%d trash=%d ticks=%d nudges=%d organic=%d spawns=%d",
+        "deaths=%d counted=%d protected=%d trash=%d ticks=%d waves=%d spawns=%d",
         _stats.deaths, _stats.counted, _stats.protected, _stats.trash,
-        _stats.ticks, _stats.nudges, _stats.organic, _stats.spawns),
+        _stats.ticks, _stats.waves, _stats.spawns),
         nil, nil, STATUS_TIP_MS)
 end
 

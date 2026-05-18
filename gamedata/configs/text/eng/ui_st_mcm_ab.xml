@@ -18,7 +18,7 @@
         <text>AlifeBalance</text>
     </string>
     <string id="ui_mcm_ab_general_info">
-        <text>Combat thins the Zone faster than the engine refills it. AlifeBalance tracks deaths per origin smart and clears that smart's respawn cooldown once enough of its squads have died. The smart refills from its own configured pool on the engine's next alife tick. It does not spawn anything. Works alongside vanilla, ZCP, Redone, and any other spawner mod.</text>
+        <text>Combat thins the Zone faster than the engine refills it. AlifeBalance tracks deaths per (level, faction) and advances the respawn cooldown of an eligible smart on that level by a fraction of its cooldown each wave. After the configured number of waves the cooldown expires and the engine spawns one squad from the smart's own configured pool on its next alife tick. It does not spawn anything itself. Works alongside vanilla, ZCP, Redone, and any other spawner mod.</text>
     </string>
 
     <!-- General - Smart Pacing -->
@@ -29,13 +29,25 @@
         <text>Enable Smart Pacing</text>
     </string>
     <string id="ui_mcm_ab_general_enabled_desc">
-        <text>Master toggle. When off, no death tracking and no nudges.</text>
+        <text>Master toggle. When off, no death tracking and no cooldown advances.</text>
+    </string>
+    <string id="ui_mcm_ab_general_waves">
+        <text>Waves to refill</text>
+    </string>
+    <string id="ui_mcm_ab_general_waves_desc">
+        <text>How many waves are needed to fully advance a smart's respawn cooldown. A wave fires when one squad's worth of deaths has accumulated for a (level, faction) pair, and subtracts 1/waves of the picked smart's respawn cooldown. At 1, one wave clears the full cooldown (instant refill). At 4 (default), four waves of accumulated combat refill the smart. At 8, the refill is paced across eight waves. Higher values mean refills feel more earned by sustained combat.</text>
+    </string>
+    <string id="ui_mcm_ab_general_min_hours">
+        <text>Minimum advance per wave (game hours)</text>
+    </string>
+    <string id="ui_mcm_ab_general_min_hours_desc">
+        <text>Floor on the per-wave cooldown advance, in game hours. Protects against a high wave count or short respawn_idle producing an advance so small that the full wave count accomplishes nothing. With min=1 hour and a 12-hour cooldown, the effective wave cap is 12. With min=6 hours and the same cooldown, the effective wave cap is 2. Default 1 hour. Raise to slow the pacing further.</text>
     </string>
     <string id="ui_mcm_ab_development_show_markers">
         <text>Show map markers</text>
     </string>
     <string id="ui_mcm_ab_development_show_markers_desc">
-        <text>Place a green PDA map marker on every smart terrain AlifeBalance nudges. The marker lingers for 5 real-time minutes, then clears. Right-click any marker to teleport to that smart. Independent of log level.</text>
+        <text>Place a green PDA map marker on every smart terrain that receives a wave. The marker lingers for 5 real-time minutes, then clears. Right-click any marker to teleport to that smart or show its stats. Independent of log level.</text>
     </string>
     <string id="st_ab_map_teleport_to">
         <text>Teleport to</text>
@@ -45,7 +57,7 @@
     </string>
     <!-- ==================== DEVELOPMENT TAB ==================== -->
     <string id="ui_mcm_ab_development_desc">
-        <text>Debug and development tools. DEBUG level enables structured tracing of every nudge to alifebalance.log. Has performance cost.</text>
+        <text>Debug and development tools. DEBUG level enables structured tracing of every wave to alifebalance.log. Has performance cost.</text>
     </string>
 
     <!-- Development - Logging -->
@@ -56,7 +68,7 @@
         <text>Log level</text>
     </string>
     <string id="ui_mcm_ab_development_log_level_desc">
-        <text>Controls log verbosity. ERROR: crashes only. WARN: anomalies. INFO: config and per-tick summary. DEBUG: every nudge.</text>
+        <text>Controls log verbosity. ERROR: crashes only. WARN: anomalies. INFO: startup and config only. DEBUG: every death, wave, eligible-set compute, gate outcome, and tick summary.</text>
     </string>
     <string id="ab_development_log_level_lst_error">
         <text>Error</text>
@@ -79,12 +91,12 @@
         <text>Show status</text>
     </string>
     <string id="ui_mcm_ab_development_btn_show_status_desc">
-        <text>Display total deaths, counted deaths (with valid origin smart), scan ticks, and successful nudges via PDA.</text>
+        <text>Display total deaths, counted deaths (faction + level resolved), protected and trash-tier filtered, scan ticks, waves fired, and engine spawns observed.</text>
     </string>
     <string id="ui_mcm_ab_development_btn_reset_counters">
         <text>Reset counters</text>
     </string>
     <string id="ui_mcm_ab_development_btn_reset_counters_desc">
-        <text>Clear all death counters and diagnostic stats. Existing nudges already written to smart-terrain timestamps persist; the engine resolves them on its next try_respawn.</text>
+        <text>Clear all death counters, eligibility and threshold caches, per-smart wave stats, and diagnostic counters. Existing cooldown advances already written to smart-terrain timestamps persist; the engine resolves them on its next try_respawn.</text>
     </string>
 </string_table>
