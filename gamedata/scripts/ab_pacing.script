@@ -1,10 +1,11 @@
---- ab_pacing: Smart Pacing - origin-smart cooldown nudge on combat deaths
+--- ab_pacing: Smart Pacing - per-(level, faction) death pressure nudges smarts on that level
 
 local pairs, ipairs, tonumber, tostring = pairs, ipairs, tonumber, tostring
+local math_random, math_floor = math.random, math.floor
 local string_format, string_match = string.format, string.match
-local os_clock = os.clock
-local RegisterScriptCallback = RegisterScriptCallback
+local table_concat, os_clock, RegisterScriptCallback = table.concat, os.clock, RegisterScriptCallback
 local xlog, xpda = xlog, xpda
+local xsmart, xsquad, xlevel, xcreature, xtime = xsmart, xsquad, xlevel, xcreature, xtime
 -- NOTE: never cache CreateTimeEvent/ResetTimeEvent/RemoveTimeEvent as locals (doc/library/xray/internals/globals.md:208-219).
 -- demonized_time_events.script replaces the globals at load time; cached locals point at a dead queue.
 
@@ -30,25 +31,134 @@ local RESET_TIP_MS  = 5000
 local MARKER_TYPE       = "green_location"
 local MARKER_LINGER_SEC = 300
 local TELEPORT_KEY      = "st_ab_map_teleport_to"
+local STATS_KEY         = "st_ab_map_show_stats"
+
+-- Protection options for xsquad.is_protected: skip story/companion/task-target squads.
+local _protection_opts = {
+    exclude_permanent   = true,
+    exclude_active_role = true,
+    exclude_task_target = true,
+}
 
 local cfg = {
     enabled = true,
     show_markers = false,
     log_level = "WARN",
 }
-local _dbg = false  -- mirrors log level >= DEBUG; updated in _load_config
+-- mirrors log level >= DEBUG; updated in _load_config
+local _dbg = false
 
--- _deaths[smart_id]      = NPC deaths from squads originating at this smart, since last nudge.
--- _thresholds[smart_id]  = MAX(npc_in_squad upper bound) across all squad sections in smart.respawn_params.
---                          Cached on first death from this smart.
--- _seen_squads[squad.id] = true. Dedup for spawn tracing (DEBUG only); a multi-NPC squad
---                          fires npc_creation once per member.
--- _markers[smart_id]     = real-time os.clock when the marker should be removed.
-local _deaths      = {}
-local _thresholds  = {}
-local _seen_squads = {}
-local _markers     = {}
-local _stats       = { deaths = 0, counted = 0, ticks = 0, nudges = 0, spawns = 0 }
+-- _deaths[level_id][faction]      = NPC deaths from squads of this faction on this level,
+--                                   since last nudge for this (level, faction) pair.
+-- _eligible[level_id][faction]    = array of smart_ids on this level that accept this faction
+--                                   (Tier 1 of target_precondition). Lazy cached.
+-- _thresholds[level_id][faction]  = MAX(npc_in_squad upper bound) across all squad sections
+--                                   in every recipe of every eligible smart. Lazy cached.
+-- _seen_squads[squad.id]          = true. Dedup for spawn tracing (DEBUG only).
+-- _markers[smart_id]              = real-time os.clock when marker should be removed.
+-- _smart_stats[smart_id]          = per-smart bookkeeping for nudges we've issued:
+--     {
+--       name, level_id, factions = {f1, f2, ...},
+--       nudges, first_at, last_at,
+--       last_trigger = { level_id, faction, count, threshold },
+--       last_before_cooldown,                         -- string snapshot
+--       last_budget,                                  -- string snapshot
+--     }
+local _deaths       = {}
+local _eligible     = {}
+local _thresholds   = {}
+local _seen_squads  = {}
+local _markers      = {}
+local _smart_stats  = {}
+local _stats        = { deaths = 0, counted = 0, protected = 0, trash = 0,
+                        ticks = 0, nudges = 0, spawns = 0 }
+
+-- ==================== SMART STATE FORMATTERS ====================
+
+-- Format the cooldown state: "diff=Ns/idle=Ms" if set, "NIL" if nil. Reads engine
+-- cooldown semantics (smart_terrain.script:1651: nil OR diff > respawn_idle = pass).
+local function _format_cooldown(smart)
+    local lru = smart.last_respawn_update
+    if lru == nil then return "NIL" end
+    local now = xtime.game_time()
+    if not now then return "?" end
+    local diff = math_floor(now:diffSec(lru))
+    local idle = smart.respawn_idle or 0
+    return string_format("diff=%ds/idle=%ds%s", diff, idle, diff > idle and "(open)" or "")
+end
+
+-- Per-recipe cur/max snapshot. cur = already_spawned[k].num (engine bookkeeping),
+-- max = pick_section_from_condlist(actor, smart, v.num) (the engine's eval at line 1669).
+-- Flags ALL_FULL if no recipe has open budget.
+local function _format_budget(smart)
+    if not smart.respawn_params then return "[no respawn_params]" end
+    local parts, any_open = {}, false
+    for k, v in pairs(smart.respawn_params) do
+        local cur = (smart.already_spawned and smart.already_spawned[k]
+                     and smart.already_spawned[k].num) or 0
+        local max = tonumber(xr_logic.pick_section_from_condlist(db.actor, smart, v.num)) or 0
+        if max > cur then any_open = true end
+        parts[#parts + 1] = string_format("%s %d/%d", tostring(k), cur, max)
+    end
+    return string_format("[%s]%s", table_concat(parts, ", "), any_open and "" or " ALL_FULL")
+end
+
+-- Pop = squads currently assigned at smart (SIMBOARD bookkeeping) over max_population.
+local function _format_pop(smart)
+    local board = SIMBOARD
+    local rec = board and board.smarts and board.smarts[smart.id]
+    local pop = rec and rec.population or 0
+    return string_format("%d/%d", pop, smart.max_population or 0)
+end
+
+-- Compute factions the smart accepts (Tier 1) by scanning known faction keys against props.
+-- Static across the session; cached in _smart_stats once computed.
+local STALKER_FACTIONS = { "stalker", "bandit", "csky", "dolg", "freedom", "ecolog", "killer",
+                           "monolith", "renegade", "army", "greh", "isg", "zombied" }
+local MUTANT_FACTIONS  = { "monster", "monster_predatory_day", "monster_predatory_night",
+                           "monster_vegetarian", "monster_zombied_day", "monster_zombied_night",
+                           "monster_special" }
+local function _accepted_factions(smart)
+    local out = {}
+    if smart.props and smart.props.all and smart.props.all > 0 then
+        out[#out + 1] = "all"
+    end
+    for i = 1, #STALKER_FACTIONS do
+        local faction = STALKER_FACTIONS[i]
+        if xsmart.accepts_faction(smart, faction) then out[#out + 1] = faction end
+    end
+    for i = 1, #MUTANT_FACTIONS do
+        local faction = MUTANT_FACTIONS[i]
+        if xsmart.accepts_faction(smart, faction) then out[#out + 1] = faction end
+    end
+    return out
+end
+
+-- ==================== SMART STATS BOOKKEEPING ====================
+
+-- Create or update the per-smart stats record. before_cooldown is captured BEFORE
+-- _nudge_smart runs; the after-state is always nil by design (our nudge writes nil),
+-- so we don't store it. level_id and trigger details come from the nudge context.
+local function _record_nudge(smart, level_id, faction, count, threshold,
+                             before_cooldown, before_budget)
+    local entry = _smart_stats[smart.id]
+    if not entry then
+        entry = {
+            name      = smart:name() or "?",
+            level_id  = level_id,
+            factions  = _accepted_factions(smart),
+            nudges    = 0,
+            first_at  = os_clock(),
+        }
+        _smart_stats[smart.id] = entry
+    end
+    entry.nudges               = entry.nudges + 1
+    entry.last_at              = os_clock()
+    entry.last_trigger         = { level_id = level_id, faction = faction,
+                                   count = count, threshold = threshold }
+    entry.last_before_cooldown = before_cooldown
+    entry.last_budget          = before_budget
+end
 
 -- ==================== MAP MARKERS ====================
 
@@ -75,7 +185,6 @@ local function _clear_all_markers()
     _markers = {}
 end
 
--- Walk _markers, remove any whose linger has expired. Called from the periodic tick.
 local function _prune_markers()
     local now = os_clock()
     for smart_id, expires_at in pairs(_markers) do
@@ -93,13 +202,14 @@ local function _load_config()
     cfg.show_markers = mcm.show_markers
     cfg.log_level    = mcm.log_level
     log.set_level(cfg.log_level)
-    _dbg = log.get_level() >= 5  -- DEBUG = 5 per xlog.script:8
+    -- DEBUG = 5 per xlog.script:8
+    _dbg = log.get_level() >= 5
     log.info("[CONFIG] enabled=%s show_markers=%s log=%s",
         tostring(cfg.enabled), tostring(cfg.show_markers), cfg.log_level)
     if was_show_markers and not cfg.show_markers then _clear_all_markers() end
 end
 
--- ==================== THRESHOLD ====================
+-- ==================== ELIGIBILITY + THRESHOLD ====================
 
 -- Parse "X, Y" or "X" -> upper bound (Y if range, else X).
 local function _parse_upper(s)
@@ -109,30 +219,100 @@ local function _parse_upper(s)
     return tonumber(string_match(s, "(%d+)")) or 1
 end
 
--- MAX npc_in_squad upper bound across every squad section the smart can spawn.
--- Engine creates ONE squad per try_respawn (smart_terrain.script:1714-1722) with random
--- npc_in_squad in range. Setting threshold to this MAX guarantees deaths >= NPCs refilled
--- per nudge, in absolute terms.
-local function _compute_threshold(smart)
-    if not smart.respawn_params then return 1 end
-    local max = 1
-    for _, recipe in pairs(smart.respawn_params) do
-        if recipe.squads then
-            for _, section in ipairs(recipe.squads) do
-                local upper = _parse_upper(ini_sys:r_string_ex(section, "npc_in_squad"))
-                if upper > max then max = upper end
-            end
-        end
-    end
-    return max
+-- Returns the section's npc_in_squad upper bound if the section produces `faction`, else 0.
+local function _section_contribution(section, faction)
+    if xsmart.section_faction(section) ~= faction then return 0 end
+    return _parse_upper(ini_sys:r_string_ex(section, "npc_in_squad"))
 end
 
-local function _get_threshold(smart_id, smart)
-    local cached = _thresholds[smart_id]
-    if cached then return cached end
-    local computed = _compute_threshold(smart)
-    _thresholds[smart_id] = computed
-    return computed
+-- Returns max contribution across all sections in one recipe; 0 if recipe doesn't produce faction.
+local function _recipe_contribution(recipe, faction)
+    if not recipe.squads then return 0 end
+    local best = 0
+    for _, section in ipairs(recipe.squads) do
+        local contribution = _section_contribution(section, faction)
+        if contribution > best then best = contribution end
+    end
+    return best
+end
+
+-- Returns max contribution across all recipes for one smart; 0 if smart doesn't produce faction.
+local function _smart_contribution(smart, faction)
+    if not smart.respawn_params then return 0 end
+    local best = 0
+    for _, recipe in pairs(smart.respawn_params) do
+        local contribution = _recipe_contribution(recipe, faction)
+        if contribution > best then best = contribution end
+    end
+    return best
+end
+
+-- Walk SIMBOARD.smarts once for a (level_id, faction). A smart is eligible iff at least
+-- one section in its respawn_params recipes has xsmart.section_faction(section) == faction
+-- (i.e. that recipe can produce a squad whose player_id matches our death-tracking key).
+-- Threshold = MAX npc_in_squad upper bound across the matching sections only -- because
+-- the engine will pick within the matching section's pool to refill this faction, and the
+-- threshold must bound that pick.
+local function _compute_for_level_faction(level_id, faction)
+    local board = SIMBOARD
+    if not board or not board.smarts then return {}, 1 end
+    local smarts, max_threshold = {}, 1
+    for _, rec in pairs(board.smarts) do
+        local smart = rec.smrt
+        if not smart then goto continue end
+        if xlevel.get_level_id(smart) ~= level_id then goto continue end
+        local contribution = _smart_contribution(smart, faction)
+        if contribution == 0 then goto continue end
+        smarts[#smarts + 1] = smart.id
+        if contribution > max_threshold then max_threshold = contribution end
+        ::continue::
+    end
+    return smarts, max_threshold
+end
+
+-- True if at least one section in `recipe.squads` produces `faction`.
+local function _recipe_squads_match(recipe, faction)
+    if not recipe.squads then return false end
+    for _, section in ipairs(recipe.squads) do
+        if xsmart.section_faction(section) == faction then return true end
+    end
+    return false
+end
+
+-- True if `recipe` has open budget on `smart` AND at least one matching section.
+local function _recipe_has_open_faction_slot(smart, recipe_key, recipe, faction)
+    local cur = (smart.already_spawned and smart.already_spawned[recipe_key]
+                 and smart.already_spawned[recipe_key].num) or 0
+    local max = tonumber(xr_logic.pick_section_from_condlist(db.actor, smart, recipe.num)) or 0
+    if max <= cur then return false end
+    return _recipe_squads_match(recipe, faction)
+end
+
+-- Dynamic budget check. The static _eligible cache says the smart CAN spawn the faction
+-- (one or more recipe sections match). This check says at least one matching recipe has
+-- open budget right now (max > already_spawned[k].num). Re-evaluated per tick because
+-- already_spawned changes as squads spawn and die.
+local function _can_spawn_faction(smart, faction)
+    if not smart.respawn_params then return false end
+    for k, recipe in pairs(smart.respawn_params) do
+        if _recipe_has_open_faction_slot(smart, k, recipe, faction) then return true end
+    end
+    return false
+end
+
+-- Lazy-cache wrapper. Computed once per (level_id, faction) pair per session; smarts and
+-- recipes are static across the session, so no invalidation needed except on reset_state.
+local function _get_eligible_and_threshold(level_id, faction)
+    local lvl_cache = _eligible[level_id]
+    if lvl_cache and lvl_cache[faction] then
+        return lvl_cache[faction], _thresholds[level_id][faction]
+    end
+    local smarts, threshold = _compute_for_level_faction(level_id, faction)
+    _eligible[level_id] = _eligible[level_id] or {}
+    _thresholds[level_id] = _thresholds[level_id] or {}
+    _eligible[level_id][faction] = smarts
+    _thresholds[level_id][faction] = threshold
+    return smarts, threshold
 end
 
 -- ==================== NUDGE ====================
@@ -148,32 +328,44 @@ end
 
 -- ==================== DEATH HANDLER ====================
 
--- Engine sets squad.respawn_point_id at spawn (smart_terrain.script:1720-1721). Squads
--- without it (scripted, save-loaded with broken link, Warfare-managed) are skipped --
--- no origin to nudge.
-local function _on_npc_death(squad, _npc, _killer)
+-- Filter chain mirrors the original architecture's intent:
+--   protected: story / companion / task-target squads are not A-life population.
+--   cowardly:  rats / tushkanos / flesh / zombies / karliks would flood the counter; per
+--              per-faction threshold the flood is partially absorbed, but biases refill
+--              toward those species. Easier to filter at source.
+local function _on_npc_death(squad, npc, _killer)
     if not cfg.enabled then return end
     if not squad then return end
     _stats.deaths = _stats.deaths + 1
-    local smart_id = squad.respawn_point_id
-    if not smart_id then return end
+    if xsquad.is_protected(squad, _protection_opts) then
+        _stats.protected = _stats.protected + 1
+        return
+    end
+    if xcreature.is_cowardly_species(squad) then
+        _stats.trash = _stats.trash + 1
+        return
+    end
+    local faction = squad.player_id
+    if not faction or faction == "" then return end
+    local level_id = xlevel.get_level_id(npc or squad)
+    if not level_id then return end
     _stats.counted = _stats.counted + 1
-    _deaths[smart_id] = (_deaths[smart_id] or 0) + 1
+    _deaths[level_id] = _deaths[level_id] or {}
+    _deaths[level_id][faction] = (_deaths[level_id][faction] or 0) + 1
     if _dbg then
-        log.debug("[DEATH] smart_id=%d count=%d squad_section=%s",
-            smart_id, _deaths[smart_id], tostring(squad:section_name() or "?"))
+        log.debug("[DEATH] level=%d faction=%s count=%d",
+            level_id, faction, _deaths[level_id][faction])
     end
 end
 
 -- ==================== SPAWN TRACE (DEBUG only) ====================
 
 -- Counts every NPC creation into a squad where spawn_smart is set. Deduped by squad.id
--- so multi-NPC squads count once. Fast-exits when not DEBUG (one Lua compare).
--- Uses callback's spawn_smart arg (sim_board.script:149) because squad.respawn_point_id
--- is only set AFTER SIMBOARD:create_squad returns (smart_terrain.script:1720-1721),
--- and the callback fires DURING create_squad.
--- Includes spawns the engine made without any nudge from us; the ratio nudges/spawns
--- only matters as a debugging signal, not for production logic.
+-- so multi-NPC squads count once. Uses the callback's spawn_smart arg (sim_board.script:149)
+-- because squad.respawn_point_id is only set AFTER SIMBOARD:create_squad returns
+-- (smart_terrain.script:1720-1721) and the callback fires DURING create_squad.
+-- Includes spawns the engine made without our nudge; the ratio nudges/spawns is a
+-- debug signal, not production logic.
 local function _on_npc_creation(squad, _se_obj, spawn_smart)
     if not _dbg then return end
     if not squad or not squad.id then return end
@@ -187,63 +379,138 @@ end
 
 -- ==================== PERIODIC TICK ====================
 
--- Iterate _deaths, nudge any smart whose death count has reached its per-smart threshold,
--- reset that count. Also prune expired markers. ResetTimeEvent FIRST per
+-- Collect eligible smart ids whose respawn_params have open budget for `faction` right now.
+local function _collect_with_budget(smart_ids, faction)
+    local with_budget = {}
+    for i = 1, #smart_ids do
+        local smart = alife_object(smart_ids[i])
+        if smart and _can_spawn_faction(smart, faction) then
+            with_budget[#with_budget + 1] = smart
+        end
+    end
+    return with_budget
+end
+
+-- Try to nudge one (level, faction) pair when the death count crosses threshold and at
+-- least one eligible smart has open budget. Resets the death counter for the pair on success.
+local function _try_nudge_for_faction(level_id, by_faction, faction, count)
+    local smart_ids, threshold = _get_eligible_and_threshold(level_id, faction)
+    if count < threshold then return end
+    if #smart_ids == 0 then return end
+    local with_budget = _collect_with_budget(smart_ids, faction)
+    if #with_budget == 0 then return end
+    local smart = with_budget[math_random(#with_budget)]
+    local before_cooldown = _format_cooldown(smart)
+    local before_budget   = _format_budget(smart)
+    local pop_str         = _format_pop(smart)
+    _nudge_smart(smart)
+    by_faction[faction] = 0
+    _stats.nudges = _stats.nudges + 1
+    _record_nudge(smart, level_id, faction, count, threshold,
+                  before_cooldown, before_budget)
+    log.info(
+        "[NUDGE] smart=%s level=%d faction=%s count=%d/threshold=%d pop=%s cooldown[%s -> NIL] budget=%s",
+        smart:name() or "?", level_id, faction, count, threshold,
+        pop_str, before_cooldown, before_budget)
+end
+
+-- Walk _deaths. For each (level, faction) at threshold, filter eligible smarts to those
+-- with open budget right now and pick one at random. If none has open budget, defer: leave
+-- the counter alone, retry next tick. ResetTimeEvent FIRST per
 -- doc/library/xray/internals/globals.md:194-202.
 local function _periodic_tick()
     ResetTimeEvent(TIMER_EV, TIMER_TICK, TICK_INTERVAL_SEC)
     if not cfg.enabled then return end
     _stats.ticks = _stats.ticks + 1
-    for smart_id, count in pairs(_deaths) do
-        local smart = alife_object(smart_id)
-        if smart then
-            local threshold = _get_threshold(smart_id, smart)
-            if count >= threshold then
-                _nudge_smart(smart)
-                _deaths[smart_id] = 0
-                _stats.nudges = _stats.nudges + 1
-                log.debug("[NUDGE] smart=%s count=%d threshold=%d",
-                    smart:name() or "?", count, threshold)
-            end
+    for level_id, by_faction in pairs(_deaths) do
+        for faction, count in pairs(by_faction) do
+            _try_nudge_for_faction(level_id, by_faction, faction, count)
         end
     end
     _prune_markers()
-    log.info("[SUMMARY] deaths=%d counted=%d ticks=%d nudges=%d spawns=%d",
-        _stats.deaths, _stats.counted, _stats.ticks, _stats.nudges, _stats.spawns)
+    log.info("[SUMMARY] deaths=%d counted=%d protected=%d trash=%d ticks=%d nudges=%d spawns=%d",
+        _stats.deaths, _stats.counted, _stats.protected, _stats.trash,
+        _stats.ticks, _stats.nudges, _stats.spawns)
 end
 
 -- ==================== RIGHT-CLICK TELEPORT ====================
 
--- Build the menu label per right-click. Same translation pattern as game_fast_travel.script:38-42.
 local function _teleport_menu_label(smart_name_key)
     return game.translate_string(TELEPORT_KEY) .. " " .. game.translate_string(smart_name_key)
 end
 
--- Callback receives (property_ui, id, level_name). We add a menu item only when the entity
--- is a smart we currently have marked. Pattern mirrors game_fast_travel.script:32-44.
+local function _stats_menu_label(smart_name_key)
+    return game.translate_string(STATS_KEY) .. " " .. game.translate_string(smart_name_key)
+end
+
 local function _on_map_spot_menu_add(property_ui, id, _level_name)
     if not cfg.show_markers then return end
     if not id or not _markers[id] then return end
     local se_obj = alife_object(id)
     if not se_obj or se_obj:clsid() ~= clsid.smart_terrain then return end
-    property_ui:AddItem(_teleport_menu_label(se_obj:name()))
+    local name = se_obj:name()
+    property_ui:AddItem(_teleport_menu_label(name))
+    property_ui:AddItem(_stats_menu_label(name))
 end
 
--- Teleport mechanism mirrors game_fast_travel.script:117-122 exactly:
---   online smart  -> set_actor_position
---   offline smart -> ChangeLevel
+-- Show tracked stats for a nudged smart via PDA tips. Pulls from _smart_stats and reads
+-- live engine state for current cooldown/budget so the player sees both the recorded
+-- snapshot and the present situation.
+local function _show_smart_stats(se_obj)
+    if not db or not db.actor then return end
+    local entry = _smart_stats[se_obj.id]
+    local name  = se_obj:name() or "?"
+    if not entry then
+        news_manager.send_tip(db.actor, name .. ": never nudged", nil, nil, STATUS_TIP_MS)
+        return
+    end
+    local now = os_clock()
+    local first_ago = math_floor(now - entry.first_at)
+    local last_ago  = math_floor(now - (entry.last_at or entry.first_at))
+    local trigger   = entry.last_trigger or {}
+    news_manager.send_tip(db.actor, string_format(
+        "%s: nudges=%d (first %ds ago, last %ds ago)",
+        name, entry.nudges, first_ago, last_ago), nil, nil, STATUS_TIP_MS)
+    news_manager.send_tip(db.actor, string_format(
+        "factions: %s", table_concat(entry.factions, ", ")),
+        nil, nil, STATUS_TIP_MS)
+    news_manager.send_tip(db.actor, string_format(
+        "last trigger: level=%s faction=%s count=%d/threshold=%d",
+        tostring(trigger.level_id), tostring(trigger.faction),
+        trigger.count or 0, trigger.threshold or 0),
+        nil, nil, STATUS_TIP_MS)
+    news_manager.send_tip(db.actor, string_format(
+        "last nudge cleared cooldown from: %s",
+        entry.last_before_cooldown or "?"),
+        nil, nil, STATUS_TIP_MS)
+    news_manager.send_tip(db.actor, string_format(
+        "last nudge budget: %s", entry.last_budget or "?"),
+        nil, nil, STATUS_TIP_MS)
+    news_manager.send_tip(db.actor, string_format(
+        "now: cooldown=%s pop=%s budget=%s",
+        _format_cooldown(se_obj), _format_pop(se_obj), _format_budget(se_obj)),
+        nil, nil, STATUS_TIP_MS)
+end
+
+-- Teleport mechanism mirrors game_fast_travel.script:117-122 exactly.
 local function _on_map_spot_menu_clicked(_property_ui, id, _level_name, prop)
     if not cfg.show_markers then return end
     if not id or not _markers[id] then return end
     local se_obj = alife_object(id)
     if not se_obj or se_obj:clsid() ~= clsid.smart_terrain then return end
-    if prop ~= _teleport_menu_label(se_obj:name()) then return end
-
-    if se_obj.online then
-        db.actor:set_actor_position(se_obj.position)
-        hide_hud_pda()
-    else
-        ChangeLevel(se_obj.position, se_obj.m_level_vertex_id, se_obj.m_game_vertex_id, VEC_ZERO, true)
+    local name = se_obj:name()
+    if prop == _teleport_menu_label(name) then
+        if se_obj.online then
+            db.actor:set_actor_position(se_obj.position)
+            hide_hud_pda()
+        elseif xlevel.is_valid_lvid(se_obj) then
+            ChangeLevel(se_obj.position, se_obj.m_level_vertex_id, se_obj.m_game_vertex_id, VEC_ZERO, true)
+        end
+        return
+    end
+    if prop == _stats_menu_label(name) then
+        _show_smart_stats(se_obj)
+        return
     end
 end
 
@@ -251,10 +518,13 @@ end
 
 local function _reset_state()
     _clear_all_markers()
-    _deaths      = {}
-    _thresholds  = {}
-    _seen_squads = {}
-    _stats       = { deaths = 0, counted = 0, ticks = 0, nudges = 0, spawns = 0 }
+    _deaths       = {}
+    _eligible     = {}
+    _thresholds   = {}
+    _seen_squads  = {}
+    _smart_stats  = {}
+    _stats        = { deaths = 0, counted = 0, protected = 0, trash = 0,
+                      ticks = 0, nudges = 0, spawns = 0 }
 end
 
 local function _on_load_state(_m_data)
@@ -287,8 +557,9 @@ function show_status()
     news_manager.send_tip(db.actor,
         "AlifeBalance " .. _ab_deps.get_version(), nil, nil, STATUS_TIP_MS)
     news_manager.send_tip(db.actor, string_format(
-        "deaths=%d counted=%d ticks=%d nudges=%d spawns=%d",
-        _stats.deaths, _stats.counted, _stats.ticks, _stats.nudges, _stats.spawns),
+        "deaths=%d counted=%d protected=%d trash=%d ticks=%d nudges=%d spawns=%d",
+        _stats.deaths, _stats.counted, _stats.protected, _stats.trash,
+        _stats.ticks, _stats.nudges, _stats.spawns),
         nil, nil, STATUS_TIP_MS)
 end
 
