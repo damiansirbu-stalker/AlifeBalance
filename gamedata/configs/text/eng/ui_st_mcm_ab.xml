@@ -40,6 +40,9 @@
     <string id="st_ab_map_teleport_to">
         <text>Teleport to</text>
     </string>
+    <string id="st_ab_map_show_stats">
+        <text>Show stats for</text>
+    </string>
     <!-- ==================== DEVELOPMENT TAB ==================== -->
     <string id="ui_mcm_ab_development_desc">
         <text>Debug and development tools. DEBUG level enables structured tracing of every nudge to alifebalance.log. Has performance cost.</text>
