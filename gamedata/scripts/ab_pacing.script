@@ -71,7 +71,7 @@ local _seen_squads  = {}
 local _markers      = {}
 local _smart_stats  = {}
 local _stats        = { deaths = 0, counted = 0, protected = 0, trash = 0,
-                        ticks = 0, nudges = 0, spawns = 0 }
+                        ticks = 0, nudges = 0, organic = 0, spawns = 0 }
 
 -- ==================== SMART STATE FORMATTERS ====================
 
@@ -109,6 +109,20 @@ local function _format_pop(smart)
     local rec = board and board.smarts and board.smarts[smart.id]
     local pop = rec and rec.population or 0
     return string_format("%d/%d", pop, smart.max_population or 0)
+end
+
+-- Resolve smart_ids to a comma-joined name list for diagnostic logs.
+local function _smart_names_str(smart_ids)
+    local names = {}
+    for i = 1, #smart_ids do
+        local smart = alife_object(smart_ids[i])
+        if smart then
+            names[i] = smart:name() or "?"
+        else
+            names[i] = "?"
+        end
+    end
+    return table_concat(names, ",")
 end
 
 -- Compute factions the smart accepts (Tier 1) by scanning known faction keys against props.
@@ -279,25 +293,30 @@ local function _recipe_squads_match(recipe, faction)
     return false
 end
 
--- True if `recipe` has open budget on `smart` AND at least one matching section.
-local function _recipe_has_open_faction_slot(smart, recipe_key, recipe, faction)
-    local cur = (smart.already_spawned and smart.already_spawned[recipe_key]
-                 and smart.already_spawned[recipe_key].num) or 0
-    local max = tonumber(xr_logic.pick_section_from_condlist(db.actor, smart, recipe.num)) or 0
-    if max <= cur then return false end
-    return _recipe_squads_match(recipe, faction)
-end
-
--- Dynamic budget check. The static _eligible cache says the smart CAN spawn the faction
--- (one or more recipe sections match). This check says at least one matching recipe has
--- open budget right now (max > already_spawned[k].num). Re-evaluated per tick because
--- already_spawned changes as squads spawn and die.
-local function _can_spawn_faction(smart, faction)
-    if not smart.respawn_params then return false end
+-- Single-pass budget eval. For each recipe: compute cur (already_spawned[k].num) and max
+-- (pick_section_from_condlist on recipe.num); first recipe with open budget AND a
+-- faction-matching section wins. pick_section_from_condlist runs ONCE per recipe per call,
+-- so the gate decision and the printed snapshot read the same value -- previously the gate
+-- (_can_spawn_faction) and the formatter (_format_budget) called it twice and could disagree.
+-- Returns matched_key (or nil) and a budget string with * on the matched recipe.
+local function _evaluate_budget_for_faction(smart, faction)
+    if not smart.respawn_params then return nil, "[no respawn_params]" end
+    local matched_key
+    local parts, any_open = {}, false
     for k, recipe in pairs(smart.respawn_params) do
-        if _recipe_has_open_faction_slot(smart, k, recipe, faction) then return true end
+        local cur = (smart.already_spawned and smart.already_spawned[k]
+                     and smart.already_spawned[k].num) or 0
+        local max = tonumber(xr_logic.pick_section_from_condlist(db.actor, smart, recipe.num)) or 0
+        local open = max > cur
+        if open then any_open = true end
+        if not matched_key and open and _recipe_squads_match(recipe, faction) then
+            matched_key = k
+        end
+        local mark = (matched_key == k) and "*" or ""
+        parts[#parts + 1] = string_format("%s%s %d/%d", mark, tostring(k), cur, max)
     end
-    return false
+    return matched_key, string_format("[%s]%s",
+        table_concat(parts, ", "), any_open and "" or " ALL_FULL")
 end
 
 -- Lazy-cache wrapper. Computed once per (level_id, faction) pair per session; smarts and
@@ -312,6 +331,10 @@ local function _get_eligible_and_threshold(level_id, faction)
     _thresholds[level_id] = _thresholds[level_id] or {}
     _eligible[level_id][faction] = smarts
     _thresholds[level_id][faction] = threshold
+    if _dbg then
+        log.debug("[ELIGIBLE] level=%d faction=%s threshold=%d eligibles=%d [%s]",
+            level_id, faction, threshold, #smarts, _smart_names_str(smarts))
+    end
     return smarts, threshold
 end
 
@@ -379,39 +402,95 @@ end
 
 -- ==================== PERIODIC TICK ====================
 
--- Collect eligible smart ids whose respawn_params have open budget for `faction` right now.
+-- Walk eligible smarts once. For each, evaluate budget for `faction` in a single pass
+-- (one pick_section_from_condlist per recipe). Returns two arrays of entries
+-- { smart, budget_str }: `needs_nudge` (matched recipe + cooldown is set; a nudge would
+-- unlock the cooldown gate) and `already_open` (matched recipe + cooldown already nil;
+-- engine will refill organically on its next alife tick at this smart). Caller uses the
+-- presence of any `already_open` entry to skip the nudge entirely -- nudging a different
+-- smart on the same level would produce TWO refills for one threshold's worth of deaths,
+-- violating the refill <= death invariant.
 local function _collect_with_budget(smart_ids, faction)
-    local with_budget = {}
+    local needs_nudge, already_open = {}, {}
     for i = 1, #smart_ids do
         local smart = alife_object(smart_ids[i])
-        if smart and _can_spawn_faction(smart, faction) then
-            with_budget[#with_budget + 1] = smart
+        if not smart then goto continue end
+        local matched, budget_str = _evaluate_budget_for_faction(smart, faction)
+        if not matched then goto continue end
+        local entry = { smart = smart, budget_str = budget_str }
+        if smart.last_respawn_update == nil then
+            already_open[#already_open + 1] = entry
+        else
+            needs_nudge[#needs_nudge + 1] = entry
         end
+        ::continue::
     end
-    return with_budget
+    return needs_nudge, already_open
+end
+
+-- Format an entry array (output of _collect_with_budget) as a comma-joined name list.
+local function _entry_names_str(entries)
+    local names = {}
+    for i = 1, #entries do
+        names[i] = entries[i].smart:name() or "?"
+    end
+    return table_concat(names, ",")
 end
 
 -- Try to nudge one (level, faction) pair when the death count crosses threshold and at
--- least one eligible smart has open budget. Resets the death counter for the pair on success.
+-- least one eligible smart has open budget AND a set cooldown. Logs every gate outcome at
+-- DEBUG: [NOELIG] no recipe on this level produces the faction; [BELOW] count below
+-- threshold; [ORGANIC] threshold met but an eligible smart already has nil cooldown so the
+-- engine will refill on its own -- release pressure without nudging; [DEFER] threshold met
+-- and every eligible is at budget cap -- hold pressure; [NUDGE] fired.
 local function _try_nudge_for_faction(level_id, by_faction, faction, count)
     local smart_ids, threshold = _get_eligible_and_threshold(level_id, faction)
-    if count < threshold then return end
-    if #smart_ids == 0 then return end
-    local with_budget = _collect_with_budget(smart_ids, faction)
-    if #with_budget == 0 then return end
-    local smart = with_budget[math_random(#with_budget)]
+    if #smart_ids == 0 then
+        if _dbg then
+            log.debug("[NOELIG] level=%d faction=%s count=%d threshold=%d",
+                level_id, faction, count, threshold)
+        end
+        return
+    end
+    if count < threshold then
+        if _dbg then
+            log.debug("[BELOW] level=%d faction=%s count=%d/threshold=%d eligibles=%d",
+                level_id, faction, count, threshold, #smart_ids)
+        end
+        return
+    end
+    local needs_nudge, already_open = _collect_with_budget(smart_ids, faction)
+    if #already_open > 0 then
+        by_faction[faction] = 0
+        _stats.organic = _stats.organic + 1
+        if _dbg then
+            log.debug("[ORGANIC] level=%d faction=%s count=%d/threshold=%d open=%d [%s]",
+                level_id, faction, count, threshold, #already_open, _entry_names_str(already_open))
+        end
+        return
+    end
+    if #needs_nudge == 0 then
+        if _dbg then
+            log.debug("[DEFER] level=%d faction=%s count=%d/threshold=%d eligibles=%d [%s]",
+                level_id, faction, count, threshold, #smart_ids, _smart_names_str(smart_ids))
+        end
+        return
+    end
+    local pick = needs_nudge[math_random(#needs_nudge)]
+    local smart = pick.smart
     local before_cooldown = _format_cooldown(smart)
-    local before_budget   = _format_budget(smart)
     local pop_str         = _format_pop(smart)
     _nudge_smart(smart)
     by_faction[faction] = 0
     _stats.nudges = _stats.nudges + 1
     _record_nudge(smart, level_id, faction, count, threshold,
-                  before_cooldown, before_budget)
-    log.info(
-        "[NUDGE] smart=%s level=%d faction=%s count=%d/threshold=%d pop=%s cooldown[%s -> NIL] budget=%s",
-        smart:name() or "?", level_id, faction, count, threshold,
-        pop_str, before_cooldown, before_budget)
+                  before_cooldown, pick.budget_str)
+    if _dbg then
+        log.debug(
+            "[NUDGE] smart=%s level=%d faction=%s count=%d/threshold=%d pop=%s cooldown[%s -> NIL] budget=%s",
+            smart:name() or "?", level_id, faction, count, threshold,
+            pop_str, before_cooldown, pick.budget_str)
+    end
 end
 
 -- Walk _deaths. For each (level, faction) at threshold, filter eligible smarts to those
@@ -428,9 +507,11 @@ local function _periodic_tick()
         end
     end
     _prune_markers()
-    log.info("[SUMMARY] deaths=%d counted=%d protected=%d trash=%d ticks=%d nudges=%d spawns=%d",
-        _stats.deaths, _stats.counted, _stats.protected, _stats.trash,
-        _stats.ticks, _stats.nudges, _stats.spawns)
+    if _dbg then
+        log.debug("[SUMMARY] deaths=%d counted=%d protected=%d trash=%d ticks=%d nudges=%d organic=%d spawns=%d",
+            _stats.deaths, _stats.counted, _stats.protected, _stats.trash,
+            _stats.ticks, _stats.nudges, _stats.organic, _stats.spawns)
+    end
 end
 
 -- ==================== RIGHT-CLICK TELEPORT ====================
@@ -524,7 +605,7 @@ local function _reset_state()
     _seen_squads  = {}
     _smart_stats  = {}
     _stats        = { deaths = 0, counted = 0, protected = 0, trash = 0,
-                      ticks = 0, nudges = 0, spawns = 0 }
+                      ticks = 0, nudges = 0, organic = 0, spawns = 0 }
 end
 
 local function _on_load_state(_m_data)
@@ -557,9 +638,9 @@ function show_status()
     news_manager.send_tip(db.actor,
         "AlifeBalance " .. _ab_deps.get_version(), nil, nil, STATUS_TIP_MS)
     news_manager.send_tip(db.actor, string_format(
-        "deaths=%d counted=%d protected=%d trash=%d ticks=%d nudges=%d spawns=%d",
+        "deaths=%d counted=%d protected=%d trash=%d ticks=%d nudges=%d organic=%d spawns=%d",
         _stats.deaths, _stats.counted, _stats.protected, _stats.trash,
-        _stats.ticks, _stats.nudges, _stats.spawns),
+        _stats.ticks, _stats.nudges, _stats.organic, _stats.spawns),
         nil, nil, STATUS_TIP_MS)
 end
 
