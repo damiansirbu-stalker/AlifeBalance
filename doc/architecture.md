@@ -17,7 +17,7 @@ Built on xlibs. `_ab_deps` asserts `xlibs >= 1.5.1` on load.
 Every smart terrain holds two engine fields that together define when it can spawn next:
 
 - `respawn_idle` — cooldown DURATION in game-seconds. Set once from LTX (`smart_terrain.script:231`), per-smart. Vanilla default 43200 (12 game hours), ZCP under GAMMA is 21600 (6 game hours), Redone varies. **AlifeBalance only reads this field. Never writes.**
-- `last_respawn_update` — TIMESTAMP of the smart's last spawn. Reset to `curr_time` by the engine after every `SIMBOARD:create_squad` at `smart_terrain.script:1719`. **This is the single field AlifeBalance writes — one subtract per advance, in `_advance_smart` at `ab_pacing.script:269-277`.**
+- `last_respawn_update` — TIMESTAMP of the smart's last spawn. Reset to `curr_time` by the engine after every `SIMBOARD:create_squad` at `smart_terrain.script:1719`. **This is the single field AlifeBalance writes — one subtract per advance, in `_advance_smart` at `ab_pacing.script:260-268`.**
 
 The engine's cooldown gate at `smart_terrain.script:1651`:
 
@@ -110,11 +110,11 @@ TICK (every 60 wall-seconds via CreateTimeEvent)
   v
 _periodic_tick()
   - for each (level_id, faction) in _deaths:
-      smarts, threshold = _get_eligible_and_threshold(level_id, faction)
+      smarts, threshold = ab_recipe.get_eligible_and_threshold(level_id, faction)
       if #smarts == 0:                              [NOELIG], no action
       else if count < threshold:                    [BELOW],  no action
       else:
-        with_budget = filter smarts by _can_advance AND _evaluate_budget_for_faction
+        with_budget = filter smarts by _can_advance AND ab_recipe.evaluate_budget_for_faction
         if #with_budget == 0:                       [DEFER],  counter holds
         else:
           sort with_budget by actor->smart distance descending
@@ -235,13 +235,13 @@ The `min_hours` floor on remaining cooldown guarantees the engine always fires t
 
 ## What we own
 
-- `_deaths[level_id][faction]`: death counter per (level, faction). Reset on a fired advance. Held on defer.
-- `_eligible[level_id][faction]`: cached array of smart ids whose recipes produce the faction. Recipe-content derived, static for the session.
-- `_thresholds[level_id][faction]`: cached MAX `npc_in_squad` upper bound across matching sections.
-- `_delta_cache[smart_id]`: cached `{ delta, advance, max_age }` per smart. `delta` is the CTime of `respawn_idle / advances` seconds, `advance` is the same value as a scalar (seconds), `max_age` is `respawn_idle - min_hours * 3600 - advance`. Invalidated on `advances` or `min_hours` change in MCM and on `_reset_state`.
-- `_smart_stats[smart_id]`: per-smart advance bookkeeping for the right-click "Show stats" tip.
-- `_seen_squads[squad.id]`: dedup set for spawn tracing (DEBUG only).
-- `_markers[smart_id]`: linger expiry per marked smart.
+- `_deaths[level_id][faction]` (ab_pacing): death counter per (level, faction). Decremented by `threshold` per advance; remainder under threshold carries to the next tick.
+- `_eligible[level_id][faction]` (ab_recipe): cached array of smart objects whose recipes produce the faction. Recipe-content derived, static for the session.
+- `_thresholds[level_id][faction]` (ab_recipe): cached MAX `npc_in_squad` upper bound across matching sections of eligible smarts.
+- `_delta_cache[smart_id]` (ab_pacing): cached `{ delta, advance, max_age }` per smart. `delta` is the CTime of `respawn_idle / advances` seconds, `advance` is the same value as a scalar (seconds), `max_age` is `respawn_idle - min_hours * 3600 - advance`. Invalidated on `advances` or `min_hours` change in MCM and on `_reset_state`.
+- `_smart_stats[smart_id]` (ab_pacing): per-smart advance bookkeeping for the right-click "Show stats" tip.
+- `_seen_squads[squad.id]` (ab_pacing): dedup set for spawn tracing (DEBUG only).
+- `_markers[smart_id]` (ab_map): linger expiry per marked smart.
 - `_stats`: 11 diagnostic counters (`deaths, counted, protected, vermin, no_squad, no_faction, no_level, ticks, advances, spawns, spawns_from_us`).
 - Callbacks: `squad_on_npc_death`, `squad_on_npc_creation`, `on_option_change`, `load_state`, `actor_on_first_update`, `map_spot_menu_add_property`, `map_spot_menu_property_clicked`.
 - One `CreateTimeEvent` timer at 60-second wall interval.
@@ -300,9 +300,9 @@ Threshold has no knob. It is engine-grounded, read from `squad_descr` LTX per (l
 | Operation | Cost |
 |-----------|------|
 | Per death | O(1). Protection check, vermin species lookup (cached), faction read, level lookup, counter increment. |
-| `_get_eligible_and_threshold`, first call per pair | O(S * R * Q) over smarts on level * recipes per smart * sections per recipe. 2 luabind `ini_sys:r_string_ex` per section (faction + npc_in_squad, both medium). Cached. |
-| `_get_eligible_and_threshold`, cache hit | O(1) |
-| `_evaluate_budget_for_faction`, per tick per eligible smart | O(R * Q) over recipes * sections. 1 luabind `pick_section_from_condlist` per recipe + 1 `ini_sys:r_string_ex` per section until first faction match. |
+| `ab_recipe.get_eligible_and_threshold`, first call per pair | O(S * R * Q) over smarts on level * recipes per smart * sections per recipe. 2 luabind `ini_sys:r_string_ex` per section (faction + npc_in_squad, both medium). Cached. |
+| `ab_recipe.get_eligible_and_threshold`, cache hit | O(1) |
+| `ab_recipe.evaluate_budget_for_faction`, per tick per eligible smart | O(R * Q) over recipes * sections. 1 luabind `pick_section_from_condlist` per recipe + 1 `ini_sys:r_string_ex` per section until first faction match. |
 | `_get_advance_params`, first call per smart | 2 CTime constructions + 2 `setHMSms` + 1 operator-. About 5 luabind. Cached. |
 | `_get_advance_params`, cache hit | O(1) |
 | `_can_advance`, per tick per eligible smart | 1 luabind: `xtime.game_time():diffSec(lru)`. |

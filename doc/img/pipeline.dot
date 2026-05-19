@@ -52,13 +52,13 @@ digraph pipeline {
 
         timer    [label="CreateTimeEvent\nTIMER_TICK = 60s"]
         tick     [label="_periodic_tick\nwalk _deaths"]
-        eligible [label="_get_eligible_and_threshold\nrecipe-content match"]
+        eligible [label="ab_recipe.get_eligible_and_threshold\nrecipe-content match"]
         below    [label="count < threshold?\n[BELOW] no action", shape=diamond, fillcolor=gray95]
-        budget   [label="_collect_with_budget\n_can_advance + open recipe", shape=diamond, fillcolor=gray95]
+        budget   [label="_collect_with_budget\n_can_advance + ab_recipe.evaluate_budget_for_faction", shape=diamond, fillcolor=gray95]
         defer    [label="empty?\n[DEFER] hold counter"]
         pick     [label="farthest-first pick\n[ADVANCE]"]
         advance  [label="_advance_smart\nlast_respawn_update -= idle/advances"]
-        reset    [label="_deaths[level][faction]\n= 0", style="rounded,filled", fillcolor=gray95]
+        reset    [label="by_faction[faction] = count\n(leftover < threshold carries)", style="rounded,filled", fillcolor=gray95]
 
         timer -> tick
         tick -> eligible
