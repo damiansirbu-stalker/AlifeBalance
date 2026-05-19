@@ -294,7 +294,7 @@ function marker_label(smart)
         local age    = now:diffSec(lru)
         local left   = (smart.respawn_idle or 0) - age
         local room   = 0
-        if age <= params.max_age then
+        if age <= params.max_age and params.advance > 0 then
             room = math_floor((params.max_age - age) / params.advance) + 1
         end
         lines[#lines + 1] = string_format("advances: %d, room for %d more", entry.advances, room)
