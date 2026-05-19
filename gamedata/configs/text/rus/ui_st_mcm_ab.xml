@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="windows-1251"?>
+<string_table>
+  <!-- ==================== MAIN MENU ==================== -->
+  <string id="ui_mcm_menu_ab">
+    <text>AlifeBalance</text>
+  </string>
+  <!-- ==================== TAB NAMES ==================== -->
+  <string id="ui_mcm_menu_general">
+    <text>Общие</text>
+  </string>
+  <string id="ui_mcm_menu_development">
+    <text>Разработка</text>
+  </string>
+  <!-- ==================== GENERAL TAB ==================== -->
+  <string id="ui_mcm_ab_title">
+    <text>AlifeBalance</text>
+  </string>
+  <string id="ui_mcm_ab_general_info">
+    <text>Бой опустошает Зону быстрее, чем движок её пополняет. AlifeBalance отслеживает смерти по парам (уровень, фракция) и продвигает кулдаун респавна подходящей умной территории на этом уровне на долю её кулдауна за каждое продвижение. После заданного числа продвижений кулдаун истекает, и движок спавнит один отряд из собственного настроенного пула территории на следующем такте alife. Сам ничего не спавнит. Работает вместе с ваниллой, ZCP, Redone и любым другим модом-спавнером.</text>
+  </string>
+  <!-- General - Smart Pacing -->
+  <string id="ui_mcm_ab_hdr_pacing">
+    <text>Smart Pacing</text>
+  </string>
+  <string id="ui_mcm_ab_general_enabled">
+    <text>Включить Smart Pacing</text>
+  </string>
+  <string id="ui_mcm_ab_general_enabled_desc">
+    <text>Главный переключатель. Когда выключен, нет отслеживания смертей и продвижений кулдауна.</text>
+  </string>
+  <string id="ui_mcm_ab_general_advances">
+    <text>Продвижений до пополнения</text>
+  </string>
+  <string id="ui_mcm_ab_general_advances_desc">
+    <text>Сколько продвижений нужно, чтобы полностью продавить кулдаун респавна территории до минимума. Продвижение срабатывает, когда для пары (уровень, фракция) накопилось убийств на один отряд, и вычитает 1/advances кулдауна выбранной территории. При 1 одно продвижение очищает полный кулдаун (мгновенное пополнение). При 4 (по умолчанию) четыре продвижения накопленного боя пополняют территорию. При 8 пополнение растянуто на восемь продвижений. Более высокие значения означают, что пополнения ощущаются более заработанными длительным боем.</text>
+  </string>
+  <string id="ui_mcm_ab_general_min_hours">
+    <text>Минимальный остаток кулдауна (игровых часов)</text>
+  </string>
+  <string id="ui_mcm_ab_general_min_hours_desc">
+    <text>Минимум кулдауна, который должен оставаться у территории после применения продвижения, в игровых часах. AlifeBalance никогда не продавливает кулдаун ниже этого минимума; собственные часы движка естественно состаривают последний отрезок и запускают спавн оттуда. Территория, уже на минимуме или ниже, пропускается на следующем продвижении (счётчик удерживается до следующего тика). По умолчанию 1 час. Поднимите, чтобы оставлять больше естественного кулдауна после каждого продвижения.</text>
+  </string>
+  <string id="ui_mcm_ab_development_show_markers">
+    <text>Показывать маркеры на карте</text>
+  </string>
+  <string id="ui_mcm_ab_development_show_markers_desc">
+    <text>Ставит зелёный маркер КПК на каждой умной территории, получившей продвижение. Маркер держится 5 минут реального времени, затем исчезает. Правый клик по маркеру -- телепорт к территории или показ её статистики. Не зависит от уровня логов.</text>
+  </string>
+  <string id="st_ab_map_teleport_to">
+    <text>Телепорт к</text>
+  </string>
+  <string id="st_ab_map_show_stats">
+    <text>Показать статистику</text>
+  </string>
+  <!-- ==================== DEVELOPMENT TAB ==================== -->
+  <string id="ui_mcm_ab_development_desc">
+    <text>Инструменты отладки и разработки. Уровень DEBUG включает структурированную трассировку каждого продвижения в alifebalance.log. Имеет цену производительности.</text>
+  </string>
+  <!-- Development - Logging -->
+  <string id="ui_mcm_ab_hdr_logging">
+    <text>Логирование</text>
+  </string>
+  <string id="ui_mcm_ab_development_log_level">
+    <text>Уровень логов</text>
+  </string>
+  <string id="ui_mcm_ab_development_log_level_desc">
+    <text>Контролирует подробность логов. ERROR: только краши. WARN: аномалии. INFO: только запуск и конфиг. DEBUG: каждая смерть, продвижение, вычисление подходящих, исход гейта и сводка по тику.</text>
+  </string>
+  <string id="ab_development_log_level_lst_error">
+    <text>Ошибка</text>
+  </string>
+  <string id="ab_development_log_level_lst_warn">
+    <text>Предупреждение</text>
+  </string>
+  <string id="ab_development_log_level_lst_info">
+    <text>Инфо</text>
+  </string>
+  <string id="ab_development_log_level_lst_debug">
+    <text>Отладка</text>
+  </string>
+  <!-- Development - Diagnostics -->
+  <string id="ui_mcm_ab_hdr_diagnostics">
+    <text>Диагностика</text>
+  </string>
+  <string id="ui_mcm_ab_development_btn_show_status">
+    <text>Показать статус</text>
+  </string>
+  <string id="ui_mcm_ab_development_btn_show_status_desc">
+    <text>Показывает общее число смертей, засчитанных смертей (с разрешённой фракцией и уровнем), защищённых и отфильтрованных мусорных, тики сканирования, выполненных продвижений и наблюдаемых спавнов движка.</text>
+  </string>
+  <string id="ui_mcm_ab_development_btn_reset_counters">
+    <text>Сбросить счётчики</text>
+  </string>
+  <string id="ui_mcm_ab_development_btn_reset_counters_desc">
+    <text>Очищает все счётчики смертей, кэши подходящих и порогов, статистику продвижений по территориям и диагностические счётчики. Уже записанные продвижения кулдауна в метках времени умных территорий сохраняются; движок разрешит их на следующем try_respawn.</text>
+  </string>
+</string_table>
