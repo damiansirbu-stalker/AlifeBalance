@@ -423,11 +423,6 @@ end
 
 -- ==================== PERIODIC TICK ====================
 
--- Walk eligible smarts once. For each, evaluate budget for `faction` in a single pass
--- (one pick_section_from_condlist per recipe) and keep those that have a matched open
--- recipe AND can still accept another advance without crossing the min_hours floor.
--- Returns array of { smart, budget_str } so the advance log line can reuse the same string
--- the gate decided on -- no second evaluation that could disagree.
 -- Try to qualify one smart for the with_budget array; nil-skip + can-advance + budget check.
 local function _try_collect_smart(smart, faction, with_budget)
     if not smart or not _can_advance(smart) then return end
@@ -436,6 +431,11 @@ local function _try_collect_smart(smart, faction, with_budget)
     with_budget[#with_budget + 1] = { smart = smart, budget_str = budget_str }
 end
 
+-- Walk eligible smarts once. For each, evaluate budget for `faction` in a single pass
+-- (one pick_section_from_condlist per recipe) and keep those that have a matched open
+-- recipe AND can still accept another advance without crossing the min_hours floor.
+-- Returns array of { smart, budget_str } so the advance log line can reuse the same string
+-- the gate decided on -- no second evaluation that could disagree.
 local function _collect_with_budget(smarts, faction)
     local with_budget = {}
     for i = 1, #smarts do
@@ -444,10 +444,6 @@ local function _collect_with_budget(smarts, faction)
     return with_budget
 end
 
--- Try to fire one advance for one (level, faction) when the death count crosses threshold
--- and at least one eligible smart can accept an advance (has open budget AND age <= max_age).
--- A advance subtracts respawn_idle/advances from the picked smart's cooldown; the engine then
--- ages out the last min_hours of game-time on its own clock and fires try_respawn from
 -- Fire one advance on the picked smart: snapshot live state, advance the cooldown,
 -- record the advance for the right-click stats display, refresh the marker hint if
 -- enabled, log at DEBUG. Pure side-effect body; the caller owns the loop state
@@ -540,9 +536,9 @@ local function _try_advance_for_faction(level_id, by_faction, faction, count)
     end
 end
 
--- Walk _deaths. For each (level, faction) at threshold, filter eligible smarts to those
--- with open budget right now and pick one at random. If none has open budget, defer: leave
--- the counter alone, retry next tick. ResetTimeEvent FIRST per
+-- Walk _deaths. For each (level, faction) at threshold, qualify smarts via
+-- _collect_with_budget, sort by actor distance descending, loop firing advances while
+-- pressure remains. ResetTimeEvent FIRST per
 -- doc/library/xray/internals/globals.md:194-202.
 local function _periodic_tick()
     ResetTimeEvent(TIMER_EV, TIMER_TICK, TICK_INTERVAL_SEC)
