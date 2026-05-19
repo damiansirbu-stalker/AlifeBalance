@@ -1,0 +1,101 @@
+--- ab_map: PDA map markers + right-click menu for smart terrains advanced by ab_pacing.
+--- Marker render-state (_markers) owned here. Pacing-side bookkeeping lives in ab_pacing
+--- and is read via ab_pacing.marker_label / ab_pacing.show_smart_stats.
+
+local pairs, os_clock = pairs, os.clock
+local RegisterScriptCallback, alife_object = RegisterScriptCallback, alife_object
+local xpda, xlevel = xpda, xlevel
+
+local CALLBACK = {
+    ACTOR_ON_FIRST_UPDATE          = "actor_on_first_update",
+    MAP_SPOT_MENU_ADD_PROPERTY     = "map_spot_menu_add_property",
+    MAP_SPOT_MENU_PROPERTY_CLICKED = "map_spot_menu_property_clicked",
+}
+
+local MARKER_TYPE       = "green_location"
+local MARKER_LINGER_SEC = 300
+local TELEPORT_KEY      = "st_ab_map_teleport_to"
+local STATS_KEY         = "st_ab_map_show_stats"
+
+-- _markers[smart_id] = real-time os.clock when marker should be removed.
+local _markers = {}
+
+local function _show_markers_enabled()
+    local mcm = ab_mcm and ab_mcm.cfg
+    return mcm and mcm.show_markers
+end
+
+function mark_smart_with_linger(smart)
+    if not smart then return end
+    local label = ab_pacing.marker_label(smart)
+    xpda.mark_entity(smart.id, { marker_type = MARKER_TYPE, label = label })
+    _markers[smart.id] = os_clock() + MARKER_LINGER_SEC
+end
+
+function unmark_smart(smart_id)
+    xpda.unmark_entity(smart_id, MARKER_TYPE)
+    _markers[smart_id] = nil
+end
+
+function clear_all_markers()
+    for smart_id in pairs(_markers) do
+        xpda.unmark_entity(smart_id, MARKER_TYPE)
+    end
+    _markers = {}
+end
+
+function prune_markers()
+    local now = os_clock()
+    for smart_id, expires_at in pairs(_markers) do
+        if now >= expires_at then unmark_smart(smart_id) end
+    end
+end
+
+local function _teleport_menu_label(smart_name_key)
+    return game.translate_string(TELEPORT_KEY) .. " " .. game.translate_string(smart_name_key)
+end
+
+local function _stats_menu_label(smart_name_key)
+    return game.translate_string(STATS_KEY) .. " " .. game.translate_string(smart_name_key)
+end
+
+local function _on_map_spot_menu_add(property_ui, id, _level_name)
+    if not _show_markers_enabled() then return end
+    if not id or not _markers[id] then return end
+    local se_obj = alife_object(id)
+    if not se_obj or se_obj:clsid() ~= clsid.smart_terrain then return end
+    local name = se_obj:name()
+    property_ui:AddItem(_teleport_menu_label(name))
+    property_ui:AddItem(_stats_menu_label(name))
+end
+
+-- Teleport mechanism mirrors game_fast_travel.script:117-122 exactly.
+local function _on_map_spot_menu_clicked(_property_ui, id, _level_name, prop)
+    if not _show_markers_enabled() then return end
+    if not id or not _markers[id] then return end
+    local se_obj = alife_object(id)
+    if not se_obj or se_obj:clsid() ~= clsid.smart_terrain then return end
+    local name = se_obj:name()
+    if prop == _teleport_menu_label(name) then
+        if se_obj.online then
+            db.actor:set_actor_position(se_obj.position)
+            hide_hud_pda()
+        elseif xlevel.is_valid_lvid(se_obj) then
+            ChangeLevel(se_obj.position, se_obj.m_level_vertex_id, se_obj.m_game_vertex_id, VEC_ZERO, true)
+        end
+        return
+    end
+    if prop == _stats_menu_label(name) then
+        ab_pacing.show_smart_stats(se_obj)
+        return
+    end
+end
+
+local function _on_first_update()
+    RegisterScriptCallback(CALLBACK.MAP_SPOT_MENU_ADD_PROPERTY, _on_map_spot_menu_add)
+    RegisterScriptCallback(CALLBACK.MAP_SPOT_MENU_PROPERTY_CLICKED, _on_map_spot_menu_clicked)
+end
+
+function on_game_start()
+    RegisterScriptCallback(CALLBACK.ACTOR_ON_FIRST_UPDATE, _on_first_update)
+end

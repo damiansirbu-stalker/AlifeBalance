@@ -4,7 +4,7 @@
 
 defaults = {
     enabled = true,
-    waves = 4,
+    advances = 4,
     min_hours = 1,
     show_markers = false,
     log_level = "WARN",
@@ -59,7 +59,7 @@ function on_mcm_load()
                     { id = "div_pacing", type = "line" },
                     { id = "hdr_pacing", type = "desc", text = "ui_mcm_ab_hdr_pacing", clr = {255, 200, 200, 200} },
                     { id = "enabled", type = "check", val = 1, def = true },
-                    { id = "waves", type = "track", val = 2, min = 1, max = 8, step = 1, def = 4 },
+                    { id = "advances", type = "track", val = 2, min = 1, max = 8, step = 1, def = 4 },
                     { id = "min_hours", type = "track", val = 2, min = 1, max = 6, step = 1, def = 1 },
 
                     -- Version footer

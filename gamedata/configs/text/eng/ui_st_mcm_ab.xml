@@ -18,7 +18,7 @@
         <text>AlifeBalance</text>
     </string>
     <string id="ui_mcm_ab_general_info">
-        <text>Combat thins the Zone faster than the engine refills it. AlifeBalance tracks deaths per (level, faction) and advances the respawn cooldown of an eligible smart on that level by a fraction of its cooldown each wave. After the configured number of waves the cooldown expires and the engine spawns one squad from the smart's own configured pool on its next alife tick. It does not spawn anything itself. Works alongside vanilla, ZCP, Redone, and any other spawner mod.</text>
+        <text>Combat thins the Zone faster than the engine refills it. AlifeBalance tracks deaths per (level, faction) and advances the respawn cooldown of an eligible smart on that level by a fraction of its cooldown each advance. After the configured number of advances the cooldown expires and the engine spawns one squad from the smart's own configured pool on its next alife tick. It does not spawn anything itself. Works alongside vanilla, ZCP, Redone, and any other spawner mod.</text>
     </string>
 
     <!-- General - Smart Pacing -->
@@ -31,23 +31,23 @@
     <string id="ui_mcm_ab_general_enabled_desc">
         <text>Master toggle. When off, no death tracking and no cooldown advances.</text>
     </string>
-    <string id="ui_mcm_ab_general_waves">
-        <text>Waves to refill</text>
+    <string id="ui_mcm_ab_general_advances">
+        <text>Advances to refill</text>
     </string>
-    <string id="ui_mcm_ab_general_waves_desc">
-        <text>How many waves are needed to fully advance a smart's respawn cooldown. A wave fires when one squad's worth of deaths has accumulated for a (level, faction) pair, and subtracts 1/waves of the picked smart's respawn cooldown. At 1, one wave clears the full cooldown (instant refill). At 4 (default), four waves of accumulated combat refill the smart. At 8, the refill is paced across eight waves. Higher values mean refills feel more earned by sustained combat.</text>
+    <string id="ui_mcm_ab_general_advances_desc">
+        <text>How many advances are needed to fully push a smart's respawn cooldown to its floor. An advance fires when one squad's worth of deaths has accumulated for a (level, faction) pair, and subtracts 1/advances of the picked smart's respawn cooldown. At 1, one advance clears the full cooldown (instant refill). At 4 (default), four advances of accumulated combat refill the smart. At 8, the refill is paced across eight advances. Higher values mean refills feel more earned by sustained combat.</text>
     </string>
     <string id="ui_mcm_ab_general_min_hours">
         <text>Minimum cooldown remaining (game hours)</text>
     </string>
     <string id="ui_mcm_ab_general_min_hours_desc">
-        <text>Minimum cooldown that must remain on a smart after a wave applies, in game hours. AlifeBalance never pushes the cooldown below this floor; the engine's own clock ages out the last leg naturally and fires the spawn from there. A smart already at or below this floor is skipped on the next wave (counter holds for next tick). Default 1 hour. Raise to leave more natural cooldown after every wave.</text>
+        <text>Minimum cooldown that must remain on a smart after an advance applies, in game hours. AlifeBalance never pushes the cooldown below this floor; the engine's own clock ages out the last leg naturally and fires the spawn from there. A smart already at or below this floor is skipped on the next advance (counter holds for next tick). Default 1 hour. Raise to leave more natural cooldown after every advance.</text>
     </string>
     <string id="ui_mcm_ab_development_show_markers">
         <text>Show map markers</text>
     </string>
     <string id="ui_mcm_ab_development_show_markers_desc">
-        <text>Place a green PDA map marker on every smart terrain that receives a wave. The marker lingers for 5 real-time minutes, then clears. Right-click any marker to teleport to that smart or show its stats. Independent of log level.</text>
+        <text>Place a green PDA map marker on every smart terrain that receives an advance. The marker lingers for 5 real-time minutes, then clears. Right-click any marker to teleport to that smart or show its stats. Independent of log level.</text>
     </string>
     <string id="st_ab_map_teleport_to">
         <text>Teleport to</text>
@@ -57,7 +57,7 @@
     </string>
     <!-- ==================== DEVELOPMENT TAB ==================== -->
     <string id="ui_mcm_ab_development_desc">
-        <text>Debug and development tools. DEBUG level enables structured tracing of every wave to alifebalance.log. Has performance cost.</text>
+        <text>Debug and development tools. DEBUG level enables structured tracing of every advance to alifebalance.log. Has performance cost.</text>
     </string>
 
     <!-- Development - Logging -->
@@ -68,7 +68,7 @@
         <text>Log level</text>
     </string>
     <string id="ui_mcm_ab_development_log_level_desc">
-        <text>Controls log verbosity. ERROR: crashes only. WARN: anomalies. INFO: startup and config only. DEBUG: every death, wave, eligible-set compute, gate outcome, and tick summary.</text>
+        <text>Controls log verbosity. ERROR: crashes only. WARN: anomalies. INFO: startup and config only. DEBUG: every death, advance, eligible-set compute, gate outcome, and tick summary.</text>
     </string>
     <string id="ab_development_log_level_lst_error">
         <text>Error</text>
@@ -91,12 +91,12 @@
         <text>Show status</text>
     </string>
     <string id="ui_mcm_ab_development_btn_show_status_desc">
-        <text>Display total deaths, counted deaths (faction + level resolved), protected and trash-tier filtered, scan ticks, waves fired, and engine spawns observed.</text>
+        <text>Display total deaths, counted deaths (faction + level resolved), protected and trash-tier filtered, scan ticks, advances fired, and engine spawns observed.</text>
     </string>
     <string id="ui_mcm_ab_development_btn_reset_counters">
         <text>Reset counters</text>
     </string>
     <string id="ui_mcm_ab_development_btn_reset_counters_desc">
-        <text>Clear all death counters, eligibility and threshold caches, per-smart wave stats, and diagnostic counters. Existing cooldown advances already written to smart-terrain timestamps persist; the engine resolves them on its next try_respawn.</text>
+        <text>Clear all death counters, eligibility and threshold caches, per-smart advance stats, and diagnostic counters. Existing cooldown advances already written to smart-terrain timestamps persist; the engine resolves them on its next try_respawn.</text>
     </string>
 </string_table>

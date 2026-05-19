@@ -1,44 +1,88 @@
-<h3>Version: 1.0.0 (xlibs 1.4.1)</h3>
-<h3>GitHub: <a href="https://github.com/damiansirbu-stalker/AlifeBalance">https://github.com/damiansirbu-stalker/AlifeBalance</a></h3>
-<h3>Changelog: <a href="https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/changelog">doc/changelog</a> | <a href="https://github.com/damiansirbu-stalker/AlifeBalance/issues">Bugs, suggestions</a></h3>
-<p>Combat thins the Zone faster than the engine refills it. Vanilla smart terrains respawn on a 12 game-hour cooldown, ZCP and Redone change the rules but the fundamental drain remains: kills outpace refills, active zones empty out, and the engine waits its full cycle before reconsidering.</p>
-<p>AlifeBalance watches faction-level death pressure and quietly nudges quiet smart terrains to refill sooner using their own configured spawn pools. It does not spawn anything itself. It writes two fields on smart terrains that the engine itself reads on its own update tick: opens one budget slot, optionally clears the smart's cooldown clock. The engine handles the rest at its own pace using its own configured squad pools.</p>
-<p>Works alongside vanilla, ZCP, Redone, GAMMA NPC Spawns, Night Mutants, Dynamic Despawner, and any other spawner mod because they all read and write the same engine state.</p>
-<h2>Faction-keyed death counters</h2>
-<p>Per level, per faction. Twelve stalker factions (stalker, bandit, csky, dolg, freedom, ecolog, killer, monolith, renegade, army, greh, isg) and a smaller set of mutant prop keys (predatory_day, predatory_night, vegetarian, zombied_day, zombied_night, special). Each death increments its matching bucket.</p>
-<h2>Threshold trip</h2>
-<p>When a bucket hits its threshold (default 5), it resets and a refill nudge is queued. Variable per stalker / mutant via MCM.</p>
-<h2>Emptiness-weighted smart pick</h2>
-<p>From smarts on the level that accept the dying faction, weighted random pick biased toward smarts with low NPC occupancy. Empty smarts more likely than crowded smarts. The Zone refills where it needs refilling, not where it's already crowded.</p>
-<h2>Recipe match</h2>
-<p>On the chosen smart, find a respawn recipe whose pool matches the dying kind (sim_squad for stalkers, simulation or zombied for mutants), with budget headroom. The smart spawns its own configured squad type, not anything we picked.</p>
-<h2>Two writes per nudge</h2>
-<p>Decrement that recipe's already_spawned counter by 1 (opens budget). With probability set by Pacing Strength, also clear last_respawn_update (forces respawn cycle on next engine tick). The engine handles the actual spawn.</p>
-<h2>Frame-spread processing</h2>
-<p>Trips queue and process at one per frame via xslice (cooperative time-slicing from xlibs). Heavy combat that produces many trips in a single frame is smoothed across subsequent frames.</p>
-<h2>Variance</h2>
-<p>Eight independent random sources between a death and a spawn: counter accumulation timing, threshold value, weighted smart pick, recipe pick on smart, engine's own recipe random across eligible recipes, engine's own squad pool random, cooldown probability, ZCP substitution if active. Player cannot trace a death to a spawn.</p>
-<h2>Mod compatibility</h2>
-<p>AlifeBalance writes vanilla engine fields. Every spawner mod in GAMMA either reads these fields through the same code path (vanilla try_respawn, ZCP's forked try_respawn) or doesn't interact with respawn bookkeeping at all (Redone is pure LTX, GAMMA NPC Spawns is pure LTX, Night Mutants uses a parallel SIMBOARD:create_squad path, Dynamic Despawner enforces an online cap independently). No conflict with AlifeGuard, AlifePlus, Warfare, Guards Spawner.</p>
-<h2>Performance</h2>
-<p>Lookups: dying squad's faction key (direct field read). Counter increment: O(1) per death. Trip processing: O(smarts on level) for the eligible filter, one trip per frame via xslice. Sub-millisecond per trip. No persistence.</p>
-<h2>MCM</h2>
-<p>General: enable, stalker death threshold, mutant death threshold, pacing strength (cooldown reset probability).<br />Development: log level (ERROR / WARN / INFO / DEBUG), diagnostics (status, reset counters).</p>
-<h2>Requirements</h2>
-<p>Anomaly 1.5.3<br /><a href="https://www.moddb.com/mods/stalker-anomaly/addons/xlibs-1001">xlibs</a><br />MCM</p>
-<h2>Install (MO2)</h2>
-<p>1. Install xlibs<br />2. Install AlifeBalance<br />3. Load order does not matter<br />4. Configure via MCM</p>
-<h2>Uninstall (MO2)</h2>
-<p>Disable or remove in MO2.</p>
-<h2>Compatibility</h2>
-<p>Tested with vanilla Anomaly 1.5.3 and GAMMA modpack.<br />Does not modify base scripts. Does not call alife_create or SIMBOARD:create_squad. Only writes vanilla engine fields the engine itself reads on every update tick.</p>
-<h2>Architecture</h2>
+<h3>Version: 1.0.0 (xlibs 1.5.1)</h3>
+<h3><a href="https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/architecture.md">Architecture</a> | <a href="https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/changelog">Changelog</a> | <a href="https://github.com/damiansirbu-stalker/AlifeBalance/issues">Bugs, suggestions</a></h3>
+<p><b>! Please use the RESET button in MCM when updating to a new version !</b></p>
+<p>The Anomaly A-Life simulation runs respawn cooldowns on a fixed schedule. The schedule does not know about combat pressure or quiet periods, so heavily fought regions empty out while ignored ones drift toward overcrowding. AlifeBalance is a balance layer that corrects this gap without rewriting the engine.</p>
+<h2>What you'll notice</h2>
 <ul>
-<li>AlifeBalance runs on xlibs, a reverse-engineered API that wraps the X-Ray engine source.</li>
-<li>No base script edits, no engine patches. Runtime callbacks only.</li>
-<li>Trip queue is frame-spread via xslice to smooth combat bursts.</li>
-<li>See doc/architecture.md for full design documentation.</li>
+<li>Active regions recover faster after heavy firefights.</li>
+<li>Inactive regions stop drifting toward overcrowding.</li>
+<li>Mutant lairs and stalker bases repopulate at a pace closer to the kill rate.</li>
+<li>Vanilla A-Life still owns every spawn.</li>
 </ul>
-<p>Credits:<br />Altogolik - support, ideas, source materials</p>
-<h2>Usage and License</h2>
-<p>Modpacks: allowed and encouraged. Keep the readme and license files.<br />Addons, patches, integrations: allowed. Credit "AlifeBalance by Damian Sirbu" visibly on your mod page.<br />Reproducing the implementation in other software: not allowed, even with credit.<br />Full license in LICENSE file and on GitHub.</p>
+<h2>Important</h2>
+<p>AlifeBalance never spawns, destroys, or modifies smart terrain or squad configuration. It reads engine state and nudges the respawn cooldown timestamps the game already reads. The engine still owns timing, recipes, squad sections, budget caps, and NPC counts.</p>
+<h2>Features</h2>
+<h3>Smart Pacing</h3>
+<p>Smart Pacing accelerates vanilla recovery when combat pressure exceeds the engine's pace.</p>
+<p>Death events fill per-(level, faction) counters. A periodic scanner reads them. For each pair where the counter has reached the threshold and at least one eligible smart has open spawn budget, Smart Pacing fires advances while pressure remains: pick the smart farthest from the actor that still has room, push its cooldown timestamp closer to expiry by an equal share, subtract threshold from the counter, drop the smart from this tick's pool when it hits the minimum-remaining floor. The next advance picks the next-farthest smart. Refills land away from the actor's current combat zone before nearby smarts.</p>
+<p>Burst combat that produces many kills in one minute can fire many advances on one tick, distributed across multiple smarts. Leftover kills under threshold carry to the next tick.</p>
+<p>MCM exposes two knobs: advance count (default 4) and minimum cooldown remaining in game hours (default 1). Each advance subtracts the same constant from the picked smart. Smart Pacing never pushes below the floor.</p>
+<p><b>Example, sustained combat:</b></p>
+<p>A small firefight kills 3 bandits on Cordon. The death counter reaches the threshold (3, the max NPC count of a Cordon bandit squad). Smart Pacing picks a bandit-spawning Cordon smart that still has room and moves its cooldown forward. The counter resets to 0. Several advances later (across several ticks) the smart hits the floor. The engine's ageing finishes the cooldown and fires the spawn.</p>
+<p><b>Example, burst combat:</b></p>
+<p>A heavy firefight wipes 30 bandits on Cordon in one minute. The death counter reaches 30. Threshold is 3. On the next tick Smart Pacing fires up to 10 advances: pick a smart, advance, subtract 3, repeat. A smart that hits its floor drops out and other eligibles take the remaining advances. Several smarts can hit floor in the same tick, queueing several refills for shortly after.</p>
+<p>If every eligible smart is at budget cap or at the floor, the advance defers and the counter holds.</p>
+<h2>Technical notes (for modders)</h2>
+<p>Runtime is xlibs, a reverse-engineered API over X-Ray internals. No engine patches, no script replacement, no parallel schedulers, no entity creation.</p>
+<p><b>What gets counted:</b><br />Deaths for all standard stalker factions and all mutant faction keys. Protected squads (story, companions, task targets) and vermin (rats, tushkanos) are filtered before counting. Everything else contributes; the threshold mechanism (max squad size per faction per level) throttles big-squad species proportionally.</p>
+<p><b>Threshold:</b><br />Kills needed before one advance fires for a (level, faction) pair. Set automatically to the largest squad size that can produce that faction at any eligible smart on the level. Cordon stalkers max at 3 NPCs per squad, so the Cordon stalker threshold is 3. Swamp boars max at 15, so the Swamp boar threshold is 15. Read from <code>squad_descr</code> LTX on first death and cached. Mutant-heavy levels land around 15 to 20, stalker-only levels around 3 to 5.</p>
+<p><b>Eligibility:</b><br />A smart is eligible when one of its respawn recipes has a squad section whose <code>squad_descr</code> faction matches. Routing props are not checked (they govern where squads can move, not what recipes spawn). The picker further filters to smarts with open per-recipe budget AND room for another advance.</p>
+<p><b>Refill &lt;= death:</b><br />Between consecutive engine spawns at any eligible smart for a (level, faction) pair, the engine refills no more NPCs of that faction on that level than have died. The threshold caps each refill against the deaths that earned it.</p>
+<p><b>Performance:</b><br />O(1) per death, O(active state) per scan, cached. DEBUG-level tracing reports per-event and per-tick timings to <code>alifebalance.log</code>. At WARN the mod is silent.</p>
+<h2>Compatibility</h2>
+<p>Compatible with vanilla Anomaly 1.5.3, GAMMA, ZCP, Redone, Warfare, AlifeGuard, AlifePlus, Night Mutants, GAMMA Dynamic Despawner, Guards Spawner, Nocturnal Mutants.</p>
+<ul>
+<li>Vanilla and ZCP read the same cooldown field AlifeBalance writes.</li>
+<li>Redone and GAMMA NPC Spawns ship pure config. AlifeBalance writes runtime state on a different layer.</li>
+<li>Night Mutants spawns through the engine's own path. Squads still register against their origin smart.</li>
+<li>Nocturnal Mutants spawns outside smart terrains. Ignored.</li>
+<li>Dynamic Despawner and AlifeGuard despawn without firing the death event. Never trigger advances.</li>
+</ul>
+<h2>MCM</h2>
+<ul>
+<li><b>Smart Pacing:</b> enable, advance count, minimum cooldown remaining.</li>
+<li><b>Development:</b> log level, map markers, show status, reset counters.</li>
+<li>Map markers are green PDA spots on every smart receiving an advance. Right-click to teleport or show advance stats.</li>
+</ul>
+<h2>Configuration tips</h2>
+<p>Two knobs: <b>advance count</b> (1-8, default 4) and <b>minimum cooldown remaining</b> (1-6 game hours, default 1).</p>
+<p><b>Advance count</b> is the kill-to-refill ratio. One advance advances one smart by 1/advances of its cooldown cycle; one full cycle (the smart hitting its floor) is what produces one engine spawn of up to threshold NPCs.</p>
+<ul>
+<li><code>advances=1</code>: each threshold crossing produces a refill. 3 stalker kills on Cordon (threshold 3) earn one stalker squad respawn.</li>
+<li><code>advances=4</code> (default): four threshold crossings produce a refill. 12 stalker kills earn one respawn.</li>
+<li><code>advances=8</code>: eight threshold crossings produce a refill. 24 stalker kills earn one respawn.</li>
+</ul>
+<p>Lower advance count makes refills cheaper; higher advance count means more sustained combat is needed before the engine spawns anything.</p>
+<p><b>Min hours</b> controls how long the engine ages the final cooldown leg on its own clock after AlifeBalance stops pushing. <code>min_hours=1</code> = refill fires about one game hour after the last advance. <code>min_hours=6</code> stretches that to about six game hours.</p>
+<p><b>Presets:</b></p>
+<ul>
+<li><b>Aggressive refill (1:1 kill-to-refill):</b> <code>advances=1, min_hours=1</code></li>
+<li><b>Default (4:1):</b> <code>advances=4, min_hours=1</code></li>
+<li><b>Conservative, sustained combat only (8:1):</b> <code>advances=8, min_hours=6</code></li>
+</ul>
+<p>If a refill does not appear right after a threshold crossing, the engine's actor-distance gate is the usual reason. The engine skips its respawn check at any smart with the actor within <code>respawn_radius</code>. Walk a bit further from the marker, or stay where the fight happened.</p>
+<h2>Requirements</h2>
+<ul>
+<li>Anomaly 1.5.3</li>
+<li><a href="https://www.moddb.com/mods/stalker-anomaly/addons/xlibs-1001">xlibs</a> 1.5.1+</li>
+<li>MCM</li>
+</ul>
+<h2>Install (MO2)</h2>
+<ol>
+<li>Install xlibs.</li>
+<li>Install AlifeBalance.</li>
+<li>Load order does not matter.</li>
+<li>Configure via MCM.</li>
+</ol>
+<h2>Uninstall</h2>
+<p>Disable or remove in MO2.</p>
+<h2>Credits</h2>
+<p>Altogolik for support, ideas, and source materials.</p>
+<h2>License</h2>
+<ul>
+<li>Modpacks: allowed and encouraged. Keep the readme and license files.</li>
+<li>Addons, patches, integrations: allowed. Credit "AlifeBalance by Damian Sirbu" visibly on your mod page.</li>
+<li>Reproducing the implementation in other software: not allowed, even with credit.</li>
+<li>Full license in LICENSE and on GitHub.</li>
+</ul>
+<p>Keep the Zone alive while letting vanilla A-Life remain vanilla.</p>

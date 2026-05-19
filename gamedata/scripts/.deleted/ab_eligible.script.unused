@@ -1,0 +1,214 @@
+--- ab_eligible: eligibility + threshold cache for AlifeBalance Smart Pacing.
+--- Walks SIMBOARD.smarts once per (level, faction) pair to find smarts whose
+--- respawn recipes can produce the target faction, computes the threshold
+--- (MAX npc_in_squad upper bound across matching sections), caches the result
+--- for the session. ab_pacing calls get_eligible_and_threshold per tick per
+--- pair, and evaluate_budget_for_faction per eligible smart per tick.
+--- State (caches) is wiped only by reset_state() (called from ab_pacing on
+--- save load and MCM reset).
+
+local pairs, ipairs, tonumber, tostring = pairs, ipairs, tonumber, tostring
+local string_format, string_match = string.format, string.match
+local table_concat = table.concat
+local xlog, xsmart, xlevel = xlog, xsmart, xlevel
+
+local log = xlog.get_logger("AB.ELIG", { outfile = "alifebalance.log" })
+
+local _dbg = false
+
+-- _eligible[level_id][faction]    = array of smart_ids whose recipes produce the faction
+-- _thresholds[level_id][faction]  = MAX npc_in_squad upper bound across matching sections
+-- _inventoried[level_id]          = true once per session (DEBUG inventory dump gate)
+local _eligible    = {}
+local _thresholds  = {}
+local _inventoried = {}
+
+function set_debug(dbg)
+    _dbg = dbg and true or false
+    if not dbg then _inventoried = {} end
+end
+
+function reset_state()
+    _eligible    = {}
+    _thresholds  = {}
+    _inventoried = {}
+end
+
+-- ==================== HELPERS ====================
+
+-- Parse "X, Y" or "X" -> upper bound (Y if range, else X).
+local function _parse_upper(s)
+    if not s then return 1 end
+    local _, high = string_match(s, "(%d+)%s*,%s*(%d+)")
+    if high then return tonumber(high) end
+    return tonumber(string_match(s, "(%d+)")) or 1
+end
+
+-- Returns the section's npc_in_squad upper bound if the section produces `faction`, else 0.
+local function _section_contribution(section, faction)
+    if xsmart.section_faction(section) ~= faction then return 0 end
+    return _parse_upper(ini_sys:r_string_ex(section, "npc_in_squad"))
+end
+
+-- Returns max contribution across all sections in one recipe; 0 if recipe doesn't produce faction.
+local function _recipe_contribution(recipe, faction)
+    if not recipe.squads then return 0 end
+    local best = 0
+    for _, section in ipairs(recipe.squads) do
+        local contribution = _section_contribution(section, faction)
+        if contribution > best then best = contribution end
+    end
+    return best
+end
+
+-- Returns max contribution across all recipes for one smart; 0 if smart doesn't produce faction.
+local function _smart_contribution(smart, faction)
+    if not smart.respawn_params then return 0 end
+    local best = 0
+    for _, recipe in pairs(smart.respawn_params) do
+        local contribution = _recipe_contribution(recipe, faction)
+        if contribution > best then best = contribution end
+    end
+    return best
+end
+
+-- True if at least one section in `recipe.squads` produces `faction`.
+local function _recipe_squads_match(recipe, faction)
+    if not recipe.squads then return false end
+    for _, section in ipairs(recipe.squads) do
+        if xsmart.section_faction(section) == faction then return true end
+    end
+    return false
+end
+
+-- "stalker|bandit" or "?" -- factions any squad section in this recipe can produce.
+local function _recipe_factions_str(recipe)
+    if not recipe.squads then return "?" end
+    local seen = {}
+    for _, section in ipairs(recipe.squads) do
+        local faction = xsmart.section_faction(section)
+        if faction then seen[faction] = true end
+    end
+    local out = {}
+    for faction in pairs(seen) do out[#out + 1] = faction end
+    if #out == 0 then return "?" end
+    return table_concat(out, "|")
+end
+
+-- "recipe_a->stalker, recipe_b->bandit" or "none" -- one entry per recipe in the smart.
+local function _smart_recipes_str(smart)
+    if not smart.respawn_params then return "none" end
+    local parts = {}
+    for k, recipe in pairs(smart.respawn_params) do
+        parts[#parts + 1] = tostring(k) .. "->" .. _recipe_factions_str(recipe)
+    end
+    if #parts == 0 then return "none" end
+    return table_concat(parts, ", ")
+end
+
+-- Resolve smart_ids to a comma-joined name list for diagnostic logs (local copy;
+-- ab_pacing has its own copy used in the [DEFER] log line there).
+local function _smart_names_str(smart_ids)
+    local names = {}
+    for i = 1, #smart_ids do
+        local smart = alife_object(smart_ids[i])
+        if smart then names[i] = smart:name() or "?" else names[i] = "?" end
+    end
+    return table_concat(names, ",")
+end
+
+-- Walk SIMBOARD.smarts once for a (level_id, faction). A smart is eligible iff at least
+-- one section in its respawn_params recipes has xsmart.section_faction(section) == faction
+-- (i.e. that recipe can produce a squad whose player_id matches our death-tracking key).
+-- Threshold = MAX npc_in_squad upper bound across the matching sections only -- because
+-- the engine will pick within the matching section's pool to refill this faction, and the
+-- threshold must bound that pick.
+local function _compute_for_level_faction(level_id, faction)
+    local board = SIMBOARD
+    if not board or not board.smarts then return {}, 1 end
+    local smarts, max_threshold = {}, 1
+    for _, rec in pairs(board.smarts) do
+        local smart = rec.smrt
+        if not smart then goto continue end
+        if xlevel.get_level_id(smart) ~= level_id then goto continue end
+        local contribution = _smart_contribution(smart, faction)
+        if contribution == 0 then goto continue end
+        smarts[#smarts + 1] = smart.id
+        if contribution > max_threshold then max_threshold = contribution end
+        ::continue::
+    end
+    return smarts, max_threshold
+end
+
+-- Dump every smart on the level once per session at DEBUG: routing-faction + recipe map.
+-- Lets the player see WHY a smart is or isn't eligible (recipe content vs routing prop).
+-- _inventoried gate keys by level so this fires once per level, not once per (level,
+-- faction). Reset on log-level change so toggling DEBUG mid-session re-dumps.
+local function _log_inventory(level_id)
+    if not _dbg then return end
+    if _inventoried[level_id] then return end
+    _inventoried[level_id] = true
+    local board = SIMBOARD
+    if not board or not board.smarts then return end
+    local total = 0
+    for _, rec in pairs(board.smarts) do
+        local smart = rec.smrt
+        if not smart then goto continue end
+        if xlevel.get_level_id(smart) ~= level_id then goto continue end
+        total = total + 1
+        log.debug("[INVENTORY] level=%d smart=%s routing=%s recipes=[%s]",
+            level_id, smart:name() or "?",
+            tostring(smart.faction), _smart_recipes_str(smart))
+        ::continue::
+    end
+    log.debug("[INVENTORY] level=%d total_smarts=%d", level_id, total)
+end
+
+-- ==================== PUBLIC API ====================
+
+-- Lazy-cache wrapper. Computed once per (level_id, faction) pair per session; smarts and
+-- recipes are static across the session, so no invalidation needed except on reset_state.
+-- First compute on a level also triggers _log_inventory at DEBUG.
+function get_eligible_and_threshold(level_id, faction)
+    local lvl_cache = _eligible[level_id]
+    if lvl_cache and lvl_cache[faction] then
+        return lvl_cache[faction], _thresholds[level_id][faction]
+    end
+    _log_inventory(level_id)
+    local smarts, threshold = _compute_for_level_faction(level_id, faction)
+    _eligible[level_id] = _eligible[level_id] or {}
+    _thresholds[level_id] = _thresholds[level_id] or {}
+    _eligible[level_id][faction] = smarts
+    _thresholds[level_id][faction] = threshold
+    if _dbg then
+        log.debug("[ELIGIBLE] level=%d faction=%s threshold=%d eligibles=%d [%s]",
+            level_id, faction, threshold, #smarts, _smart_names_str(smarts))
+    end
+    return smarts, threshold
+end
+
+-- Single-pass budget eval. For each recipe: compute cur (already_spawned[k].num) and max
+-- (pick_section_from_condlist on recipe.num); first recipe with open budget AND a
+-- faction-matching section wins. pick_section_from_condlist runs ONCE per recipe per call,
+-- so the gate decision and the printed snapshot read the same value -- previously the gate
+-- and the formatter called it twice and could disagree.
+-- Returns matched_key (or nil) and a budget string with * on the matched recipe.
+function evaluate_budget_for_faction(smart, faction)
+    if not smart.respawn_params then return nil, "[no respawn_params]" end
+    local matched_key
+    local parts, any_open = {}, false
+    for k, recipe in pairs(smart.respawn_params) do
+        local cur = (smart.already_spawned and smart.already_spawned[k]
+                     and smart.already_spawned[k].num) or 0
+        local max = tonumber(xr_logic.pick_section_from_condlist(db.actor, smart, recipe.num)) or 0
+        local open = max > cur
+        if open then any_open = true end
+        if not matched_key and open and _recipe_squads_match(recipe, faction) then
+            matched_key = k
+        end
+        local mark = (matched_key == k) and "*" or ""
+        parts[#parts + 1] = string_format("%s%s %d/%d", mark, tostring(k), cur, max)
+    end
+    return matched_key, string_format("[%s]%s",
+        table_concat(parts, ", "), any_open and "" or " ALL_FULL")
+end

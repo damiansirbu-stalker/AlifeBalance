@@ -1,0 +1,81 @@
+digraph pipeline {
+    // Layout
+    rankdir=TB
+    splines=ortho
+    compound=true
+    newrank=true
+    nodesep=0.6
+    ranksep=0.5
+
+    // Defaults
+    node [shape=box, style="rounded,filled", fillcolor=white,
+          fontsize=15, fontname="Arial", margin="0.15,0.1"]
+    edge [fontsize=12, fontname="Arial"]
+    graph [fontsize=17, fontname="Arial"]
+
+    // X-Ray Engine callbacks + spawn path
+    subgraph cluster_engine {
+        label="X-Ray Engine"
+        style="rounded,dashed"
+        color=gray60
+        fontsize=15
+
+        death_cb     [label="squad_on_npc_death"]
+        creation_cb  [label="squad_on_npc_creation"]
+        alife_tick   [label="se_smart_terrain:update\n-> try_respawn"]
+        gates        [label="cooldown gate (1651)\nbudget gate (1696)", shape=box, style="rounded,filled", fillcolor=gray95]
+        spawn        [label="SIMBOARD:create_squad\nsets last_respawn_update = curr_time"]
+
+        alife_tick -> gates
+        gates -> spawn [xlabel="pass"]
+    }
+
+    // AlifeBalance: Producer
+    subgraph cluster_producer {
+        label="Producer (per death)"
+        style=rounded
+        color=gray30
+        fontsize=15
+
+        on_death [label="_on_npc_death\nis_protected? vermin?\nfaction, level_id"]
+        deaths   [label="_deaths[level][faction]\n+= 1", style="rounded,filled", fillcolor=gray95]
+
+        on_death -> deaths
+    }
+
+    // AlifeBalance: Consumer (60s scanner)
+    subgraph cluster_consumer {
+        label="Consumer (60s scanner)"
+        style=rounded
+        color=gray30
+        fontsize=15
+
+        timer    [label="CreateTimeEvent\nTIMER_TICK = 60s"]
+        tick     [label="_periodic_tick\nwalk _deaths"]
+        eligible [label="_get_eligible_and_threshold\nrecipe-content match"]
+        below    [label="count < threshold?\n[BELOW] no action", shape=diamond, fillcolor=gray95]
+        budget   [label="_collect_with_budget\n_can_advance + open recipe", shape=diamond, fillcolor=gray95]
+        defer    [label="empty?\n[DEFER] hold counter"]
+        pick     [label="farthest-first pick\n[ADVANCE]"]
+        advance  [label="_advance_smart\nlast_respawn_update -= idle/advances"]
+        reset    [label="_deaths[level][faction]\n= 0", style="rounded,filled", fillcolor=gray95]
+
+        timer -> tick
+        tick -> eligible
+        eligible -> below
+        below -> budget [xlabel="no"]
+        budget -> defer [xlabel="empty"]
+        budget -> pick  [xlabel="non-empty"]
+        pick -> advance
+        advance -> reset
+    }
+
+    // Spawn trace (DEBUG)
+    trace [label="_on_npc_creation\n_stats.spawns++\nfrom_us tag", style="rounded,filled", fillcolor=gray95]
+
+    // Cross-cluster wiring
+    death_cb -> on_death
+    deaths -> tick [style=dashed, xlabel="read"]
+    advance -> alife_tick [style=dashed, xlabel="engine reads\nlast_respawn_update"]
+    creation_cb -> trace
+}

@@ -1,0 +1,59 @@
+digraph layers {
+    // Layout
+    rankdir=TB
+    splines=ortho
+    compound=true
+    newrank=true
+    nodesep=0.5
+    ranksep=0.5
+
+    // Defaults
+    node [shape=box, style="rounded,filled", fillcolor=white,
+          fontsize=15, fontname="Arial", margin="0.15,0.1"]
+    edge [fontsize=12, fontname="Arial"]
+    graph [fontsize=17, fontname="Arial"]
+
+    // Peer layer: AlifeBalance + spawner mods sharing the same engine field
+    subgraph cluster_peers {
+        label="Peers writing last_respawn_update"
+        style="rounded,dashed"
+        color=gray60
+        fontsize=15
+
+        ab     [label="AlifeBalance\nfarthest-first advance\n(idle/advances subtract)"]
+        zcp    [label="ZCP\nsmr_pop.smart_can_respawn\n(forked try_respawn)"]
+        redone [label="Redone Collection\npure LTX config", style="rounded,filled", fillcolor=gray95]
+        gnpc   [label="GAMMA NPC Spawns\npure LTX config", style="rounded,filled", fillcolor=gray95]
+    }
+
+    // Vanilla state layer (the engine field everyone reads)
+    state [label="Smart terrain state\nlast_respawn_update | respawn_params | already_spawned",
+           shape=box, style="rounded,filled", fillcolor=gray90, fontsize=14]
+
+    // X-Ray engine: the only spawner
+    subgraph cluster_engine {
+        label="X-Ray Engine"
+        style="rounded,dashed"
+        color=gray60
+        fontsize=15
+
+        try_respawn [label="smart_terrain.script:1597\ntry_respawn"]
+        create      [label="SIMBOARD:create_squad\n(the only spawn path)"]
+
+        try_respawn -> create [xlabel="all gates pass"]
+    }
+
+    // Parallel spawners that bypass smart terrains entirely
+    parallel [label="Parallel spawners\nNight Mutants | Nocturnal Mutants",
+              style="rounded,dashed", color=gray60]
+
+    // Edges
+    ab     -> state [xlabel="writes"]
+    zcp    -> state [xlabel="reads + writes"]
+    redone -> state [style=invis]
+    gnpc   -> state [style=invis]
+    state -> try_respawn [xlabel="reads"]
+
+    // Parallel path bypasses everything
+    parallel -> create [style=dashed, xlabel="alife_create / direct"]
+}
