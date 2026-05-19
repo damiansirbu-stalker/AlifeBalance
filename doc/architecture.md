@@ -143,6 +143,29 @@ ENGINE (its own alife tick at the advanced smart)
 
 ---
 
+## Recipe analysis (ab_recipe)
+
+Recipe-side work is split out of `ab_pacing` into `ab_recipe.script`. ab_pacing calls two
+public entry points and owns no recipe state itself:
+
+- `ab_recipe.get_eligible_and_threshold(level_id, faction)` — lazy-cached per (level, faction).
+  Eligibility (which smarts on the level have a recipe section producing the faction) is
+  resolved via `xsmart.find_smarts_with_recipe`. Threshold (MAX `npc_in_squad` upper across
+  matching sections of eligible smarts) is computed locally via `xsmart.get_section_npc_max`
+  per section. Cache key is `(level_id, faction)`; entries are recipe-content derived and
+  static for the session, so the only invalidation path is `ab_recipe.reset_state()` which
+  ab_pacing calls from `_reset_state` (save load and MCM reset).
+- `ab_recipe.evaluate_budget_for_faction(smart, faction)` — single-pass per (smart, faction)
+  budget eval. One `pick_section_from_condlist` per recipe; the first recipe with open
+  budget AND a `xsmart.section_faction`-matching section wins. Returns the matched recipe
+  key and a `budget_str` snapshot so the [ADVANCE] log line reuses the same string the gate
+  decided on; no second evaluation that could disagree with the gate.
+
+xsmart primitives delegated to: `find_smarts_with_recipe`, `get_section_npc_max`,
+`section_faction`. `ab_pacing` never calls these directly.
+
+---
+
 ## Engine gates inside try_respawn
 
 `smart_terrain.script:1597-1762` has eight gates. AlifeBalance affects one.
@@ -249,8 +272,10 @@ ZCP does not ship its own `squad_descr` overrides for vanilla sections; `xsmart.
 |------|---------|
 | `gamedata/scripts/_ab_deps.script` | Version string, xlibs dependency gate |
 | `gamedata/scripts/ab_mcm.script` | MCM defaults, UI definition, button handlers |
-| `gamedata/scripts/ab_pacing.script` | Death handler, periodic tick, eligibility / threshold cache, advance advance, public `marker_label` + `show_smart_stats` for ab_map |
+| `gamedata/scripts/ab_pacing.script` | Death handler, periodic tick burst-advance loop, per-smart CTime delta cache, `_advance_smart` cooldown subtract, public `marker_label` + `show_smart_stats` for ab_map |
+| `gamedata/scripts/ab_recipe.script` | Per-(level, faction) eligibility + threshold cache, single-pass budget evaluation. Delegates smart discovery and squad-size lookup to xsmart. |
 | `gamedata/scripts/ab_map.script` | PDA marker render-state, right-click menu (teleport, show stats). Calls back into ab_pacing for label + stats formatting. |
+| `gamedata/scripts/ab_test.script` | Console-driven test harness. Fires fake NPC deaths every 3s, alternating on-level / off-level pools. Same protection + vermin filters as ab_pacing. |
 | `gamedata/configs/text/eng/ui_st_mcm_ab.xml` | MCM strings (English) |
 | `gamedata/textures/ab_mcm_banner.dds` | MCM banner (512x50) |
 
