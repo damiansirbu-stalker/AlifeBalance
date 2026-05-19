@@ -3,8 +3,8 @@
 local pairs, ipairs, tonumber, tostring = pairs, ipairs, tonumber, tostring
 local math_random, math_floor = math.random, math.floor
 local string_format, string_match = string.format, string.match
-local table_concat, os_clock, RegisterScriptCallback = table.concat, os.clock, RegisterScriptCallback
-local xlog, xpda = xlog, xpda
+local table_concat, table_sort, os_clock, RegisterScriptCallback = table.concat, table.sort, os.clock, RegisterScriptCallback
+local xlog, xpda, xprofiler = xlog, xpda, xprofiler
 local xsmart, xsquad, xlevel, xcreature, xtime = xsmart, xsquad, xlevel, xcreature, xtime
 -- NOTE: never cache CreateTimeEvent/ResetTimeEvent/RemoveTimeEvent as locals (doc/library/xray/internals/globals.md:208-219).
 -- demonized_time_events.script replaces the globals at load time; cached locals point at a dead queue.
@@ -15,6 +15,7 @@ local TIMER_EV = "ab_pacing"
 local TIMER_TICK = "tick"
 local TICK_INTERVAL_SEC = 60
 local SEC_PER_HOUR = 3600
+local DEFAULT_RESPAWN_IDLE_SEC = 43200
 
 local CALLBACK = {
     SQUAD_ON_NPC_DEATH             = "squad_on_npc_death",
@@ -73,24 +74,45 @@ local _deaths       = {}
 local _eligible     = {}
 local _thresholds   = {}
 local _delta_cache  = {}
+local _inventoried  = {}
 local _seen_squads  = {}
 local _markers      = {}
 local _smart_stats  = {}
 local _stats        = { deaths = 0, counted = 0, protected = 0, trash = 0,
-                        ticks = 0, waves = 0, spawns = 0 }
+                        no_squad = 0, no_faction = 0, no_level = 0,
+                        ticks = 0, waves = 0, spawns = 0, spawns_from_us = 0 }
 
 -- ==================== SMART STATE FORMATTERS ====================
 
--- Format the cooldown state: "diff=Ns/idle=Ms" if set, "NIL" if nil. Reads engine
--- cooldown semantics (smart_terrain.script:1651: nil OR diff > respawn_idle = pass).
+-- Format game-time seconds as compact hours. <10h shows one decimal, >=10h shows int.
+local function _fmt_hours(seconds)
+    if not seconds then return "?" end
+    local hours = seconds / 3600
+    if hours >= 10 then return string_format("%dh", math_floor(hours)) end
+    return string_format("%.1fh", hours)
+end
+
+-- Format real-time seconds (os.clock deltas) as compact h/m/s.
+local function _fmt_real(seconds)
+    if not seconds then return "?" end
+    if seconds < 60   then return string_format("%ds", math_floor(seconds)) end
+    if seconds < 3600 then return string_format("%dm", math_floor(seconds / 60)) end
+    return string_format("%dh%dm", math_floor(seconds / 3600), math_floor((seconds % 3600) / 60))
+end
+
+-- Format the cooldown state: "age=Xh/idle=Yh (Zh left)" if set, "fresh" if nil.
+-- Reads engine cooldown semantics (smart_terrain.script:1651: nil OR diff > respawn_idle
+-- passes the gate).
 local function _format_cooldown(smart)
     local lru = smart.last_respawn_update
-    if lru == nil then return "NIL" end
+    if lru == nil then return "fresh" end
     local now = xtime.game_time()
     if not now then return "?" end
-    local diff = math_floor(now:diffSec(lru))
+    local age  = now:diffSec(lru)
     local idle = smart.respawn_idle or 0
-    return string_format("diff=%ds/idle=%ds%s", diff, idle, diff > idle and "(open)" or "")
+    local left = idle - age
+    if left <= 0 then return string_format("age=%s/idle=%s (engine ready)", _fmt_hours(age), _fmt_hours(idle)) end
+    return string_format("age=%s/idle=%s (%s left)", _fmt_hours(age), _fmt_hours(idle), _fmt_hours(left))
 end
 
 -- Per-recipe cur/max snapshot. cur = already_spawned[k].num (engine bookkeeping),
@@ -131,27 +153,25 @@ local function _smart_names_str(smart_ids)
     return table_concat(names, ",")
 end
 
--- Compute factions the smart accepts (Tier 1) by scanning known faction keys against props.
--- Static across the session; cached in _smart_stats once computed.
-local STALKER_FACTIONS = { "stalker", "bandit", "csky", "dolg", "freedom", "ecolog", "killer",
-                           "monolith", "renegade", "army", "greh", "isg", "zombied" }
-local MUTANT_FACTIONS  = { "monster", "monster_predatory_day", "monster_predatory_night",
-                           "monster_vegetarian", "monster_zombied_day", "monster_zombied_night",
-                           "monster_special" }
-local function _accepted_factions(smart)
-    local out = {}
-    if smart.props and smart.props.all and smart.props.all > 0 then
-        out[#out + 1] = "all"
+-- Union faction set across a recipe's squad sections, mutating `seen` (set semantics).
+local function _gather_recipe_factions(recipe, seen)
+    if not recipe.squads then return end
+    for _, section in ipairs(recipe.squads) do
+        local faction = xsmart.section_faction(section)
+        if faction then seen[faction] = true end
     end
-    for i = 1, #STALKER_FACTIONS do
-        local faction = STALKER_FACTIONS[i]
-        if xsmart.accepts_faction(smart, faction) then out[#out + 1] = faction end
+end
+
+-- Set of factions a smart's recipes can actually spawn. Recipe-content derived (via
+-- xsmart.section_faction per squad section), not routing-prop derived -- props govern
+-- where a squad can move, not what a smart's recipes produce.
+local function _smart_recipe_factions(smart)
+    local seen = {}
+    if not smart.respawn_params then return seen end
+    for _, recipe in pairs(smart.respawn_params) do
+        _gather_recipe_factions(recipe, seen)
     end
-    for i = 1, #MUTANT_FACTIONS do
-        local faction = MUTANT_FACTIONS[i]
-        if xsmart.accepts_faction(smart, faction) then out[#out + 1] = faction end
-    end
-    return out
+    return seen
 end
 
 -- ==================== SMART STATS BOOKKEEPING ====================
@@ -163,10 +183,15 @@ local function _record_wave(smart, level_id, faction, count, threshold,
                             before_cooldown, before_budget)
     local entry = _smart_stats[smart.id]
     if not entry then
+        local recipe_arr = {}
+        for recipe_faction in pairs(_smart_recipe_factions(smart)) do
+            recipe_arr[#recipe_arr + 1] = recipe_faction
+        end
+        table_sort(recipe_arr)
         entry = {
             name      = smart:name() or "?",
             level_id  = level_id,
-            factions  = _accepted_factions(smart),
+            factions  = recipe_arr,
             waves     = 0,
             first_at  = os_clock(),
         }
@@ -180,12 +205,114 @@ local function _record_wave(smart, level_id, faction, count, threshold,
     entry.last_budget          = before_budget
 end
 
+-- ==================== PACING ====================
+
+-- Build a CTime whose m_time equals exactly `seconds` (as ms). setHMSms(h,m,s,0) zeros
+-- m_time then adds generate_time(1,1,1,h,m,s,0). Two CTimes constructed this way differ
+-- in m_time by exactly the H/M/S delta in ms -- the (year=1, month=1, day=1) base cancels
+-- under operator-. Result is a pure duration usable with xrTime:sub for backdating.
+local function _make_delta_ctime(seconds)
+    local secs    = math_floor(seconds)
+    local hours   = math_floor(secs / 3600)
+    local minutes = math_floor((secs - hours * 3600) / 60)
+    local rem_sec = secs - hours * 3600 - minutes * 60
+    local zero    = game.CTime()
+    zero:setHMSms(0, 0, 0, 0)
+    local stamp   = game.CTime()
+    stamp:setHMSms(hours, minutes, rem_sec, 0)
+    return stamp - zero
+end
+
+-- Per-smart cache: the per-wave CTime delta and scalar advance, plus max_age. Advance
+-- is the equal subtract per wave, sized so that exactly `waves` waves carry a fresh smart
+-- from age 0 to (respawn_idle - min_hours_sec), where the cooldown still has min_hours
+-- of game time for the engine to age out on its own. max_age is the highest current age
+-- that can accept another wave without crossing the floor. Cache invalidated in
+-- _load_config when waves or min_hours change, and in _reset_state.
+local function _get_advance_params(smart)
+    local cached = _delta_cache[smart.id]
+    if cached then return cached end
+    local idle        = smart.respawn_idle or DEFAULT_RESPAWN_IDLE_SEC
+    local usable      = idle - cfg.min_hours * SEC_PER_HOUR
+    local advance_sec = (usable > 0) and (usable / cfg.waves) or 0
+    local max_age     = usable - advance_sec
+    if max_age < 0 then max_age = 0 end
+    local params      = {
+        delta   = (advance_sec > 0) and _make_delta_ctime(advance_sec) or nil,
+        advance = advance_sec,
+        max_age = max_age,
+    }
+    _delta_cache[smart.id] = params
+    return params
+end
+
+-- True if one more wave on this smart still leaves at least min_hours of cooldown
+-- remaining. Skip outright if advance is 0 (min_hours >= respawn_idle = degenerate
+-- config, vanilla pace owns this smart). A nil last_respawn_update means age is
+-- effectively infinite (never spawned); we still allow a wave on it because the wave
+-- initializes lru to now and subtracts the standard advance from there.
+local function _can_advance(smart)
+    local params = _get_advance_params(smart)
+    if params.advance <= 0 then return false end
+    local lru = smart.last_respawn_update
+    if lru == nil then return true end
+    local now = xtime.game_time()
+    if not now then return false end
+    return now:diffSec(lru) <= params.max_age
+end
+
+-- Subtract the standard per-wave delta from the smart's cooldown. Constant amount per
+-- smart, cached. AlifeBalance never crosses the min_hours floor and never triggers the
+-- spawn directly -- _can_advance pre-filters smarts whose age would exceed the cap.
+-- Marker hint refresh is the caller's responsibility (must run after _record_wave so
+-- the hint's wave count reflects this wave, not the previous one).
+local function _advance_smart(smart)
+    local lru = smart.last_respawn_update
+    if lru == nil then
+        lru = xtime.game_time()
+        if not lru then return end
+    end
+    lru:sub(_get_advance_params(smart).delta)
+    smart.last_respawn_update = lru
+end
+
 -- ==================== MAP MARKERS ====================
 
+-- Hover hint: mod / feature name + translated smart name + recipe-derived factions +
+-- wave snapshot at the moment of the last applied wave (count, room for more waves
+-- before the min_hours floor, cooldown remaining). The snapshot rebuilds on every wave
+-- via _mark_smart_with_linger so values reflect this wave's post-subtract state.
 local function _smart_label(smart)
-    local name = smart:name() or "?"
+    local name       = smart:name() or "?"
     local translated = game.translate_string(name)
-    return "AlifeBalance: " .. (translated ~= name and translated or name)
+    local display    = (translated ~= name and translated) or name
+    local refills    = {}
+    for faction in pairs(_smart_recipe_factions(smart)) do
+        refills[#refills + 1] = faction
+    end
+    local lines = { "Smart Pacing: " .. display }
+    if #refills > 0 then
+        lines[#lines + 1] = "refills: " .. table_concat(refills, ", ")
+    end
+    local entry  = _smart_stats[smart.id]
+    local params = _get_advance_params(smart)
+    local now    = xtime.game_time()
+    local lru    = smart.last_respawn_update
+    if entry and now and lru then
+        local age    = now:diffSec(lru)
+        local left   = (smart.respawn_idle or 0) - age
+        local room   = 0
+        if age <= params.max_age then
+            room = math_floor((params.max_age - age) / params.advance) + 1
+        end
+        lines[#lines + 1] = string_format("waves: %d, room for %d more", entry.waves, room)
+        if left > 0 then
+            lines[#lines + 1] = "engine spawns in " .. _fmt_hours(left) .. " of game time"
+        else
+            lines[#lines + 1] = "engine spawns on next alife tick"
+        end
+    end
+    return table_concat(lines, "\\n")
 end
 
 local function _mark_smart_with_linger(smart)
@@ -220,8 +347,9 @@ local function _load_config()
     local was_show_markers = cfg.show_markers
     local was_waves        = cfg.waves
     local was_min_hours    = cfg.min_hours
+    local was_log_level    = cfg.log_level
     cfg.enabled      = mcm.enabled
-    cfg.waves      = mcm.waves or 4
+    cfg.waves        = mcm.waves or 4
     cfg.min_hours    = mcm.min_hours or 1
     cfg.show_markers = mcm.show_markers
     cfg.log_level    = mcm.log_level
@@ -230,6 +358,8 @@ local function _load_config()
     _dbg = log.get_level() >= 5
     -- waves or min-hours change invalidates the per-smart cached CTime advance.
     if was_waves ~= cfg.waves or was_min_hours ~= cfg.min_hours then _delta_cache = {} end
+    -- log-level change clears the inventory gate so DEBUG re-dumps when re-enabled.
+    if was_log_level ~= cfg.log_level then _inventoried = {} end
     log.info("[CONFIG] enabled=%s waves=%d min_hours=%d show_markers=%s log=%s",
         tostring(cfg.enabled), cfg.waves, cfg.min_hours, tostring(cfg.show_markers), cfg.log_level)
     if was_show_markers and not cfg.show_markers then _clear_all_markers() end
@@ -331,13 +461,64 @@ local function _evaluate_budget_for_faction(smart, faction)
         table_concat(parts, ", "), any_open and "" or " ALL_FULL")
 end
 
+-- "stalker|bandit" or "?" -- factions any squad section in this recipe can produce.
+local function _recipe_factions_str(recipe)
+    if not recipe.squads then return "?" end
+    local seen = {}
+    for _, section in ipairs(recipe.squads) do
+        local faction = xsmart.section_faction(section)
+        if faction then seen[faction] = true end
+    end
+    local out = {}
+    for faction in pairs(seen) do out[#out + 1] = faction end
+    if #out == 0 then return "?" end
+    return table_concat(out, "|")
+end
+
+-- "recipe_a->stalker, recipe_b->bandit" or "none" -- one entry per recipe in the smart.
+local function _smart_recipes_str(smart)
+    if not smart.respawn_params then return "none" end
+    local parts = {}
+    for k, recipe in pairs(smart.respawn_params) do
+        parts[#parts + 1] = tostring(k) .. "->" .. _recipe_factions_str(recipe)
+    end
+    if #parts == 0 then return "none" end
+    return table_concat(parts, ", ")
+end
+
+-- Dump every smart on the level once per session at DEBUG: routing-faction + recipe map.
+-- Lets the player see WHY a smart is or isn't eligible (recipe content vs routing prop).
+-- _inventoried gate keys by level so this fires once per level, not once per (level,
+-- faction). Reset on log-level change so toggling DEBUG mid-session re-dumps.
+local function _log_inventory(level_id)
+    if not _dbg then return end
+    if _inventoried[level_id] then return end
+    _inventoried[level_id] = true
+    local board = SIMBOARD
+    if not board or not board.smarts then return end
+    local total = 0
+    for _, rec in pairs(board.smarts) do
+        local smart = rec.smrt
+        if not smart then goto continue end
+        if xlevel.get_level_id(smart) ~= level_id then goto continue end
+        total = total + 1
+        log.debug("[INVENTORY] level=%d smart=%s routing=%s recipes=[%s]",
+            level_id, smart:name() or "?",
+            tostring(smart.faction), _smart_recipes_str(smart))
+        ::continue::
+    end
+    log.debug("[INVENTORY] level=%d total_smarts=%d", level_id, total)
+end
+
 -- Lazy-cache wrapper. Computed once per (level_id, faction) pair per session; smarts and
 -- recipes are static across the session, so no invalidation needed except on reset_state.
+-- First compute on a level also triggers _log_inventory at DEBUG.
 local function _get_eligible_and_threshold(level_id, faction)
     local lvl_cache = _eligible[level_id]
     if lvl_cache and lvl_cache[faction] then
         return lvl_cache[faction], _thresholds[level_id][faction]
     end
+    _log_inventory(level_id)
     local smarts, threshold = _compute_for_level_faction(level_id, faction)
     _eligible[level_id] = _eligible[level_id] or {}
     _thresholds[level_id] = _thresholds[level_id] or {}
@@ -350,52 +531,6 @@ local function _get_eligible_and_threshold(level_id, faction)
     return smarts, threshold
 end
 
--- ==================== PACING ====================
-
--- Build a CTime whose m_time equals exactly `seconds` (as ms). setHMSms(h,m,s,0) zeros
--- m_time then adds generate_time(1,1,1,h,m,s,0). Two CTimes constructed this way differ
--- in m_time by exactly the H/M/S delta in ms -- the (year=1, month=1, day=1) base cancels
--- under operator-. Result is a pure duration usable with xrTime:sub for backdating.
-local function _make_delta_ctime(seconds)
-    local secs    = math_floor(seconds)
-    local hours   = math_floor(secs / 3600)
-    local minutes = math_floor((secs - hours * 3600) / 60)
-    local rem_sec = secs - hours * 3600 - minutes * 60
-    local zero    = game.CTime()
-    zero:setHMSms(0, 0, 0, 0)
-    local stamp   = game.CTime()
-    stamp:setHMSms(hours, minutes, rem_sec, 0)
-    return stamp - zero
-end
-
--- Per-smart cache of the respawn_idle/waves duration CTime. respawn_idle varies per smart,
--- waves is the same across all smarts; cache is invalidated in _load_config when waves changes
--- and in _reset_state.
-local function _get_advance_delta(smart)
-    local cached = _delta_cache[smart.id]
-    if cached then return cached end
-    local idle = smart.respawn_idle or 43200
-    local advance = idle / cfg.waves
-    local floor   = cfg.min_hours * SEC_PER_HOUR
-    if advance < floor then advance = floor end
-    local delta = _make_delta_ctime(advance)
-    _delta_cache[smart.id] = delta
-    return delta
-end
-
--- Advance a smart's respawn cooldown by respawn_idle/waves seconds. Each wave moves it
--- 1/waves closer to expiry; after the full wave count the engine spawns naturally on its
--- next alife tick. last_respawn_update can be nil for a smart that has never spawned --
--- initialize to now so the first wave's sub yields "now - respawn_idle/waves", same as
--- if the smart had just spawned. xrTime:sub clamps at 0 on underflow (= fully expired).
-local function _advance_smart(smart)
-    local lru = smart.last_respawn_update
-    if lru == nil then lru = xtime.game_time() end
-    lru:sub(_get_advance_delta(smart))
-    smart.last_respawn_update = lru
-    if cfg.show_markers then _mark_smart_with_linger(smart) end
-end
-
 -- ==================== DEATH HANDLER ====================
 
 -- Filter chain mirrors the original architecture's intent:
@@ -403,28 +538,56 @@ end
 --   cowardly:  rats / tushkanos / flesh / zombies / karliks would flood the counter; per
 --              per-faction threshold the flood is partially absorbed, but biases refill
 --              toward those species. Easier to filter at source.
+-- Every skip path is counted in _stats AND traced at DEBUG so the player can correlate
+-- in-game kills to recorded deaths. Luabind calls inside log lines are gated by `_dbg`.
 local function _on_npc_death(squad, npc, _killer)
     if not cfg.enabled then return end
-    if not squad then return end
     _stats.deaths = _stats.deaths + 1
+    if not squad then
+        _stats.no_squad = _stats.no_squad + 1
+        if _dbg then
+            log.debug("[SKIP] reason=no_squad npc=%s",
+                (npc and npc.section_name and npc:section_name()) or "?")
+        end
+        return
+    end
     if xsquad.is_protected(squad, _protection_opts) then
         _stats.protected = _stats.protected + 1
+        if _dbg then
+            log.debug("[SKIP] reason=protected squad=%d player_id=%s",
+                squad.id, tostring(squad.player_id))
+        end
         return
     end
     if xcreature.is_cowardly_species(squad) then
         _stats.trash = _stats.trash + 1
+        if _dbg then
+            log.debug("[SKIP] reason=cowardly squad=%d player_id=%s",
+                squad.id, tostring(squad.player_id))
+        end
         return
     end
     local faction = squad.player_id
-    if not faction or faction == "" then return end
+    if not faction or faction == "" then
+        _stats.no_faction = _stats.no_faction + 1
+        if _dbg then log.debug("[SKIP] reason=no_faction squad=%d", squad.id) end
+        return
+    end
     local level_id = xlevel.get_level_id(npc or squad)
-    if not level_id then return end
+    if not level_id then
+        _stats.no_level = _stats.no_level + 1
+        if _dbg then
+            log.debug("[SKIP] reason=no_level squad=%d faction=%s", squad.id, faction)
+        end
+        return
+    end
     _stats.counted = _stats.counted + 1
     _deaths[level_id] = _deaths[level_id] or {}
     _deaths[level_id][faction] = (_deaths[level_id][faction] or 0) + 1
     if _dbg then
-        log.debug("[DEATH] level=%d faction=%s count=%d",
-            level_id, faction, _deaths[level_id][faction])
+        log.debug("[DEATH] level=%d faction=%s count=%d npc=%s squad=%d",
+            level_id, faction, _deaths[level_id][faction],
+            (npc and npc.section_name and npc:section_name()) or "?", squad.id)
     end
 end
 
@@ -436,21 +599,29 @@ end
 -- (smart_terrain.script:1720-1721) and the callback fires DURING create_squad.
 -- Includes spawns the engine made without a wave from us; the ratio waves/spawns is a
 -- debug signal, not production logic.
+-- Counters always run (cheap field ops); luabind log call is _dbg-gated. Tags whether
+-- the spawn occurred at a smart AlifeBalance has advanced (matching _smart_stats key) so
+-- the player can correlate waves to actual refills.
 local function _on_npc_creation(squad, _se_obj, spawn_smart)
-    if not _dbg then return end
     if not squad or not squad.id then return end
     if _seen_squads[squad.id] then return end
     _seen_squads[squad.id] = true
     if not spawn_smart then return end
     _stats.spawns = _stats.spawns + 1
-    log.debug("[SPAWN] smart=%s squad_id=%d",
-        spawn_smart:name() or "?", squad.id)
+    local from_us = _smart_stats[spawn_smart.id] ~= nil
+    if from_us then _stats.spawns_from_us = _stats.spawns_from_us + 1 end
+    if _dbg then
+        log.debug("[SPAWN] smart=%s squad=%d faction=%s from_wave=%s",
+            spawn_smart:name() or "?", squad.id,
+            tostring(squad.player_id), tostring(from_us))
+    end
 end
 
 -- ==================== PERIODIC TICK ====================
 
 -- Walk eligible smarts once. For each, evaluate budget for `faction` in a single pass
--- (one pick_section_from_condlist per recipe) and keep those with a matched open recipe.
+-- (one pick_section_from_condlist per recipe) and keep those that have a matched open
+-- recipe AND can still accept another wave without crossing the min_hours floor.
 -- Returns array of { smart, budget_str } so the wave log line can reuse the same string
 -- the gate decided on -- no second evaluation that could disagree.
 local function _collect_with_budget(smart_ids, faction)
@@ -458,6 +629,7 @@ local function _collect_with_budget(smart_ids, faction)
     for i = 1, #smart_ids do
         local smart = alife_object(smart_ids[i])
         if not smart then goto continue end
+        if not _can_advance(smart) then goto continue end
         local matched, budget_str = _evaluate_budget_for_faction(smart, faction)
         if not matched then goto continue end
         with_budget[#with_budget + 1] = { smart = smart, budget_str = budget_str }
@@ -467,11 +639,12 @@ local function _collect_with_budget(smart_ids, faction)
 end
 
 -- Try to fire one wave for one (level, faction) when the death count crosses threshold
--- and at least one eligible smart has open budget. A wave subtracts respawn_idle/waves
--- from the picked smart's cooldown; after the full wave count the cooldown expires and
--- on its next alife tick. Logs every gate outcome at DEBUG: [NOELIG] no recipe on this
--- level produces the faction; [BELOW] count below threshold; [DEFER] threshold met but
--- every eligible is at budget cap -- hold pressure; [WAVE] fired.
+-- and at least one eligible smart can accept a wave (has open budget AND age <= max_age).
+-- A wave subtracts respawn_idle/waves from the picked smart's cooldown; the engine then
+-- ages out the last min_hours of game-time on its own clock and fires try_respawn from
+-- there. Logs every gate outcome at DEBUG: [NOELIG] no recipe on this level produces the
+-- faction; [BELOW] count below threshold; [DEFER] threshold met but every eligible is
+-- either at budget cap or already at the min_hours floor -- hold pressure; [WAVE] fired.
 local function _try_nudge_for_faction(level_id, by_faction, faction, count)
     local smart_ids, threshold = _get_eligible_and_threshold(level_id, faction)
     if #smart_ids == 0 then
@@ -496,8 +669,9 @@ local function _try_nudge_for_faction(level_id, by_faction, faction, count)
         end
         return
     end
-    local pick = with_budget[math_random(#with_budget)]
+    local pick  = with_budget[math_random(#with_budget)]
     local smart = pick.smart
+    local tmr   = xprofiler.new_if(_dbg):start()
     local before_cooldown = _format_cooldown(smart)
     local pop_str         = _format_pop(smart)
     _advance_smart(smart)
@@ -505,11 +679,14 @@ local function _try_nudge_for_faction(level_id, by_faction, faction, count)
     _stats.waves = _stats.waves + 1
     _record_wave(smart, level_id, faction, count, threshold,
                  before_cooldown, pick.budget_str)
+    if cfg.show_markers then _mark_smart_with_linger(smart) end
+    tmr:stop()
     if _dbg then
         log.debug(
-            "[WAVE] smart=%s level=%d faction=%s count=%d/threshold=%d waves=%d pop=%s cooldown[%s -> %s] budget=%s",
-            smart:name() or "?", level_id, faction, count, threshold, cfg.waves,
-            pop_str, before_cooldown, _format_cooldown(smart), pick.budget_str)
+            "[WAVE] smart=%s level=%d faction=%s count=%d/threshold=%d wave=%d/%d pop=%s cooldown[%s -> %s] budget=%s [%.2fms]",
+            smart:name() or "?", level_id, faction, count, threshold,
+            _smart_stats[smart.id].waves, cfg.waves,
+            pop_str, before_cooldown, _format_cooldown(smart), pick.budget_str, tmr:get_ms())
     end
 end
 
@@ -521,16 +698,19 @@ local function _periodic_tick()
     ResetTimeEvent(TIMER_EV, TIMER_TICK, TICK_INTERVAL_SEC)
     if not cfg.enabled then return end
     _stats.ticks = _stats.ticks + 1
+    local tmr = xprofiler.new_if(_dbg):start()
     for level_id, by_faction in pairs(_deaths) do
         for faction, count in pairs(by_faction) do
             _try_nudge_for_faction(level_id, by_faction, faction, count)
         end
     end
     _prune_markers()
+    tmr:stop()
     if _dbg then
-        log.debug("[SUMMARY] deaths=%d counted=%d protected=%d trash=%d ticks=%d waves=%d spawns=%d",
+        log.debug("[SUMMARY] deaths=%d counted=%d protected=%d trash=%d no_squad=%d no_faction=%d no_level=%d ticks=%d waves=%d spawns=%d from_wave=%d [%.2fms]",
             _stats.deaths, _stats.counted, _stats.protected, _stats.trash,
-            _stats.ticks, _stats.waves, _stats.spawns)
+            _stats.no_squad, _stats.no_faction, _stats.no_level,
+            _stats.ticks, _stats.waves, _stats.spawns, _stats.spawns_from_us, tmr:get_ms())
     end
 end
 
@@ -554,42 +734,40 @@ local function _on_map_spot_menu_add(property_ui, id, _level_name)
     property_ui:AddItem(_stats_menu_label(name))
 end
 
--- Show tracked stats for a smart that received waves via PDA tips. Pulls from
--- _smart_stats and reads live engine state for current cooldown/budget so the player
--- sees both the recorded snapshot and the present situation.
+-- Show tracked stats for a smart that received waves, via stacked PDA tips. Pulls from
+-- _smart_stats and reads live engine state for current cooldown / budget / capacity, so
+-- the player sees both the historical record and the present situation in one view.
 local function _show_smart_stats(se_obj)
     if not db or not db.actor then return end
-    local entry = _smart_stats[se_obj.id]
     local name  = se_obj:name() or "?"
+    local entry = _smart_stats[se_obj.id]
     if not entry then
         news_manager.send_tip(db.actor, name .. ": no waves yet", nil, nil, STATUS_TIP_MS)
         return
     end
-    local now = os_clock()
-    local first_ago = math_floor(now - entry.first_at)
-    local last_ago  = math_floor(now - (entry.last_at or entry.first_at))
-    local trigger   = entry.last_trigger or {}
+    local now      = os_clock()
+    local last_ago = _fmt_real(now - (entry.last_at or entry.first_at))
+    local first_ago = _fmt_real(now - entry.first_at)
+    local trigger  = entry.last_trigger or {}
     news_manager.send_tip(db.actor, string_format(
-        "%s: waves=%d (first %ds ago, last %ds ago)",
-        name, entry.waves, first_ago, last_ago), nil, nil, STATUS_TIP_MS)
-    news_manager.send_tip(db.actor, string_format(
-        "factions: %s", table_concat(entry.factions, ", ")),
+        "%s: %d waves (last %s ago, first %s ago)",
+        name, entry.waves, last_ago, first_ago),
         nil, nil, STATUS_TIP_MS)
     news_manager.send_tip(db.actor, string_format(
-        "last trigger: level=%s faction=%s count=%d/threshold=%d",
-        tostring(trigger.level_id), tostring(trigger.faction),
+        "now: %s, pop %s, budget %s",
+        _format_cooldown(se_obj), _format_pop(se_obj), _format_budget(se_obj)),
+        nil, nil, STATUS_TIP_MS)
+    news_manager.send_tip(db.actor, string_format(
+        "last trigger: %s on level %s, %d/%d deaths",
+        tostring(trigger.faction), tostring(trigger.level_id),
         trigger.count or 0, trigger.threshold or 0),
         nil, nil, STATUS_TIP_MS)
     news_manager.send_tip(db.actor, string_format(
-        "cooldown before last wave: %s",
-        entry.last_before_cooldown or "?"),
+        "before that wave: %s, budget %s",
+        entry.last_before_cooldown or "?", entry.last_budget or "?"),
         nil, nil, STATUS_TIP_MS)
     news_manager.send_tip(db.actor, string_format(
-        "budget before last wave: %s", entry.last_budget or "?"),
-        nil, nil, STATUS_TIP_MS)
-    news_manager.send_tip(db.actor, string_format(
-        "now: cooldown=%s pop=%s budget=%s",
-        _format_cooldown(se_obj), _format_pop(se_obj), _format_budget(se_obj)),
+        "produces: %s", table_concat(entry.factions, ", ")),
         nil, nil, STATUS_TIP_MS)
 end
 
@@ -623,10 +801,12 @@ local function _reset_state()
     _eligible     = {}
     _thresholds   = {}
     _delta_cache  = {}
+    _inventoried  = {}
     _seen_squads  = {}
     _smart_stats  = {}
     _stats        = { deaths = 0, counted = 0, protected = 0, trash = 0,
-                      ticks = 0, waves = 0, spawns = 0 }
+                      no_squad = 0, no_faction = 0, no_level = 0,
+                      ticks = 0, waves = 0, spawns = 0, spawns_from_us = 0 }
 end
 
 local function _on_load_state(_m_data)
@@ -656,12 +836,31 @@ end
 
 function show_status()
     if not db or not db.actor then return end
+    local pairs_count = 0
+    for _, by_faction in pairs(_deaths) do
+        for _ in pairs(by_faction) do pairs_count = pairs_count + 1 end
+    end
+    local smarts_advanced = 0
+    for _ in pairs(_smart_stats) do smarts_advanced = smarts_advanced + 1 end
     news_manager.send_tip(db.actor,
-        "AlifeBalance " .. _ab_deps.get_version(), nil, nil, STATUS_TIP_MS)
+        "AlifeBalance " .. _ab_deps.get_version() .. " (waves=" .. tostring(cfg.waves)
+        .. " min_hours=" .. tostring(cfg.min_hours) .. ")",
+        nil, nil, STATUS_TIP_MS)
     news_manager.send_tip(db.actor, string_format(
-        "deaths=%d counted=%d protected=%d trash=%d ticks=%d waves=%d spawns=%d",
-        _stats.deaths, _stats.counted, _stats.protected, _stats.trash,
-        _stats.ticks, _stats.waves, _stats.spawns),
+        "deaths: %d total (%d counted, %d protected, %d trash)",
+        _stats.deaths, _stats.counted, _stats.protected, _stats.trash),
+        nil, nil, STATUS_TIP_MS)
+    news_manager.send_tip(db.actor, string_format(
+        "skips: %d no squad, %d no faction, %d no level",
+        _stats.no_squad, _stats.no_faction, _stats.no_level),
+        nil, nil, STATUS_TIP_MS)
+    news_manager.send_tip(db.actor, string_format(
+        "scanner: %d ticks, %d waves fired, %d engine spawns (%d from our waves)",
+        _stats.ticks, _stats.waves, _stats.spawns, _stats.spawns_from_us),
+        nil, nil, STATUS_TIP_MS)
+    news_manager.send_tip(db.actor, string_format(
+        "tracking: %d (level, faction) pairs, %d smarts received waves",
+        pairs_count, smarts_advanced),
         nil, nil, STATUS_TIP_MS)
 end
 

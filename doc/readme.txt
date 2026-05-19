@@ -6,114 +6,114 @@ AlifeBalance: A-Life balance layer for STALKER Anomaly, by Damian
 
 ! Please use the RESET button in MCM when updating to a new version !
 
-Smart terrains run respawn cooldowns of 12 to 24 game-hours, and in heavy combat squads die faster than those cooldowns can refill them. Active zones drain across a play session, and whole regions hollow out before the engine's own pace catches up.
+The Anomaly A-Life simulation runs respawn cooldowns on a fixed schedule.
+The schedule does not know about combat pressure or quiet periods, so heavily fought regions empty out while ignored ones drift toward overcrowding.
+AlifeBalance is a balance layer that corrects this gap without rewriting the engine.
 
-AlifeBalance counts NPC deaths per (level, faction) and runs a 60-second scanner over those counters. When one squad's worth of kills has accumulated for a (level, faction) pair, AlifeBalance picks one open-budget smart on that level whose recipes can produce that faction and subtracts a fraction of that smart's respawn cooldown. After the configured number of waves on the same smart, the cooldown has been moved back by a full respawn period, and the engine spawns one squad from the smart's own configured pool on its next alife tick.
+What you'll notice:
 
-The wave count is a player setting in MCM with range 1 to 8 and default 4. At 1, a single wave clears the full cooldown for an instant refill. At 8, the refill is paced across eight waves of sustained combat. The per-wave advance is floored at one game hour, so short cooldowns and high wave counts still produce a meaningful nudge.
+- Active regions recover faster after heavy firefights.
+- Inactive regions stop drifting toward overcrowding.
+- Mutant lairs and stalker bases repopulate at a pace closer to the kill rate.
+- Vanilla A-Life still owns every spawn.
 
-AlifeBalance does not spawn anything. Each wave is one write to one field on one smart, where the field is last_respawn_update, the same CTime field the engine itself writes after every successful spawn. The arithmetic uses xrTime:sub, an engine API, and the new value rides save data through the engine's own w_CTime / r_CTime path.
+Important:
 
-The engine still owns every gate: peace info, level filter, actor distance, simulation availability, per-recipe budget. The engine still picks the recipe, the squad section, and the NPC count within the configured range. AlifeBalance only moves the cooldown closer to expiry, and the engine decides whether and what to spawn when that cooldown finally expires.
+AlifeBalance never spawns, destroys, or modifies smart terrain or squad configuration.
+It reads engine state and nudges the respawn cooldown timestamps the game already reads.
+The engine still owns timing, recipes, squad sections, budget caps, and NPC counts.
 
-There are no base script edits, no engine patches, no parallel scheduler, and no entity creation calls of any kind. Tested with vanilla Anomaly 1.5.3, GAMMA, ZCP, and Redone.
+Features:
+
+Smart Pacing
+
+Smart Pacing accelerates vanilla recovery when combat pressure exceeds the engine's pace.
+
+Death events fill per-(level, faction) counters.
+A periodic scanner reads them.
+When kills cross a threshold, Smart Pacing picks an eligible smart with open spawn budget and pushes its cooldown timestamp closer to expiry by an equal share.
+After enough waves the smart sits at the minimum-remaining floor, and the engine's own clock ages out the last leg and fires the spawn naturally.
+
+MCM exposes two knobs: wave count (default 4) and minimum cooldown remaining in game hours (default 1).
+Each wave subtracts the same constant from the picked smart.
+Smart Pacing never pushes below the floor.
 
 Example:
 
-A bandit firefight thins bandit presence on Cordon, and the death counter for (cordon, bandit) climbs. Once it crosses the per-(level, faction) threshold (around 3 deaths on Cordon, derived from the bandit squad sections' npc_in_squad upper bound), AlifeBalance picks one open-budget bandit-spawning smart on Cordon and subtracts a fraction of that smart's cooldown. The counter resets and the next wave starts fresh. After the configured number of waves on the same smart, the cooldown has been advanced by the full respawn_idle, and the engine's try_respawn at that smart spawns one bandit squad from the smart's own pool on its next alife tick.
+A firefight wipes several bandits on Cordon.
+The death counter climbs past the threshold (around 3, the max NPC count of a Cordon bandit squad).
+Smart Pacing picks a bandit-spawning Cordon smart that still has room and moves its cooldown forward.
+The counter resets.
+Several waves later the smart hits the floor.
+The engine's ageing finishes the cooldown and fires the spawn.
+If every eligible smart is at budget cap or at the floor, the wave defers and the counter holds.
 
-If every bandit-spawning smart on Cordon is at budget cap when a wave would fire, the wave defers and the counter holds until the next tick, at which point AlifeBalance retries with whatever budget has opened in the meantime.
+Technical notes (for modders):
 
-Structural invariants:
-
-- Event-driven: AlifeBalance subscribes to engine callbacks and runs only when the engine fires one, and is idle between waves.
-- Engine-native: every wave is one CTime subtraction on the same field the engine itself writes after every successful spawn, with no SIMBOARD calls and no gate bypass.
-- No fabrication: AlifeBalance never creates entities of any kind, and the engine remains the sole spawner.
-- Refill <= death: per (level, faction), between consecutive engine spawns at any eligible smart for that pair, the engine refills no more NPCs of that faction on that level than have died.
-- Configuration-respect: vanilla, ZCP, Redone, and modpack-configured spawn pools, cooldowns, props, and max populations remain authoritative, and AlifeBalance only moves the cooldown timestamp on smart terrains that already produce the dying faction.
+Runtime is xlibs, a reverse-engineered API over X-Ray internals.
+No engine patches, no script replacement, no parallel schedulers, no entity creation.
 
 What gets counted:
+Deaths for all standard stalker factions and all mutant faction keys.
+Protected squads (story, companions, task targets) and cowardly-tier mutants (rats, tushkanos, flesh, zombies, karliks) are filtered before counting.
 
-AlifeBalance tracks deaths for twelve stalker factions (stalker, bandit, csky, dolg, freedom, ecolog, killer, monolith, renegade, army, greh, isg), plus zombied, plus seven mutant faction keys (monster, monster_predatory_day, monster_predatory_night, monster_vegetarian, monster_zombied_day, monster_zombied_night, monster_special), each with its own counter per level. Protected squads (story, companions, task targets) and cowardly-tier mutants (rats, tushkanos, flesh, zombies, karliks) are filtered out before counting.
+Threshold:
+Per (level, faction), the max npc_in_squad upper bound across squad sections producing the faction at any eligible smart on the level.
+Read from squad_descr LTX on first death and cached.
+Mutant-heavy levels land around 15 to 20, stalker-only levels around 3 to 5.
 
-How the threshold is derived:
+Eligibility:
+A smart is eligible when one of its respawn recipes has a squad section whose squad_descr faction matches.
+Routing props are not checked (they govern where squads can move, not what recipes spawn).
+The picker further filters to smarts with open per-recipe budget AND room for another wave.
 
-The threshold for a (level, faction) pair is the MAX npc_in_squad upper bound across the squad sections in eligible smarts' recipes that produce the dying faction. It is read from squad_descr LTX on first death for the pair and cached for the session. A level with rat-lair smarts producing the faction sits around 15 to 20, and a stalker-only level sits around 3 to 5.
-
-How eligibility is decided:
-
-A smart is eligible to refill faction F when at least one section across all its respawn_params recipes has its squad_descr faction field equal to F. This is the same vocabulary as squad.player_id at spawn time and xcreature.community at runtime. Smart-terrain props are not used, since they control where a squad can move to and not what a smart's recipes spawn. After eligibility, AlifeBalance filters smarts down to those with open spawn budget right now under the engine's own already_spawned[k].num < max gate, and if no eligible smart has open budget the wave defers and pressure accumulates until a slot frees naturally when one of the engine's tracked squads dies.
-
-How the wave gets applied:
-
-The death event handler only increments counters and is O(1) per death. The 60-second scanner walks the counters, picks every (level, faction) at or above threshold, applies the budget filter, advances the cooldown of one open-budget eligible smart by max(respawn_idle / waves, one game hour), and resets only that pair's counter. The picker is random across open-budget eligibles, and the engine resets the picked smart's last_respawn_update to curr_time once it finally spawns, which naturally rotates the picker onto other smarts on the next cycle.
-
-What the engine still owns:
-
-The engine picks the recipe at random from the smart's open ones, picks one squad section at random from that recipe's pool, calls SIMBOARD:create_squad, sets respawn_point_id, increments already_spawned[k].num, and sets last_respawn_update to curr_time.
-
-Sources of variance between a death and a spawn:
-
-- Per-(level, faction) threshold derived from squad_descr LTX
-- Wave count per refill cycle (configurable 1 to 8)
-- 60-second tick alignment
-- Random smart pick among open-budget eligibles per wave
-- Engine random pick among open recipes on the chosen smart
-- Engine random pick from the recipe's squad pool
-- Engine random NPC count within the squad section's npc_in_squad range
-- ZCP substitution if enabled
-
-Architecture:
-
-AlifeBalance is reactive plus periodic with no global scheduler. The death callback increments a counter keyed by (level, faction), and the 60-second real-time tick reads those counters, applies waves, and resets fired counters. Runtime is xlibs, a reverse-engineered API wrapping the X-Ray engine source.
+Refill <= death:
+Between consecutive engine spawns at any eligible smart for a (level, faction) pair, the engine refills no more NPCs of that faction on that level than have died.
+The threshold caps each refill against the deaths that earned it.
 
 Performance:
-
-- O(1) per death
-- O(L * F) per 60-second tick over death pairs
-- O(S * R * Q) on first death for a (level, faction) pair (S smarts on level, R recipes per smart, Q sections per recipe), then O(1) on every cache hit
-- 3 luabind per wave (CTime read, sub, write back)
-- No persistence for AlifeBalance state, counters reset on game load
+O(1) per death, O(active state) per scan, cached.
+DEBUG-level tracing reports per-event and per-tick timings to alifebalance.log.
+At WARN the mod is silent.
 
 Compatibility:
 
-- Vanilla and ZCP read the same field AlifeBalance writes, and the advanced cooldown applies under both gates.
-- Redone Collection and GAMMA NPC Spawns ship pure LTX configuration, while AlifeBalance writes runtime state on a different layer.
-- Night Mutants uses a parallel SIMBOARD:create_squad path, and the spawned squads still get respawn_point_id set.
-- Nocturnal Mutants spawns entities directly outside smart terrains and is ignored.
-- GAMMA Dynamic Despawner enforces an online cap on the despawning side, and despawn does not fire squad_on_npc_death, so it never triggers a false wave.
-- AlifeGuard, AlifePlus, Warfare, and Guards Spawner have no overlap with AlifeBalance's intervention surface.
+Compatible with vanilla Anomaly 1.5.3, GAMMA, ZCP, Redone, Warfare, AlifeGuard, AlifePlus, Night Mutants, GAMMA Dynamic Despawner, Guards Spawner, Nocturnal Mutants.
+
+- Vanilla and ZCP read the same cooldown field AlifeBalance writes.
+- Redone and GAMMA NPC Spawns ship pure config. AlifeBalance writes runtime state on a different layer.
+- Night Mutants spawns through the engine's own path. Squads still register against their origin smart.
+- Nocturnal Mutants spawns outside smart terrains. Ignored.
+- Dynamic Despawner and AlifeGuard despawn without firing the death event. Never trigger waves.
 
 MCM:
 
-- Smart Pacing: enable toggle, waves to refill (1 to 8, default 4), minimum hours per wave (1 to 6, default 1).
-- Development: log level, show map markers, show status button, reset counters button.
-- Map markers are green PDA spots with a 5-minute linger flagging every advanced smart, and right-clicking a marker teleports to that smart or shows its tracked wave stats.
+- Smart Pacing: enable, wave count, minimum cooldown remaining.
+- Development: log level, map markers, show status, reset counters.
+- Map markers are green PDA spots on every smart receiving a wave. Right-click to teleport or show wave stats.
 
 Requirements:
 
 - Anomaly 1.5.3
-- xlibs (https://www.moddb.com/mods/stalker-anomaly/addons/xlibs-1001), version 1.5.1 or later
+- xlibs (https://www.moddb.com/mods/stalker-anomaly/addons/xlibs-1001) 1.5.1+
 - MCM
 
 Install (MO2):
 
-1. Install xlibs
-2. Install AlifeBalance
-3. Load order does not matter
-4. Configure via MCM
+1. Install xlibs.
+2. Install AlifeBalance.
+3. Load order does not matter.
+4. Configure via MCM.
 
-Uninstall (MO2):
+Uninstall: disable or remove in MO2.
 
-Disable or remove in MO2.
+Credits: Altogolik for support, ideas, and source materials.
 
-Credits:
-
-Altogolik for support, ideas, and source materials.
-
-Usage and License:
+License:
 
 - Modpacks: allowed and encouraged. Keep the readme and license files.
 - Addons, patches, integrations: allowed. Credit "AlifeBalance by Damian Sirbu" visibly on your mod page.
 - Reproducing the implementation in other software: not allowed, even with credit.
-- Full license in LICENSE file and on GitHub.
+- Full license in LICENSE and on GitHub.
+
+Keep the Zone alive while letting vanilla A-Life remain vanilla.

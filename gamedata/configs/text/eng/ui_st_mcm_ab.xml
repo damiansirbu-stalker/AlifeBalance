@@ -38,10 +38,10 @@
         <text>How many waves are needed to fully advance a smart's respawn cooldown. A wave fires when one squad's worth of deaths has accumulated for a (level, faction) pair, and subtracts 1/waves of the picked smart's respawn cooldown. At 1, one wave clears the full cooldown (instant refill). At 4 (default), four waves of accumulated combat refill the smart. At 8, the refill is paced across eight waves. Higher values mean refills feel more earned by sustained combat.</text>
     </string>
     <string id="ui_mcm_ab_general_min_hours">
-        <text>Minimum advance per wave (game hours)</text>
+        <text>Minimum cooldown remaining (game hours)</text>
     </string>
     <string id="ui_mcm_ab_general_min_hours_desc">
-        <text>Floor on the per-wave cooldown advance, in game hours. Protects against a high wave count or short respawn_idle producing an advance so small that the full wave count accomplishes nothing. With min=1 hour and a 12-hour cooldown, the effective wave cap is 12. With min=6 hours and the same cooldown, the effective wave cap is 2. Default 1 hour. Raise to slow the pacing further.</text>
+        <text>Minimum cooldown that must remain on a smart after a wave applies, in game hours. AlifeBalance never pushes the cooldown below this floor; the engine's own clock ages out the last leg naturally and fires the spawn from there. A smart already at or below this floor is skipped on the next wave (counter holds for next tick). Default 1 hour. Raise to leave more natural cooldown after every wave.</text>
     </string>
     <string id="ui_mcm_ab_development_show_markers">
         <text>Show map markers</text>
