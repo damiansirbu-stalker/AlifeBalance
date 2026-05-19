@@ -35,15 +35,6 @@ end
 
 -- ==================== HELPERS ====================
 
--- True if at least one section in recipe.squads produces faction.
-local function _recipe_squads_match(recipe, faction)
-    if not recipe.squads then return false end
-    for _, section in ipairs(recipe.squads) do
-        if xsmart.section_faction(section) == faction then return true end
-    end
-    return false
-end
-
 -- "stalker|bandit" or "?" -- factions any squad section in this recipe can produce.
 local function _recipe_factions_str(recipe)
     if not recipe.squads then return "?" end
@@ -176,7 +167,7 @@ function evaluate_budget_for_faction(smart, faction)
         local max = tonumber(xr_logic.pick_section_from_condlist(db.actor, smart, recipe.num)) or 0
         local open = max > cur
         if open then any_open = true end
-        if not matched_key and open and _recipe_squads_match(recipe, faction) then
+        if not matched_key and open and _recipe_max_for_faction(recipe, faction) > 0 then
             matched_key = k
         end
         local mark = (matched_key == k) and "*" or ""

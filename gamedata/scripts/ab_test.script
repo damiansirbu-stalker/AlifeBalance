@@ -23,23 +23,6 @@ local TIMER_EV      = "ab_test"
 local TIMER_TICK    = "kill"
 local KILL_INTERVAL = 3
 
--- Same protection options ab_pacing uses for the death-side filter. Keeps the
--- test pool aligned with what ab_pacing actually counts.
-local _protection_opts = {
-    exclude_permanent   = true,
-    exclude_active_role = true,
-    exclude_task_target = true,
-}
-
--- Mirror of ab_pacing's vermin filter. Rats and tushkanos are excluded from the
--- pool so test kills hit species that actually contribute to the counter.
-local _VERMIN_SPECIES = { rat = true, tushkano = true }
-
-local function _is_vermin_squad(squad)
-    local species = xcreature.get_mutant_species(squad)
-    return species and _VERMIN_SPECIES[species] or false
-end
-
 -- _tick_count is monotonic and used for strict on/off-level alternation in _pick_pool.
 local _running    = false
 local _kills      = 0
@@ -52,8 +35,8 @@ local _tick_count = 0
 local function _is_valid_squad(squad)
     if not squad then return false end
     if squad:npc_count() == 0 then return false end
-    if xsquad.is_protected(squad, _protection_opts) then return false end
-    if _is_vermin_squad(squad) then return false end
+    if xsquad.is_protected(squad, ab_pacing.protection_opts) then return false end
+    if ab_pacing.is_vermin_squad(squad) then return false end
     return true
 end
 

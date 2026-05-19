@@ -209,7 +209,7 @@ smart.last_respawn_update = lru
 
 Three luabind calls per advance. The delta cache prevents repeat CTime construction. A change to `advances` or `min_hours` in MCM invalidates the cache.
 
-Total advances that can apply on one smart before the engine fires `respawn_idle / advance_seconds - 1` at most (the last advance that would still leave `min_hours` of remaining cooldown). After that point the smart sits at the floor; the engine ages the cooldown the rest of the way naturally and fires `try_respawn`, which resets `last_respawn_update = curr_time` and clears the smart for advances again.
+Total advances that can apply on one smart before the engine fires is exactly `advances` (by construction of `advance_seconds = usable / advances`; the `advances`th advance brings age to `usable` = `respawn_idle - min_hours * 3600`, leaving exactly `min_hours` of cooldown for the engine to age out). After that point the smart sits at the floor; the engine ages the cooldown the rest of the way naturally and fires `try_respawn`, which resets `last_respawn_update = curr_time` and clears the smart for advances again.
 
 ---
 
@@ -219,7 +219,7 @@ For any (level, faction) pair, between consecutive engine spawns at any eligible
 
 Proof. A spawn at an eligible smart fires when the smart's cooldown has aged past `respawn_idle`. AlifeBalance contributes to that age in equal increments of `respawn_idle / advances` per advance but stops once the remaining cooldown would drop below `min_hours`. The engine ages the remaining `min_hours` naturally and fires. Each advance fires after the (level, faction) counter reaches `threshold = MAX(npc_in_squad upper)` across matching sections, and the picker rejects smarts already at the floor. Total deaths between consecutive spawns at the same smart `>= floor(applied_advances) * threshold`, where `applied_advances` is the number of advances the smart accepted before hitting the floor. The spawn creates at most one squad. If the engine picks a matching section (`squad_descr faction == target faction`), the squad has at most `MAX npc_in_squad` NPCs of the target faction. If a non-matching section in a mixed-faction pool, zero NPCs of the target faction spawn. Either way: `deaths_since_last_spawn >= MAX >= refill`.
 
-The vanilla cooldown ages in parallel from real time. If the player ignores a level for `advances * tick_interval` game-time, the cooldown expires on its own and the engine spawns at vanilla pace. Pacing accelerates the cooldown. It never delays vanilla.
+The vanilla cooldown ages from game-time. If the player ignores a level, no deaths fire, no advances apply, and after `respawn_idle` of game-time the cooldown expires and the engine spawns at vanilla pace. Pacing accelerates the cooldown. It never delays vanilla.
 
 ---
 
@@ -283,13 +283,15 @@ ZCP does not ship its own `squad_descr` overrides for vanilla sections; `xsmart.
 
 ## MCM
 
-| Setting | Tab | Type | Default | Range | Effect |
-|---------|-----|------|---------|-------|--------|
-| `enabled` | General | check | true | - | Master toggle |
-| `advances` | General | track | 4 | 1-8 | Per-advance subtract is `respawn_idle / advances` |
-| `min_hours` | General | track | 1 | 1-6 | Minimum cooldown remaining after every advance, in game hours |
-| `show_markers` | Development | check | false | - | Green PDA marker on every advanced smart, 5-min linger, right-click teleport / stats |
-| `log_level` | Development | list | WARN | - | ERROR / WARN / INFO / DEBUG |
+| Setting | Tab | Section | Type | Default | Range | Effect |
+|---------|-----|---------|------|---------|-------|--------|
+| `enabled` | General | Smart Pacing | check | true | - | Master toggle |
+| `advances` | General | Smart Pacing | track | 4 | 1-8 | Per-advance subtract is `respawn_idle / advances` |
+| `min_hours` | General | Smart Pacing | track | 1 | 1-6 | Minimum cooldown remaining after every advance, in game hours |
+| `log_level` | Development | Logging | list | WARN | - | ERROR / WARN / INFO / DEBUG |
+| `show_markers` | Development | Diagnostics | check | false | - | Green PDA marker on every advanced smart, 5-min linger, right-click teleport / stats |
+| `btn_show_status` | Development | Diagnostics | button | - | - | PDA tip with death / counted / protected / vermin / tick / advance / spawn counters |
+| `btn_reset_counters` | Development | Diagnostics | button | - | - | Clears `_deaths`, `_delta_cache`, `_smart_stats`, `_seen_squads`, `_stats`, ab_recipe caches, and all markers |
 
 Threshold has no knob. It is engine-grounded, read from `squad_descr` LTX per (level, faction) and cached.
 
@@ -318,7 +320,7 @@ Threshold has no knob. It is engine-grounded, read from `squad_descr` LTX per (l
 | Mod | Interaction |
 |-----|-------------|
 | Vanilla `try_respawn` | Reads `last_respawn_update` at `smart_terrain.script:1651`. The advance moves the same field. |
-| ZCP (forked `try_respawn`) | Reads the same field at `smr_pop.script:352-368`. The advance applies identically. |
+| ZCP (forked `try_respawn`) | Reads the same field at `smr_pop.script:342-368`. The advance applies identically. |
 | Redone Collection | Pure LTX configuration. AlifeBalance writes runtime state. No conflict. |
 | GAMMA NPC Spawns | Pure LTX. No conflict. |
 | Night Mutants | Parallel `SIMBOARD:create_squad` path. Spawned squads still get `respawn_point_id` set. No conflict. |

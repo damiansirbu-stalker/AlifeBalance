@@ -29,7 +29,8 @@ local STATUS_TIP_MS = 8000
 local RESET_TIP_MS  = 5000
 
 -- Protection options for xsquad.is_protected: skip story/companion/task-target squads.
-local _protection_opts = {
+-- Exposed so ab_test can use the same filter set without drift.
+protection_opts = {
     exclude_permanent   = true,
     exclude_active_role = true,
     exclude_task_target = true,
@@ -41,7 +42,7 @@ local _protection_opts = {
 -- source. Species names match xcreature.get_mutant_species return strings.
 local _VERMIN_SPECIES = { rat = true, tushkano = true }
 
-local function _is_vermin_squad(squad)
+function is_vermin_squad(squad)
     local species = xcreature.get_mutant_species(squad)
     return species and _VERMIN_SPECIES[species] or false
 end
@@ -64,7 +65,7 @@ local _dbg = false
 -- _seen_squads[squad.id]          = true. Dedup for spawn tracing (DEBUG only).
 -- _smart_stats[smart_id]          = per-smart bookkeeping for advances we've issued:
 --     {
---       name, level_id, factions = {f1, f2, ...},
+--       factions = {f1, f2, ...},
 --       advances, first_at, last_at,
 --       last_trigger = { level_id, faction, count, threshold },
 --       last_before_cooldown,                         -- string snapshot
@@ -180,8 +181,6 @@ local function _record_advance(smart, level_id, faction, count, threshold,
         end
         table_sort(recipe_arr)
         entry = {
-            name      = smart:name() or "?",
-            level_id  = level_id,
             factions  = recipe_arr,
             advances  = 0,
             first_at  = os_clock(),
@@ -355,7 +354,7 @@ local function _on_npc_death(squad, npc, _killer)
         end
         return
     end
-    if xsquad.is_protected(squad, _protection_opts) then
+    if xsquad.is_protected(squad, protection_opts) then
         _stats.protected = _stats.protected + 1
         if _dbg then
             log.debug("[SKIP] reason=protected squad=%d player_id=%s",
@@ -363,8 +362,8 @@ local function _on_npc_death(squad, npc, _killer)
         end
         return
     end
-    if _is_vermin_squad(squad) then
-        _stats.vermin = (_stats.vermin or 0) + 1
+    if is_vermin_squad(squad) then
+        _stats.vermin = _stats.vermin + 1
         if _dbg then
             log.debug("[SKIP] reason=vermin squad=%d player_id=%s",
                 squad.id, tostring(squad.player_id))
@@ -480,9 +479,9 @@ local function _sort_with_budget_by_actor_distance(with_budget)
     local actor_pos = db.actor:position()
     for i = 1, #with_budget do
         local pick = with_budget[i]
-        pick.dist = actor_pos:distance_to(pick.smart.position)
+        pick.dist_sqr = actor_pos:distance_to_sqr(pick.smart.position)
     end
-    table_sort(with_budget, function(a, b) return a.dist > b.dist end)
+    table_sort(with_budget, function(a, b) return a.dist_sqr > b.dist_sqr end)
 end
 
 -- Walk eligible smarts for one (level, faction) pair and burn through accumulated
