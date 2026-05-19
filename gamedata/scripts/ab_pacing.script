@@ -500,7 +500,7 @@ end
 -- Gate logs at DEBUG: [NOELIG] no recipe on this level produces the faction;
 -- [BELOW] count below threshold; [DEFER] threshold met but every eligible is at
 -- budget cap or floor (counter holds); [BURST] >1 advance fired this tick.
-local function _try_nudge_for_faction(level_id, by_faction, faction, count)
+local function _try_advance_for_faction(level_id, by_faction, faction, count)
     local eligibles, threshold = ab_recipe.get_eligible_and_threshold(level_id, faction)
     if #eligibles == 0 then
         if _dbg then
@@ -551,7 +551,7 @@ local function _periodic_tick()
     local tmr = xprofiler.new_if(_dbg):start()
     for level_id, by_faction in pairs(_deaths) do
         for faction, count in pairs(by_faction) do
-            _try_nudge_for_faction(level_id, by_faction, faction, count)
+            _try_advance_for_faction(level_id, by_faction, faction, count)
         end
     end
     ab_map.prune_markers()
