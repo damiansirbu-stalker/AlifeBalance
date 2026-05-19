@@ -612,7 +612,7 @@ local function _reset_state()
     _delta_cache  = {}
     _seen_squads  = {}
     _smart_stats  = {}
-    _stats        = { deaths = 0, counted = 0, protected = 0,
+    _stats        = { deaths = 0, counted = 0, protected = 0, vermin = 0,
                       no_squad = 0, no_faction = 0, no_level = 0,
                       ticks = 0, advances = 0, spawns = 0, spawns_from_us = 0 }
 end
