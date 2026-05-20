@@ -16,7 +16,7 @@ Built as a companion to AlifePlus, which increases NPC activity and combat acros
 
 Why not just shorten the global cooldown to 1h or 2h?
 
-The engine's respawn_idle is one number applied to every smart on every level. Shorten it and every smart cycles faster, including the ones a hundred metres behind you. The engine's actor-distance gate blocks the spawn only while you stand inside its radius; the moment you walk out, the smart's overdue cooldown fires and the squad lands at your back. AlifeBalance fires one targeted advance per threshold of deaths, and the picker chooses the eligible smart farthest from you. Refills happen on the level where the kills happened, away from your current combat, one squad at a time.
+The engine's respawn_idle is one number applied to every smart on every level. Shorten it and every smart cycles faster, including the ones a hundred metres behind you. The engine's actor-distance gate blocks the spawn only while you stand inside its radius; the moment you walk out, the smart's overdue cooldown triggers an engine spawn and the squad lands at your back. AlifeBalance applies one targeted advance per threshold of deaths, and the picker chooses the eligible smart farthest from you. Refills happen on the level where the kills happened, away from your current combat, one squad at a time.
 
 What you'll notice:
 
@@ -28,7 +28,7 @@ What you'll notice:
 
 Important:
 
-AlifeBalance does not spawn NPCs. It shifts a timestamp the engine was always going to read on its next alife tick. The engine still owns spawning, recipes, squad selection, and budget caps.
+AlifeBalance never creates NPCs. It shifts a timestamp the engine was always going to read on its next alife tick. The engine still owns spawning, recipes, squad selection, and budget caps.
 
 Features:
 
@@ -36,11 +36,11 @@ Smart Pacing
 
 Smart Pacing accelerates vanilla recovery when combat pressure exceeds the engine's pace.
 
-Death events fill per-(level, faction) counters.
+Deaths accumulate into per-level, per-faction counters.
 A periodic scanner reads them.
-For each pair where the counter has reached the threshold and at least one eligible smart has open spawn budget, Smart Pacing fires advances while pressure remains. Each advance picks the smart farthest from the actor that still has room, pushes its cooldown timestamp closer to expiry by an equal share, subtracts threshold from the counter, and drops the smart from this tick's pool when it hits the minimum-remaining floor. The next advance picks the next-farthest smart, and so on. Refills land away from the actor's current combat zone before nearby smarts.
+For each pair where the counter has reached the threshold and at least one eligible smart has open spawn budget, Smart Pacing applies advances while pressure remains. Each advance picks the smart farthest from the actor that still has room, pushes its cooldown timestamp closer to expiry by an equal share, subtracts threshold from the counter, and drops the smart from this tick's pool when it hits the minimum-remaining floor. The next advance picks the next-farthest smart, and so on. Refills are biased toward smarts farthest from the actor.
 
-Burst combat that produces many kills in one minute can fire many advances on one tick, distributed across multiple smarts. Leftover kills under threshold carry to the next tick.
+Burst combat that produces many kills in one minute can apply many advances on one tick, distributed across multiple smarts. Leftover kills under threshold carry to the next tick.
 
 MCM exposes two knobs: advance count (default 4) and minimum cooldown remaining in game minutes (default 120). Each advance subtracts the same constant from the picked smart. Smart Pacing never pushes below the floor.
 
@@ -48,9 +48,9 @@ Example:
 
 A heavy firefight wipes 30 bandits on Cordon in one minute.
 The death counter reaches 30. Threshold is 3.
-On the next tick Smart Pacing fires up to 10 advances: pick a smart, advance, subtract 3, repeat. A smart that hits its floor drops out and other eligibles take the remaining advances. Several smarts can hit floor in the same tick, queueing several refills for shortly after.
+On the next tick Smart Pacing applies up to 10 advances: pick a smart, advance, subtract 3, repeat. A smart that hits its floor drops out and other eligibles take the remaining advances. Several smarts can hit floor in the same tick, queueing several refills for shortly after.
 
-If every eligible smart is at budget cap or at the floor, the advance defers and the counter holds.
+If every eligible smart is at budget cap or at the floor, the advance is deferred and the counter holds.
 
 Compatibility:
 
@@ -59,7 +59,7 @@ Compatible with vanilla Anomaly 1.5.3, GAMMA, ZCP, Redone, Warfare, AlifeGuard, 
 - Vanilla and ZCP read the same cooldown field AlifeBalance writes.
 - Redone and GAMMA NPC Spawns ship pure config. AlifeBalance writes runtime state on a different layer.
 - Night Mutants spawns through the engine's own path. Squads still register against their origin smart.
-- Nocturnal Mutants spawns outside smart terrains. Ignored.
+- Nocturnal Mutants spawns outside smart terrains. No interaction.
 - Dynamic Despawner and AlifeGuard despawn without firing the death event. Never trigger advances.
 
 MCM:
@@ -91,7 +91,7 @@ Deaths for all standard stalker factions and all mutant faction keys.
 Protected squads (story, companions, task targets) and vermin (rats, tushkanos) are filtered before counting. Everything else contributes; the threshold mechanism (max squad size per faction per level) throttles big-squad species proportionally.
 
 Threshold:
-Kills needed before one advance fires for a (level, faction) pair.
+Kills needed before one advance is applied for a (level, faction) pair.
 Set automatically to the largest squad size that can produce that faction at any eligible smart on the level. Cordon stalkers max at 3 NPCs per squad, so the Cordon stalker threshold is 3. Swamp boars max at 15, so the Swamp boar threshold is 15. Read from squad_descr LTX on first death and cached.
 Mutant-heavy levels land around 15 to 20, stalker-only levels around 3 to 5.
 
