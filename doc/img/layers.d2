@@ -1,5 +1,23 @@
 direction: down
 
+# LTX-only mods (modify static config, no runtime writes)
+redone: Redone Collection {
+  style.fill: "#f3f4f6"
+  style.stroke: "#6b7280"
+}
+
+gnpc: GAMMA NPC Spawns {
+  style.fill: "#f3f4f6"
+  style.stroke: "#6b7280"
+}
+
+ltx: "smart terrain LTX\n(respawn_params, respawn_idle, recipes)" {
+  shape: page
+  style.fill: "#fef9c3"
+  style.stroke: "#854d0e"
+}
+
+# Runtime writers (modify in-memory state)
 ab: AlifeBalance {
   style.fill: "#dbeafe"
   style.stroke: "#1e40af"
@@ -11,17 +29,24 @@ zcp: ZCP {
   style.stroke: "#854d0e"
 }
 
-field: "smart.last_respawn_update" {
+field: "smart.last_respawn_update\n(runtime field)" {
   shape: cylinder
   style.fill: "#e5e7eb"
   style.stroke: "#374151"
 }
 
+# Engine
 engine: "X-Ray engine\ntry_respawn -> SIMBOARD:create_squad" {
   style.fill: "#fee2e2"
   style.stroke: "#991b1b"
 }
 
+# LTX path: mods edit config at install time, engine loads it once
+redone -> ltx: edits
+gnpc -> ltx: edits
+ltx -> engine: loaded at level start
+
+# Runtime path: mods write live state, engine reads on every alife tick
 ab -> field: writes
 zcp -> field: reads + writes
 field -> engine: reads
