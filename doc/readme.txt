@@ -16,7 +16,7 @@ Built as a companion to AlifePlus, which increases NPC activity and combat acros
 
 Why not just shorten the global cooldown to 1h or 2h?
 
-The engine's respawn_idle is one number applied to every smart on every level. Shorten it and every smart cycles faster, including the ones a hundred metres behind you. The engine's actor-distance gate blocks the spawn only while you stand inside its radius; the moment you walk out, the smart's overdue cooldown triggers an engine spawn and the squad lands at your back. AlifeBalance applies one targeted advance per threshold of deaths, and the picker chooses the eligible smart farthest from you. Refills happen on the level where the kills happened, away from your current combat, one squad at a time.
+The engine's respawn_idle is one number shared by every smart terrain in the entire Zone: every level, every faction, every empty corner. Shorten it and the world cycles faster everywhere at once. The level you are fighting in and the quiet maps you will never visit this session both refill at the new accelerated rate. The engine has no concept of where combat is happening; it accelerates uniformly. Tactically the actor-distance gate blocks the spawn only while you stand inside a smart's radius, so the moment you walk out the overdue cooldown fires immediately and the squad lands at your back. AlifeBalance applies one targeted advance per threshold of deaths, and the picker chooses the eligible smart farthest from you. Refills happen on the level where the kills happened, away from your current combat, one squad at a time.
 
 What you'll notice:
 
