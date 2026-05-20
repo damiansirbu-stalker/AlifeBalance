@@ -37,24 +37,24 @@ smart.last_respawn_update :sub( (respawn_idle - min_minutes * 60) / advances sec
 
 That makes `elapsed` artificially bigger, which makes `hours_remaining` artificially smaller, which brings the gate closer. The cooldown DURATION (`respawn_idle`) never changes — only the timestamp does. The engine's own `respawn_idle` setting remains the ground truth for cycle length.
 
-Worked example at vanilla 12h cooldown, MCM `advances=4`, `min_minutes=60`:
+Worked example at vanilla LTX `respawn_idle=86400`, MCM `advances=4`, `min_minutes=120`:
 
 ```
-respawn_idle         = 43200 s   = 12.0 game-hours
-min_minutes*60       = 3600 s    = 1.0 game-hours
-usable               = 39600 s   = 11.0 game-hours      (the part we may advance)
-per-advance subtract    = 9900 s    = 2.75 game-hours      (usable / advances)
+respawn_idle         = 86400 s   = 24.0 game-hours
+min_minutes*60       = 7200 s    = 2.0 game-hours
+usable               = 79200 s   = 22.0 game-hours      (the part we may advance)
+per-advance subtract    = 19800 s   = 5.5 game-hours       (usable / advances)
 advances to floor       = 4                                (usable / per-advance)
-floor remaining      = 3600 s    = 1.0 game-hours       (engine ages this naturally)
+floor remaining      = 7200 s    = 2.0 game-hours       (engine ages this naturally)
 ```
 
-Same math at ZCP `respawn_idle=21600`, MCM `advances=4`, `min_minutes=60`:
+Same math at ZCP under GAMMA `respawn_idle=21600`, MCM `advances=4`, `min_minutes=120`:
 
 ```
-usable               = 18000 s   = 5.0 game-hours
-per-advance subtract    = 4500 s    = 1.25 game-hours
+usable               = 14400 s   = 4.0 game-hours
+per-advance subtract    = 3600 s    = 1.0 game-hours
 advances to floor       = 4
-floor remaining      = 3600 s    = 1.0 game-hours
+floor remaining      = 7200 s    = 2.0 game-hours
 ```
 
 Advances-to-floor stays equal to `advances` (by construction of `advance = usable / advances`). Per-advance subtract scales with `respawn_idle`, so on shorter-cooldown modpacks each advance is a smaller game-time move while the kill cost stays the same.

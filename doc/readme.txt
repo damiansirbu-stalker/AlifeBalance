@@ -124,13 +124,19 @@ Install (MO2):
 
 Uninstall: disable or remove in MO2.
 
-Credits: Altogolik for support, ideas, and source materials.
+Development:
+Written against X-Ray Monolith engine source, Demonized exes source code, and Anomaly 1.5.3 unpacked gamedata.
+Code patterns and engine usage validated against established work by reputable GAMMA modders (Demonized, Vintar0, RavenAscendant, xcvb).
+The code is validated in real time by a multi-stage pipeline: luacheck, selene, tree-sitter AST analysis, contract rules, cross-file dependency resolution, cyclomatic complexity analysis, crash and vulnerability pattern detection, lua54 integration testing with X-Ray engine stubs, gitleaks secret scanning.
+Full report in doc/test-report.log.
 
-License:
+Credits:
+Altogolik - support, ideas, source materials
 
-- Modpacks: allowed and encouraged. Keep the readme and license files.
-- Addons, patches, integrations: allowed. Credit "AlifeBalance by Damian Sirbu" visibly on your mod page.
-- Reproducing the implementation in other software: not allowed, even with credit.
-- Full license in LICENSE and on GitHub.
+Usage and License:
+  Modpacks: allowed and encouraged. Keep the readme and license files.
+  Addons, patches, integrations: allowed. Credit "AlifeBalance by Damian Sirbu" visibly on your mod page.
+  Reproducing the implementation in other software: not allowed, even with credit.
+  Full license in LICENSE file and on GitHub.
 
 Keep the Zone alive while letting vanilla A-Life remain vanilla.
