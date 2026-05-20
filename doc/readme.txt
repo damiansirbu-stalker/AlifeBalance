@@ -1,9 +1,10 @@
 AlifeBalance: A-Life balance layer for STALKER Anomaly, by Damian
-- Version: 1.0.0 (xlibs 1.5.1)
-- Architecture: https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/architecture.md
-- Changelog: https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/changelog
-- Russian / Na russkom: https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/readme_ru.txt
-- Bugs, suggestions: https://github.com/damiansirbu-stalker/AlifeBalance/issues
+Version: 1.0.0 (xlibs 1.5.1)
+GitHub: https://github.com/damiansirbu-stalker/AlifeBalance
+Changelog: https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/changelog
+Architecture: https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/architecture.md
+Russian / Na russkom: https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/readme_ru.txt
+Bugs, suggestions: https://github.com/damiansirbu-stalker/AlifeBalance/issues
 
 ! Please use the RESET button in MCM when updating to a new version !
 
