@@ -65,15 +65,15 @@ Compatible with vanilla Anomaly 1.5.3, GAMMA, ZCP, Redone, Warfare, AlifeGuard, 
 [size=3][b]Configuration tips[/b][/size]
 Two settings: [b]advance count[/b] (1-8, default 4) and [b]minimum cooldown remaining[/b] (10-360 game minutes, default 120).
 
-[b]Advance count[/b] is the number of advances needed to drive one smart from full cooldown to the [font=Courier New]min_minutes[/font] floor. One advance subtracts 1/advances of the cooldown cycle from the picked smart. AlifeBalance does not spawn anything: once a smart's cooldown is at the floor, the engine's own clock ages out the rest and the engine's [font=Courier New]try_respawn[/font] fires its normal spawn. At [font=Courier New]advances=4[/font] (default), four thresholds of deaths drive one smart to the floor, 25% per advance. Lower advance count = larger advance per threshold = faster acceleration of one smart. Higher advance count = smaller advances = more sustained combat before any smart reaches the floor.
+[b]Advance count[/b] is the number of advances needed to drive one smart from full cooldown to the [font=Courier New]Min Minutes[/font] floor. One advance subtracts 1/advances of the cooldown cycle from the picked smart. AlifeBalance does not spawn anything: once a smart's cooldown is at the floor, the engine's own clock ages out the rest and the engine's [font=Courier New]try_respawn[/font] fires its normal spawn. At [font=Courier New]advances=4[/font] (default), four thresholds of deaths drive one smart to the floor, 25% per advance. Lower advance count = larger advance per threshold = faster acceleration of one smart. Higher advance count = smaller advances = more sustained combat before any smart reaches the floor.
 
-[b]Min minutes[/b] controls how long the engine ages the final cooldown leg on its own clock after AlifeBalance stops pushing. [font=Courier New]min_minutes=120[/font] (default) = the engine's spawn fires about two game hours after the last advance. [font=Courier New]min_minutes=60[/font] = one hour. [font=Courier New]min_minutes=360[/font] stretches that to about six game hours. Higher values leave the engine more in charge of the final approach.
+[b]Min Minutes[/b] controls how long the engine ages the final cooldown leg on its own clock after AlifeBalance stops pushing. [font=Courier New]Min Minutes=120[/font] (default) = the engine's spawn fires about two game hours after the last advance. [font=Courier New]Min Minutes=60[/font] = one hour. [font=Courier New]Min Minutes=360[/font] stretches that to about six game hours. Higher values leave the engine more in charge of the final approach.
 
 [b]Presets:[/b]
 [list]
-[*][b]Aggressive (one threshold = full cooldown advancement):[/b] [font=Courier New]advances=1, min_minutes=60[/font]
-[*][b]Default (one threshold = 25% advancement):[/b] [font=Courier New]advances=4, min_minutes=120[/font]
-[*][b]Conservative (one threshold = 12.5% advancement):[/b] [font=Courier New]advances=8, min_minutes=360[/font]
+[*][b]Aggressive (one threshold = full cooldown advancement):[/b] [font=Courier New]advances=1, Min Minutes=60[/font]
+[*][b]Default (one threshold = 25% advancement):[/b] [font=Courier New]advances=4, Min Minutes=120[/font]
+[*][b]Conservative (one threshold = 12.5% advancement):[/b] [font=Courier New]advances=8, Min Minutes=360[/font]
 [/list]
 
 [size=3][b]Technical notes (for modders)[/b][/size]

@@ -70,14 +70,14 @@ Configuration tips:
 
 Two settings: advance count (1-8, default 4) and minimum cooldown remaining (10-360 game minutes, default 120).
 
-Advance count is the number of advances needed to drive one smart from full cooldown to the min_minutes floor. One advance subtracts 1/advances of the cooldown cycle from the picked smart. AlifeBalance does not spawn anything: once a smart's cooldown is at the floor, the engine's own clock ages out the rest and the engine's try_respawn fires its normal spawn. At advances=4 (default), four thresholds of deaths drive one smart to the floor, 25% per advance. Lower advance count = larger advance per threshold = faster acceleration of one smart. Higher advance count = smaller advances = more sustained combat before any smart reaches the floor.
+Advance count is the number of advances needed to drive one smart from full cooldown to the Min Minutes floor. One advance subtracts 1/advances of the cooldown cycle from the picked smart. AlifeBalance does not spawn anything: once a smart's cooldown is at the floor, the engine's own clock ages out the rest and the engine's try_respawn fires its normal spawn. At advances=4 (default), four thresholds of deaths drive one smart to the floor, 25% per advance. Lower advance count = larger advance per threshold = faster acceleration of one smart. Higher advance count = smaller advances = more sustained combat before any smart reaches the floor.
 
-Min minutes controls how long the engine ages the final cooldown leg on its own clock after AlifeBalance stops pushing. min_minutes=120 (default) = the engine's spawn fires about two game hours after the last advance. min_minutes=60 = one hour. min_minutes=360 stretches that to about six game hours. Higher values leave the engine more in charge of the final approach.
+Min Minutes controls how long the engine ages the final cooldown leg on its own clock after AlifeBalance stops pushing. Min Minutes=120 (default) = the engine's spawn fires about two game hours after the last advance. Min Minutes=60 = one hour. Min Minutes=360 stretches that to about six game hours. Higher values leave the engine more in charge of the final approach.
 
 Presets:
-  Aggressive (one threshold = full cooldown advancement):  advances=1, min_minutes=60
-  Default (one threshold = 25% advancement):               advances=4, min_minutes=120
-  Conservative (one threshold = 12.5% advancement):        advances=8, min_minutes=360
+  Aggressive (one threshold = full cooldown advancement):  advances=1, Min Minutes=60
+  Default (one threshold = 25% advancement):               advances=4, Min Minutes=120
+  Conservative (one threshold = 12.5% advancement):        advances=8, Min Minutes=360
 
 Technical notes (for modders):
 
