@@ -1,13 +1,3 @@
-next
-  Summary: default min_minutes raised to 120, MCM string clarifications, readme restructure
-  MCM:
-    Changed: default min_minutes raised from 60 to 120 (refill fires two game hours after the last advance)
-    Changed: advances slider renamed from "Advances to refill" to "Advances to floor"; description rewritten to attribute the spawn to the engine's try_respawn
-  Docs:
-    Changed: readme restructure for moddb. Compatibility moved above modder-level technical notes
-    Changed: "bite" and "kill-to-refill" framing replaced with "advance" and "advancement"
-    Added: AlifePlus companion cross-reference
-
 1.0.0
   Summary: cooldown advancement balance layer. Per-(level, faction) death events advance respawn cooldowns at the smart farthest from the actor; the engine still owns the spawn
   Core:
@@ -17,7 +7,7 @@ next
     Added: protection. Story squads, companions, task targets, vermin (rats, tushkanos) filtered before counting
     Added: refill <= death invariant. The engine refills no more NPCs of a faction on a level than have died there
   MCM:
-    Added: General > Smart Pacing. Enable toggle, advance count (1-8, default 4), min_minutes (10-360, default 60)
+    Added: General > Smart Pacing. Enable toggle, advance count (1-8, default 4), min_minutes (10-360, default 120)
     Added: Development > Diagnostics. Show map markers, show status, reset counters
     Added: green PDA markers on every smart receiving an advance. Right-click to teleport or show stats
   Compatibility:
