@@ -34,23 +34,21 @@ Features:
 
 Smart Pacing
 
-Smart Pacing accelerates vanilla recovery when combat pressure exceeds the engine's pace.
+The core feature. It speeds up vanilla respawns where combat has actually happened, and only there.
 
-Deaths accumulate into per-level, per-faction counters.
-A periodic scanner reads them.
-For each pair where the counter has reached the threshold and at least one eligible smart has open spawn budget, Smart Pacing applies advances while pressure remains. Each advance picks the smart farthest from the actor that still has room, pushes its cooldown timestamp closer to expiry by an equal share, subtracts threshold from the counter, and drops the smart from this tick's pool when it hits the minimum-remaining floor. The next advance picks the next-farthest smart, and so on. Refills are biased toward smarts farthest from the actor.
+In plain words: every smart terrain has a built-in waiting period before it can spawn again. AlifeBalance counts deaths per level and per faction. Once enough deaths have piled up for a faction (a number tied to the largest squad size for that faction's spawn pool), it shortens the wait at one matching smart terrain. The next respawn there gets pulled closer in time, but never all the way to immediate. AlifeBalance picks the smart terrain farthest from the player so the refill happens off-screen.
 
-Burst combat that produces many kills in one minute can apply many advances on one tick, distributed across multiple smarts. Leftover kills under threshold carry to the next tick.
+The engine still handles the spawn itself on its own clock. AlifeBalance only nudges that clock forward, and always leaves at least 2 game-hours of natural waiting before the engine fires. That margin is intentional: combat produces a delayed wave of refills, not instant arrivals.
 
-MCM exposes two knobs: advance count (default 4) and minimum cooldown remaining in game minutes (default 120). Each advance subtracts the same constant from the picked smart. Smart Pacing never pushes below the floor.
+Heavy combat moves several smart terrains forward in the same minute. Quiet zones see no movement.
+
+Two settings in MCM:
+- Advance count (default 4): how aggressively each combat burst shortens the wait. Lower = each burst matters more; higher = needs sustained combat.
+- Minimum waiting time (default 2 game-hours): the floor AlifeBalance never pushes below. Higher leaves more delay between combat and refill.
 
 Example:
 
-A heavy firefight wipes 30 bandits on Cordon in one minute.
-The death counter reaches 30. Threshold is 3.
-On the next tick Smart Pacing applies up to 10 advances: pick a smart, advance, subtract 3, repeat. A smart that hits its floor drops out and other eligibles take the remaining advances. Several smarts can hit floor in the same tick, queueing several refills for shortly after.
-
-If every eligible smart is at budget cap or at the floor, the advance is deferred and the counter holds.
+A firefight kills 30 bandits on Cordon in one minute. Cordon bandit squads max out at 3, so 10 separate adjustments are available. AlifeBalance picks up to 10 different bandit-spawning Cordon smart terrains and shortens each one's wait. The refills land over the next couple of game-hours as the engine reaches each smart's now-shorter wait. If every Cordon bandit smart terrain is already at population cap or already at the minimum wait, the adjustments are held and the kills carry over to the next check.
 
 Compatibility:
 
