@@ -63,7 +63,7 @@ Compatible with vanilla Anomaly 1.5.3, GAMMA, ZCP, Redone, Warfare, AlifeGuard, 
 [/list]
 
 [size=3][b]Configuration tips[/b][/size]
-Two knobs: [b]advance count[/b] (1-8, default 4) and [b]minimum cooldown remaining[/b] (10-360 game minutes, default 120).
+Two settings: [b]advance count[/b] (1-8, default 4) and [b]minimum cooldown remaining[/b] (10-360 game minutes, default 120).
 
 [b]Advance count[/b] is the number of advances needed to drive one smart from full cooldown to the [font=Courier New]min_minutes[/font] floor. One advance subtracts 1/advances of the cooldown cycle from the picked smart. AlifeBalance does not spawn anything: once a smart's cooldown is at the floor, the engine's own clock ages out the rest and the engine's [font=Courier New]try_respawn[/font] fires its normal spawn. At [font=Courier New]advances=4[/font] (default), four thresholds of deaths drive one smart to the floor, 25% per advance. Lower advance count = larger advance per threshold = faster acceleration of one smart. Higher advance count = smaller advances = more sustained combat before any smart reaches the floor.
 

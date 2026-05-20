@@ -44,7 +44,7 @@
 <li>Map markers are green PDA spots on every smart receiving an advance. Right-click to teleport or show advance stats.</li>
 </ul>
 <h2>Configuration tips</h2>
-<p>Two knobs: <b>advance count</b> (1-8, default 4) and <b>minimum cooldown remaining</b> (10-360 game minutes, default 120).</p>
+<p>Two settings: <b>advance count</b> (1-8, default 4) and <b>minimum cooldown remaining</b> (10-360 game minutes, default 120).</p>
 <p><b>Advance count</b> is the number of advances needed to drive one smart from full cooldown to the <i>min_minutes</i> floor. One advance subtracts 1/advances of the cooldown cycle from the picked smart. AlifeBalance does not spawn anything: once a smart's cooldown is at the floor, the engine's own clock ages out the rest and the engine's <i>try_respawn</i> fires its normal spawn. At <i>advances=4</i> (default), four thresholds of deaths drive one smart to the floor, 25% per advance. Lower advance count = larger advance per threshold = faster acceleration of one smart. Higher advance count = smaller advances = more sustained combat before any smart reaches the floor.</p>
 <p><b>Min minutes</b> controls how long the engine ages the final cooldown leg on its own clock after AlifeBalance stops pushing. <i>min_minutes=120</i> (default) = the engine's spawn fires about two game hours after the last advance. <i>min_minutes=60</i> = one hour. <i>min_minutes=360</i> stretches that to about six game hours. Higher values leave the engine more in charge of the final approach.</p>
 <p><b>Presets:</b></p>

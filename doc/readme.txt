@@ -68,7 +68,7 @@ MCM:
 
 Configuration tips:
 
-Two knobs: advance count (1-8, default 4) and minimum cooldown remaining (10-360 game minutes, default 120).
+Two settings: advance count (1-8, default 4) and minimum cooldown remaining (10-360 game minutes, default 120).
 
 Advance count is the number of advances needed to drive one smart from full cooldown to the min_minutes floor. One advance subtracts 1/advances of the cooldown cycle from the picked smart. AlifeBalance does not spawn anything: once a smart's cooldown is at the floor, the engine's own clock ages out the rest and the engine's try_respawn fires its normal spawn. At advances=4 (default), four thresholds of deaths drive one smart to the floor, 25% per advance. Lower advance count = larger advance per threshold = faster acceleration of one smart. Higher advance count = smaller advances = more sustained combat before any smart reaches the floor.
 
