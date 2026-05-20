@@ -227,10 +227,6 @@ Threshold has no knob — it is engine-grounded, read from `squad_descr` LTX per
 | `_can_advance`, per tick per eligible smart | 1 luabind: `xtime.game_time():diffSec(lru)`. |
 | Per advance | 3 luabind: `last_respawn_update` read, `:sub` with cached delta, write back. |
 | Per tick (60s) | O(L * F) over death pairs * O(E * R * Q) budget evaluation per pair, plus one-time computes per new pair or new smart. |
-| Marker prune | O(M) markers per tick. |
-| Persistence | None for AlifeBalance state. The engine persists `last_respawn_update` via its own save path. |
-
-Observed at playtest: 0.84-3.20ms per tick across 15 ticks under sustained synthetic load.
 
 ---
 
