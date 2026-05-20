@@ -1,0 +1,112 @@
+direction: down
+
+engine: X-Ray Engine {
+  style.stroke-dash: 3
+
+  death_cb: "squad_on_npc_death" {
+    style.fill: "#fee2e2"
+    style.stroke: "#991b1b"
+  }
+  creation_cb: "squad_on_npc_creation" {
+    style.fill: "#fee2e2"
+    style.stroke: "#991b1b"
+  }
+  alife_tick: "se_smart_terrain:update\n-> try_respawn" {
+    style.fill: "#fee2e2"
+    style.stroke: "#991b1b"
+  }
+  gates: "cooldown gate (1651)\nbudget gate (1696)" {
+    shape: hexagon
+    style.fill: "#fecaca"
+    style.stroke: "#991b1b"
+  }
+  spawn: "SIMBOARD:create_squad\nsets last_respawn_update = curr_time" {
+    style.fill: "#fca5a5"
+    style.stroke: "#991b1b"
+    style.bold: true
+  }
+
+  alife_tick -> gates
+  gates -> spawn: pass
+}
+
+producer: "Producer (per death)" {
+  on_death: "_on_npc_death\nis_protected? vermin?\nfaction, level_id" {
+    style.fill: "#dbeafe"
+    style.stroke: "#1e40af"
+  }
+  deaths: "_deaths[level][faction] += 1" {
+    shape: cylinder
+    style.fill: "#bfdbfe"
+    style.stroke: "#1e40af"
+  }
+
+  on_death -> deaths
+}
+
+consumer: "Consumer (60s scanner)" {
+  timer: "CreateTimeEvent\nTIMER_TICK = 60s" {
+    style.fill: "#dbeafe"
+    style.stroke: "#1e40af"
+  }
+  tick: "_periodic_tick\nwalk _deaths" {
+    style.fill: "#dbeafe"
+    style.stroke: "#1e40af"
+  }
+  eligible: "ab_recipe.get_eligible_and_threshold" {
+    style.fill: "#dbeafe"
+    style.stroke: "#1e40af"
+  }
+  below: "count < threshold?" {
+    shape: diamond
+    style.fill: "#e0e7ff"
+    style.stroke: "#3730a3"
+  }
+  budget: "_collect_with_budget\n_can_advance + evaluate_budget_for_faction" {
+    shape: diamond
+    style.fill: "#e0e7ff"
+    style.stroke: "#3730a3"
+  }
+  defer: "[DEFER] hold counter" {
+    style.fill: "#f3f4f6"
+    style.stroke: "#6b7280"
+  }
+  pick: "farthest-first pick\n[ADVANCE]" {
+    style.fill: "#bfdbfe"
+    style.stroke: "#1e40af"
+    style.bold: true
+  }
+  advance: "_advance_smart\nlast_respawn_update -= idle/advances" {
+    style.fill: "#bfdbfe"
+    style.stroke: "#1e40af"
+    style.bold: true
+  }
+  reset: "by_faction[faction] = count\n(leftover < threshold carries)" {
+    shape: cylinder
+    style.fill: "#bfdbfe"
+    style.stroke: "#1e40af"
+  }
+
+  timer -> tick
+  tick -> eligible
+  eligible -> below
+  below -> budget: no
+  budget -> defer: empty
+  budget -> pick: non-empty
+  pick -> advance
+  advance -> reset
+}
+
+trace: "_on_npc_creation\n_stats.spawns++\nfrom_us tag" {
+  style.fill: "#f3f4f6"
+  style.stroke: "#6b7280"
+}
+
+engine.death_cb -> producer.on_death
+producer.deaths -> consumer.tick: read {
+  style.stroke-dash: 3
+}
+consumer.advance -> engine.alife_tick: "engine reads\nlast_respawn_update" {
+  style.stroke-dash: 3
+}
+engine.creation_cb -> trace

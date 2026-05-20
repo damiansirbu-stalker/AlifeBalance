@@ -1,0 +1,58 @@
+direction: down
+
+peers: Peers writing last_respawn_update {
+  style.stroke-dash: 3
+
+  ab: AlifeBalance\nfarthest-first advance {
+    style.fill: "#dbeafe"
+    style.stroke: "#1e40af"
+    style.bold: true
+  }
+  zcp: ZCP\nsmr_pop.smart_can_respawn {
+    style.fill: "#fef3c7"
+    style.stroke: "#854d0e"
+  }
+  redone: Redone Collection\npure LTX config {
+    style.fill: "#f3f4f6"
+    style.stroke: "#6b7280"
+  }
+  gnpc: GAMMA NPC Spawns\npure LTX config {
+    style.fill: "#f3f4f6"
+    style.stroke: "#6b7280"
+  }
+}
+
+state: Smart terrain state\nlast_respawn_update | respawn_params | already_spawned {
+  shape: cylinder
+  style.fill: "#e5e7eb"
+  style.stroke: "#374151"
+}
+
+engine: X-Ray Engine {
+  style.stroke-dash: 3
+
+  try: try_respawn\nsmart_terrain.script:1597 {
+    style.fill: "#fee2e2"
+    style.stroke: "#991b1b"
+  }
+  spawn: SIMBOARD:create_squad\n(only spawn path) {
+    style.fill: "#fecaca"
+    style.stroke: "#991b1b"
+    style.bold: true
+  }
+
+  try -> spawn: all gates pass
+}
+
+parallel: Parallel spawners\nNight Mutants | Nocturnal Mutants {
+  style.fill: "#f3f4f6"
+  style.stroke: "#6b7280"
+  style.stroke-dash: 3
+}
+
+peers.ab -> state: writes
+peers.zcp -> state: reads + writes
+state -> engine.try: reads
+parallel -> engine.spawn: alife_create / direct {
+  style.stroke-dash: 3
+}
