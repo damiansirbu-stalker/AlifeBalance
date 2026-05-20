@@ -2,7 +2,7 @@
 
 AlifeBalance accelerates respawn at smart terrains whose recipes can produce a faction the player has been killing. It does not spawn anything. Per (level, faction), it counts deaths. Every 60 real-time seconds a scanner walks the counters. For each pair where `count >= threshold` and at least one eligible smart can still accept an advance, AlifeBalance subtracts `respawn_idle / advances` game-seconds from that smart's `last_respawn_update` field, then subtracts `threshold` from the counter and repeats while pressure remains. The same constant amount per advance per smart. 100 kills with threshold 3 produces up to 33 advances in one tick, distributed across eligible smarts until each one hits its `min_minutes` floor. AlifeBalance stops pushing once a smart has less than `min_minutes` of cooldown remaining; from there the engine's own clock ages out the last leg and fires `try_respawn` on its next alife tick. The engine still owns the spawn, the gates, and the squad selection. AlifeBalance never triggers the spawn directly.
 
-`advances` is a player setting in MCM, range 1 to 8, default 4. Higher values pace refills across more sustained combat. A second MCM setting, `min_minutes` (range 10-360, default 60), sets the floor on the remaining cooldown that AlifeBalance will never push below.
+`advances` is a player setting in MCM, range 1 to 8, default 4. Higher values pace refills across more sustained combat. A second MCM setting, `min_minutes` (range 10-360, default 120), sets the floor on the remaining cooldown that AlifeBalance will never push below. The default 120 means a smart fires its refill spawn roughly two game-hours after AlifeBalance's last push, leaving the engine's clock in charge of the final approach rather than collapsing the cooldown to zero.
 
 Built on xlibs. `_ab_deps` asserts `xlibs >= 1.5.1` on load.
 
@@ -296,7 +296,7 @@ ZCP does not ship its own `squad_descr` overrides for vanilla sections; `xsmart.
 |---------|-----|---------|------|---------|-------|--------|
 | `enabled` | General | Smart Pacing | check | true | - | Master toggle |
 | `advances` | General | Smart Pacing | track | 4 | 1-8 | Per-advance subtract is `respawn_idle / advances` |
-| `min_minutes` | General | Smart Pacing | track | 60 | 10-360 | Minimum cooldown remaining after every advance, in game minutes |
+| `min_minutes` | General | Smart Pacing | track | 120 | 10-360 | Minimum cooldown remaining after every advance, in game minutes |
 | `log_level` | Development | Logging | list | WARN | - | ERROR / WARN / INFO / DEBUG |
 | `show_markers` | Development | Diagnostics | check | false | - | Green PDA marker on every advanced smart, 5-min linger, right-click teleport / stats |
 | `btn_show_status` | Development | Diagnostics | button | - | - | PDA tip with death / counted / protected / vermin / tick / advance / spawn counters |

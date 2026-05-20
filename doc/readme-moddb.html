@@ -2,33 +2,28 @@
 <h3><a href="https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/architecture.md">Architecture</a> | <a href="https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/changelog">Changelog</a> | <a href="https://github.com/damiansirbu-stalker/AlifeBalance/issues">Bugs, suggestions</a></h3>
 <p><b>! Please use the RESET button in MCM when updating to a new version !</b></p>
 <p>The Anomaly A-Life simulation runs respawn cooldowns on a fixed schedule. The schedule does not know about combat pressure or quiet periods, so heavily fought regions empty out while ignored ones drift toward overcrowding. AlifeBalance is a balance layer that corrects this gap without rewriting the engine.</p>
+<p>Built as a companion to <a href="https://www.moddb.com/mods/stalker-anomaly/addons/alifeplus">AlifePlus</a>, which increases NPC activity and combat across the Zone. More activity means more deaths, and AlifeBalance scales refill to match. Both mods are independent and can be used separately.</p>
+<h2>Why not just shorten the global cooldown to 1h or 2h?</h2>
+<p>The engine's <code>respawn_idle</code> is one number applied to every smart on every level. Shorten it and every smart cycles faster, including the ones a hundred metres behind you. The engine's actor-distance gate blocks the spawn only while you stand inside its radius; the moment you walk out, the smart's overdue cooldown fires and the squad lands at your back. AlifeBalance fires one targeted advance per threshold of deaths, and the picker chooses the eligible smart farthest from you. Refills happen on the level where the kills happened, away from your current combat, one squad at a time.</p>
 <h2>What you'll notice</h2>
 <ul>
 <li>Active regions recover faster after heavy firefights.</li>
 <li>Inactive regions stop drifting toward overcrowding.</li>
 <li>Mutant lairs and stalker bases repopulate at a pace closer to the kill rate.</li>
+<li>Refills land at the far end of the level, off-screen, one squad at a time.</li>
 <li>Vanilla A-Life still owns every spawn.</li>
 </ul>
 <h2>Important</h2>
-<p>AlifeBalance never spawns, destroys, or modifies smart terrain or squad configuration. It reads engine state and nudges the respawn cooldown timestamps the game already reads. The engine still owns timing, recipes, squad sections, budget caps, and NPC counts.</p>
+<p>AlifeBalance does not spawn NPCs. It shifts a timestamp the engine was always going to read on its next alife tick. The engine still owns spawning, recipes, squad selection, and budget caps.</p>
 <h2>Features</h2>
 <h3>Smart Pacing</h3>
 <p>Smart Pacing accelerates vanilla recovery when combat pressure exceeds the engine's pace.</p>
 <p>Death events fill per-(level, faction) counters. A periodic scanner reads them. For each pair where the counter has reached the threshold and at least one eligible smart has open spawn budget, Smart Pacing fires advances while pressure remains: pick the smart farthest from the actor that still has room, push its cooldown timestamp closer to expiry by an equal share, subtract threshold from the counter, drop the smart from this tick's pool when it hits the minimum-remaining floor. The next advance picks the next-farthest smart. Refills land away from the actor's current combat zone before nearby smarts.</p>
 <p>Burst combat that produces many kills in one minute can fire many advances on one tick, distributed across multiple smarts. Leftover kills under threshold carry to the next tick.</p>
-<p>MCM exposes two knobs: advance count (default 4) and minimum cooldown remaining in game minutes (default 60). Each advance subtracts the same constant from the picked smart. Smart Pacing never pushes below the floor.</p>
-<p><b>Example, sustained combat:</b></p>
-<p>A small firefight kills 3 bandits on Cordon. The death counter reaches the threshold (3, the max NPC count of a Cordon bandit squad). Smart Pacing picks a bandit-spawning Cordon smart that still has room and moves its cooldown forward. The counter resets to 0. Several advances later (across several ticks) the smart hits the floor. The engine's ageing finishes the cooldown and fires the spawn.</p>
-<p><b>Example, burst combat:</b></p>
+<p>MCM exposes two knobs: advance count (default 4) and minimum cooldown remaining in game minutes (default 120). Each advance subtracts the same constant from the picked smart. Smart Pacing never pushes below the floor.</p>
+<p><b>Example:</b></p>
 <p>A heavy firefight wipes 30 bandits on Cordon in one minute. The death counter reaches 30. Threshold is 3. On the next tick Smart Pacing fires up to 10 advances: pick a smart, advance, subtract 3, repeat. A smart that hits its floor drops out and other eligibles take the remaining advances. Several smarts can hit floor in the same tick, queueing several refills for shortly after.</p>
 <p>If every eligible smart is at budget cap or at the floor, the advance defers and the counter holds.</p>
-<h2>Technical notes (for modders)</h2>
-<p>Runtime is xlibs, a reverse-engineered API over X-Ray internals. No engine patches, no script replacement, no parallel schedulers, no entity creation.</p>
-<p><b>What gets counted:</b><br />Deaths for all standard stalker factions and all mutant faction keys. Protected squads (story, companions, task targets) and vermin (rats, tushkanos) are filtered before counting. Everything else contributes; the threshold mechanism (max squad size per faction per level) throttles big-squad species proportionally.</p>
-<p><b>Threshold:</b><br />Kills needed before one advance fires for a (level, faction) pair. Set automatically to the largest squad size that can produce that faction at any eligible smart on the level. Cordon stalkers max at 3 NPCs per squad, so the Cordon stalker threshold is 3. Swamp boars max at 15, so the Swamp boar threshold is 15. Read from <code>squad_descr</code> LTX on first death and cached. Mutant-heavy levels land around 15 to 20, stalker-only levels around 3 to 5.</p>
-<p><b>Eligibility:</b><br />A smart is eligible when one of its respawn recipes has a squad section whose <code>squad_descr</code> faction matches. Routing props are not checked (they govern where squads can move, not what recipes spawn). The picker further filters to smarts with open per-recipe budget AND room for another advance.</p>
-<p><b>Refill &lt;= death:</b><br />Between consecutive engine spawns at any eligible smart for a (level, faction) pair, the engine refills no more NPCs of that faction on that level than have died. The threshold caps each refill against the deaths that earned it.</p>
-<p><b>Performance:</b><br />O(1) per death, O(active state) per scan, cached. DEBUG-level tracing reports per-event and per-tick timings to <code>alifebalance.log</code>. At WARN the mod is silent.</p>
 <h2>Compatibility</h2>
 <p>Compatible with vanilla Anomaly 1.5.3, GAMMA, ZCP, Redone, Warfare, AlifeGuard, AlifePlus, Night Mutants, GAMMA Dynamic Despawner, Guards Spawner, Nocturnal Mutants.</p>
 <ul>
@@ -45,22 +40,22 @@
 <li>Map markers are green PDA spots on every smart receiving an advance. Right-click to teleport or show advance stats.</li>
 </ul>
 <h2>Configuration tips</h2>
-<p>Two knobs: <b>advance count</b> (1-8, default 4) and <b>minimum cooldown remaining</b> (10-360 game minutes, default 60).</p>
-<p><b>Advance count</b> is the kill-to-refill ratio. One advance advances one smart by 1/advances of its cooldown cycle; one full cycle (the smart hitting its floor) is what produces one engine spawn of up to threshold NPCs.</p>
-<ul>
-<li><code>advances=1</code>: each threshold crossing produces a refill. 3 stalker kills on Cordon (threshold 3) earn one stalker squad respawn.</li>
-<li><code>advances=4</code> (default): four threshold crossings produce a refill. 12 stalker kills earn one respawn.</li>
-<li><code>advances=8</code>: eight threshold crossings produce a refill. 24 stalker kills earn one respawn.</li>
-</ul>
-<p>Lower advance count makes refills cheaper; higher advance count means more sustained combat is needed before the engine spawns anything.</p>
-<p><b>Min minutes</b> controls how long the engine ages the final cooldown leg on its own clock after AlifeBalance stops pushing. <code>min_minutes=60</code> = refill fires about one game hour after the last advance. <code>min_minutes=360</code> stretches that to about six game hours.</p>
+<p>Two knobs: <b>advance count</b> (1-8, default 4) and <b>minimum cooldown remaining</b> (10-360 game minutes, default 120).</p>
+<p><b>Advance count</b> is the number of advances needed to drive one smart from full cooldown to the <code>min_minutes</code> floor. One advance subtracts 1/advances of the cooldown cycle from the picked smart. AlifeBalance does not spawn anything: once a smart's cooldown is at the floor, the engine's own clock ages out the rest and the engine's <code>try_respawn</code> fires its normal spawn. At <code>advances=4</code> (default), four thresholds of deaths drive one smart to the floor, 25% per advance. Lower advance count = larger advance per threshold = faster acceleration of one smart. Higher advance count = smaller advances = more sustained combat before any smart reaches the floor.</p>
+<p><b>Min minutes</b> controls how long the engine ages the final cooldown leg on its own clock after AlifeBalance stops pushing. <code>min_minutes=120</code> (default) = the engine's spawn fires about two game hours after the last advance. <code>min_minutes=60</code> = one hour. <code>min_minutes=360</code> stretches that to about six game hours. Higher values leave the engine more in charge of the final approach.</p>
 <p><b>Presets:</b></p>
 <ul>
-<li><b>Aggressive refill (1:1 kill-to-refill):</b> <code>advances=1, min_minutes=60</code></li>
-<li><b>Default (4:1):</b> <code>advances=4, min_minutes=60</code></li>
-<li><b>Conservative, sustained combat only (8:1):</b> <code>advances=8, min_minutes=360</code></li>
+<li><b>Aggressive (one threshold = full cooldown advancement):</b> <code>advances=1, min_minutes=60</code></li>
+<li><b>Default (one threshold = 25% advancement):</b> <code>advances=4, min_minutes=120</code></li>
+<li><b>Conservative (one threshold = 12.5% advancement):</b> <code>advances=8, min_minutes=360</code></li>
 </ul>
-<p>If a refill does not appear right after a threshold crossing, the engine's actor-distance gate is the usual reason. The engine skips its respawn check at any smart with the actor within <code>respawn_radius</code>. Walk a bit further from the marker, or stay where the fight happened.</p>
+<h2>Technical notes (for modders)</h2>
+<p>Runtime is xlibs, a reverse-engineered API over X-Ray internals. No engine patches, no script replacement, no parallel schedulers, no entity creation.</p>
+<p><b>What gets counted:</b><br />Deaths for all standard stalker factions and all mutant faction keys. Protected squads (story, companions, task targets) and vermin (rats, tushkanos) are filtered before counting. Everything else contributes; the threshold mechanism (max squad size per faction per level) throttles big-squad species proportionally.</p>
+<p><b>Threshold:</b><br />Kills needed before one advance fires for a (level, faction) pair. Set automatically to the largest squad size that can produce that faction at any eligible smart on the level. Cordon stalkers max at 3 NPCs per squad, so the Cordon stalker threshold is 3. Swamp boars max at 15, so the Swamp boar threshold is 15. Read from <code>squad_descr</code> LTX on first death and cached. Mutant-heavy levels land around 15 to 20, stalker-only levels around 3 to 5.</p>
+<p><b>Eligibility:</b><br />A smart is eligible when one of its respawn recipes has a squad section whose <code>squad_descr</code> faction matches. Routing props are not checked (they govern where squads can move, not what recipes spawn). The picker further filters to smarts with open per-recipe budget AND room for another advance.</p>
+<p><b>Refill &lt;= death:</b><br />Between consecutive engine spawns at any eligible smart for a (level, faction) pair, the engine refills no more NPCs of that faction on that level than have died. The threshold caps each refill against the deaths that earned it.</p>
+<p><b>Performance:</b><br />O(1) per death, O(active state) per scan, cached. DEBUG-level tracing reports per-event and per-tick timings to <code>alifebalance.log</code>. At WARN the mod is silent.</p>
 <h2>Requirements</h2>
 <ul>
 <li>Anomaly 1.5.3</li>

@@ -11,18 +11,23 @@ The Anomaly A-Life simulation runs respawn cooldowns on a fixed schedule.
 The schedule does not know about combat pressure or quiet periods, so heavily fought regions empty out while ignored ones drift toward overcrowding.
 AlifeBalance is a balance layer that corrects this gap without rewriting the engine.
 
+Built as a companion to AlifePlus, which increases NPC activity and combat across the Zone. More activity means more deaths, and AlifeBalance scales refill to match. Both mods are independent and can be used separately.
+
+Why not just shorten the global cooldown to 1h or 2h?
+
+The engine's respawn_idle is one number applied to every smart on every level. Shorten it and every smart cycles faster, including the ones a hundred metres behind you. The engine's actor-distance gate blocks the spawn only while you stand inside its radius; the moment you walk out, the smart's overdue cooldown fires and the squad lands at your back. AlifeBalance fires one targeted advance per threshold of deaths, and the picker chooses the eligible smart farthest from you. Refills happen on the level where the kills happened, away from your current combat, one squad at a time.
+
 What you'll notice:
 
 - Active regions recover faster after heavy firefights.
 - Inactive regions stop drifting toward overcrowding.
 - Mutant lairs and stalker bases repopulate at a pace closer to the kill rate.
+- Refills land at the far end of the level, off-screen, one squad at a time.
 - Vanilla A-Life still owns every spawn.
 
 Important:
 
-AlifeBalance never spawns, destroys, or modifies smart terrain or squad configuration.
-It reads engine state and nudges the respawn cooldown timestamps the game already reads.
-The engine still owns timing, recipes, squad sections, budget caps, and NPC counts.
+AlifeBalance does not spawn NPCs. It shifts a timestamp the engine was always going to read on its next alife tick. The engine still owns spawning, recipes, squad selection, and budget caps.
 
 Features:
 
@@ -36,26 +41,44 @@ For each pair where the counter has reached the threshold and at least one eligi
 
 Burst combat that produces many kills in one minute can fire many advances on one tick, distributed across multiple smarts. Leftover kills under threshold carry to the next tick.
 
-MCM exposes two knobs: advance count (default 4) and minimum cooldown remaining in game minutes (default 60).
-Each advance subtracts the same constant from the picked smart.
-Smart Pacing never pushes below the floor.
+MCM exposes two knobs: advance count (default 4) and minimum cooldown remaining in game minutes (default 120). Each advance subtracts the same constant from the picked smart. Smart Pacing never pushes below the floor.
 
-Example, sustained combat:
-
-A small firefight kills 3 bandits on Cordon.
-The death counter reaches the threshold (3, the max NPC count of a Cordon bandit squad).
-Smart Pacing picks a bandit-spawning Cordon smart that still has room and moves its cooldown forward.
-The counter resets to 0.
-Several advances later (across several ticks) the smart hits the floor.
-The engine's ageing finishes the cooldown and fires the spawn.
-
-Example, burst combat:
+Example:
 
 A heavy firefight wipes 30 bandits on Cordon in one minute.
 The death counter reaches 30. Threshold is 3.
 On the next tick Smart Pacing fires up to 10 advances: pick a smart, advance, subtract 3, repeat. A smart that hits its floor drops out and other eligibles take the remaining advances. Several smarts can hit floor in the same tick, queueing several refills for shortly after.
 
 If every eligible smart is at budget cap or at the floor, the advance defers and the counter holds.
+
+Compatibility:
+
+Compatible with vanilla Anomaly 1.5.3, GAMMA, ZCP, Redone, Warfare, AlifeGuard, AlifePlus, Night Mutants, GAMMA Dynamic Despawner, Guards Spawner, Nocturnal Mutants.
+
+- Vanilla and ZCP read the same cooldown field AlifeBalance writes.
+- Redone and GAMMA NPC Spawns ship pure config. AlifeBalance writes runtime state on a different layer.
+- Night Mutants spawns through the engine's own path. Squads still register against their origin smart.
+- Nocturnal Mutants spawns outside smart terrains. Ignored.
+- Dynamic Despawner and AlifeGuard despawn without firing the death event. Never trigger advances.
+
+MCM:
+
+- Smart Pacing: enable, advance count, minimum cooldown remaining.
+- Development: log level, map markers, show status, reset counters.
+- Map markers are green PDA spots on every smart receiving an advance. Right-click to teleport or show advance stats.
+
+Configuration tips:
+
+Two knobs: advance count (1-8, default 4) and minimum cooldown remaining (10-360 game minutes, default 120).
+
+Advance count is the number of advances needed to drive one smart from full cooldown to the min_minutes floor. One advance subtracts 1/advances of the cooldown cycle from the picked smart. AlifeBalance does not spawn anything: once a smart's cooldown is at the floor, the engine's own clock ages out the rest and the engine's try_respawn fires its normal spawn. At advances=4 (default), four thresholds of deaths drive one smart to the floor, 25% per advance. Lower advance count = larger advance per threshold = faster acceleration of one smart. Higher advance count = smaller advances = more sustained combat before any smart reaches the floor.
+
+Min minutes controls how long the engine ages the final cooldown leg on its own clock after AlifeBalance stops pushing. min_minutes=120 (default) = the engine's spawn fires about two game hours after the last advance. min_minutes=60 = one hour. min_minutes=360 stretches that to about six game hours. Higher values leave the engine more in charge of the final approach.
+
+Presets:
+  Aggressive (one threshold = full cooldown advancement):  advances=1, min_minutes=60
+  Default (one threshold = 25% advancement):               advances=4, min_minutes=120
+  Conservative (one threshold = 12.5% advancement):        advances=8, min_minutes=360
 
 Technical notes (for modders):
 
@@ -84,41 +107,6 @@ Performance:
 O(1) per death, O(active state) per scan, cached.
 DEBUG-level tracing reports per-event and per-tick timings to alifebalance.log.
 At WARN the mod is silent.
-
-Compatibility:
-
-Compatible with vanilla Anomaly 1.5.3, GAMMA, ZCP, Redone, Warfare, AlifeGuard, AlifePlus, Night Mutants, GAMMA Dynamic Despawner, Guards Spawner, Nocturnal Mutants.
-
-- Vanilla and ZCP read the same cooldown field AlifeBalance writes.
-- Redone and GAMMA NPC Spawns ship pure config. AlifeBalance writes runtime state on a different layer.
-- Night Mutants spawns through the engine's own path. Squads still register against their origin smart.
-- Nocturnal Mutants spawns outside smart terrains. Ignored.
-- Dynamic Despawner and AlifeGuard despawn without firing the death event. Never trigger advances.
-
-MCM:
-
-- Smart Pacing: enable, advance count, minimum cooldown remaining.
-- Development: log level, map markers, show status, reset counters.
-- Map markers are green PDA spots on every smart receiving an advance. Right-click to teleport or show advance stats.
-
-Configuration tips:
-
-Two knobs: advance count (1-8, default 4) and minimum cooldown remaining (10-360 game minutes, default 60).
-
-Advance count is the kill-to-refill ratio. One advance advances one smart by 1/advances of its cooldown cycle; one full cycle (advances advances on the same smart, or the smart hitting its floor through any combination) is what produces one engine spawn of up to threshold NPCs. So:
-  advances=1 means each threshold crossing produces a refill. 3 stalker kills on Cordon (threshold 3) earn one stalker squad respawn.
-  advances=4 (default) means four threshold crossings produce a refill. 12 stalker kills earn one respawn.
-  advances=8 means eight threshold crossings produce a refill. 24 stalker kills earn one respawn.
-Lower advance count makes refills cheaper; higher advance count means more sustained combat is needed before the engine spawns anything.
-
-Min minutes controls how long the engine ages the final cooldown leg on its own clock after AlifeBalance stops pushing. min_minutes=60 = refill fires about one game hour after the last advance. min_minutes=360 stretches that to about six game hours.
-
-Presets:
-  Aggressive refill (1:1 kill-to-refill ratio):   advances=1, min_minutes=60
-  Default (4:1 kill-to-refill ratio):             advances=4, min_minutes=60
-  Conservative, sustained combat only (8:1):      advances=8, min_minutes=360
-
-If a refill does not appear right after a threshold crossing, the engine's actor-distance gate is the usual reason. The engine skips its respawn check at any smart with the actor within respawn_radius. Walk a bit further from the marker, or stay where the fight happened.
 
 Requirements:
 
