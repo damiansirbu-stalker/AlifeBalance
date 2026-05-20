@@ -16,7 +16,7 @@
 <p>Smart Pacing accelerates vanilla recovery when combat pressure exceeds the engine's pace.</p>
 <p>Death events fill per-(level, faction) counters. A periodic scanner reads them. For each pair where the counter has reached the threshold and at least one eligible smart has open spawn budget, Smart Pacing fires advances while pressure remains: pick the smart farthest from the actor that still has room, push its cooldown timestamp closer to expiry by an equal share, subtract threshold from the counter, drop the smart from this tick's pool when it hits the minimum-remaining floor. The next advance picks the next-farthest smart. Refills land away from the actor's current combat zone before nearby smarts.</p>
 <p>Burst combat that produces many kills in one minute can fire many advances on one tick, distributed across multiple smarts. Leftover kills under threshold carry to the next tick.</p>
-<p>MCM exposes two knobs: advance count (default 4) and minimum cooldown remaining in game hours (default 1). Each advance subtracts the same constant from the picked smart. Smart Pacing never pushes below the floor.</p>
+<p>MCM exposes two knobs: advance count (default 4) and minimum cooldown remaining in game minutes (default 60). Each advance subtracts the same constant from the picked smart. Smart Pacing never pushes below the floor.</p>
 <p><b>Example, sustained combat:</b></p>
 <p>A small firefight kills 3 bandits on Cordon. The death counter reaches the threshold (3, the max NPC count of a Cordon bandit squad). Smart Pacing picks a bandit-spawning Cordon smart that still has room and moves its cooldown forward. The counter resets to 0. Several advances later (across several ticks) the smart hits the floor. The engine's ageing finishes the cooldown and fires the spawn.</p>
 <p><b>Example, burst combat:</b></p>
@@ -45,7 +45,7 @@
 <li>Map markers are green PDA spots on every smart receiving an advance. Right-click to teleport or show advance stats.</li>
 </ul>
 <h2>Configuration tips</h2>
-<p>Two knobs: <b>advance count</b> (1-8, default 4) and <b>minimum cooldown remaining</b> (1-6 game hours, default 1).</p>
+<p>Two knobs: <b>advance count</b> (1-8, default 4) and <b>minimum cooldown remaining</b> (10-360 game minutes, default 60).</p>
 <p><b>Advance count</b> is the kill-to-refill ratio. One advance advances one smart by 1/advances of its cooldown cycle; one full cycle (the smart hitting its floor) is what produces one engine spawn of up to threshold NPCs.</p>
 <ul>
 <li><code>advances=1</code>: each threshold crossing produces a refill. 3 stalker kills on Cordon (threshold 3) earn one stalker squad respawn.</li>
@@ -53,12 +53,12 @@
 <li><code>advances=8</code>: eight threshold crossings produce a refill. 24 stalker kills earn one respawn.</li>
 </ul>
 <p>Lower advance count makes refills cheaper; higher advance count means more sustained combat is needed before the engine spawns anything.</p>
-<p><b>Min hours</b> controls how long the engine ages the final cooldown leg on its own clock after AlifeBalance stops pushing. <code>min_hours=1</code> = refill fires about one game hour after the last advance. <code>min_hours=6</code> stretches that to about six game hours.</p>
+<p><b>Min minutes</b> controls how long the engine ages the final cooldown leg on its own clock after AlifeBalance stops pushing. <code>min_minutes=60</code> = refill fires about one game hour after the last advance. <code>min_minutes=360</code> stretches that to about six game hours.</p>
 <p><b>Presets:</b></p>
 <ul>
-<li><b>Aggressive refill (1:1 kill-to-refill):</b> <code>advances=1, min_hours=1</code></li>
-<li><b>Default (4:1):</b> <code>advances=4, min_hours=1</code></li>
-<li><b>Conservative, sustained combat only (8:1):</b> <code>advances=8, min_hours=6</code></li>
+<li><b>Aggressive refill (1:1 kill-to-refill):</b> <code>advances=1, min_minutes=60</code></li>
+<li><b>Default (4:1):</b> <code>advances=4, min_minutes=60</code></li>
+<li><b>Conservative, sustained combat only (8:1):</b> <code>advances=8, min_minutes=360</code></li>
 </ul>
 <p>If a refill does not appear right after a threshold crossing, the engine's actor-distance gate is the usual reason. The engine skips its respawn check at any smart with the actor within <code>respawn_radius</code>. Walk a bit further from the marker, or stay where the fight happened.</p>
 <h2>Requirements</h2>

@@ -27,7 +27,7 @@ Death events fill per-(level, faction) counters. A periodic scanner reads them. 
 
 Burst combat that produces many kills in one minute can fire many advances on one tick, distributed across multiple smarts. Leftover kills under threshold carry to the next tick.
 
-MCM exposes two knobs: advance count (default 4) and minimum cooldown remaining in game hours (default 1). Each advance subtracts the same constant from the picked smart. Smart Pacing never pushes below the floor.
+MCM exposes two knobs: advance count (default 4) and minimum cooldown remaining in game minutes (default 60). Each advance subtracts the same constant from the picked smart. Smart Pacing never pushes below the floor.
 
 [b]Example, sustained combat:[/b]
 
@@ -75,7 +75,7 @@ Compatible with vanilla Anomaly 1.5.3, GAMMA, ZCP, Redone, Warfare, AlifeGuard, 
 [/list]
 
 [size=3][b]Configuration tips[/b][/size]
-Two knobs: [b]advance count[/b] (1-8, default 4) and [b]minimum cooldown remaining[/b] (1-6 game hours, default 1).
+Two knobs: [b]advance count[/b] (1-8, default 4) and [b]minimum cooldown remaining[/b] (10-360 game minutes, default 60).
 
 [b]Advance count[/b] is the kill-to-refill ratio. One advance advances one smart by 1/advances of its cooldown cycle; one full cycle (the smart hitting its floor) is what produces one engine spawn of up to threshold NPCs.
 [list]
@@ -85,13 +85,13 @@ Two knobs: [b]advance count[/b] (1-8, default 4) and [b]minimum cooldown remaini
 [/list]
 Lower advance count makes refills cheaper; higher advance count means more sustained combat is needed before the engine spawns anything.
 
-[b]Min hours[/b] controls how long the engine ages the final cooldown leg on its own clock after AlifeBalance stops pushing. [font=Courier New]min_hours=1[/font] = refill fires about one game hour after the last advance. [font=Courier New]min_hours=6[/font] stretches that to about six game hours.
+[b]Min minutes[/b] controls how long the engine ages the final cooldown leg on its own clock after AlifeBalance stops pushing. [font=Courier New]min_minutes=60[/font] = refill fires about one game hour after the last advance. [font=Courier New]min_minutes=360[/font] stretches that to about six game hours.
 
 [b]Presets:[/b]
 [list]
-[*][b]Aggressive refill (1:1 kill-to-refill):[/b] [font=Courier New]advances=1, min_hours=1[/font]
-[*][b]Default (4:1):[/b] [font=Courier New]advances=4, min_hours=1[/font]
-[*][b]Conservative, sustained combat only (8:1):[/b] [font=Courier New]advances=8, min_hours=6[/font]
+[*][b]Aggressive refill (1:1 kill-to-refill):[/b] [font=Courier New]advances=1, min_minutes=60[/font]
+[*][b]Default (4:1):[/b] [font=Courier New]advances=4, min_minutes=60[/font]
+[*][b]Conservative, sustained combat only (8:1):[/b] [font=Courier New]advances=8, min_minutes=360[/font]
 [/list]
 
 If a refill does not appear right after a threshold crossing, the engine's actor-distance gate is the usual reason. The engine skips its respawn check at any smart with the actor within [font=Courier New]respawn_radius[/font]. Walk a bit further from the marker, or stay where the fight happened.

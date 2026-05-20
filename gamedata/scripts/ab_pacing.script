@@ -14,7 +14,7 @@ local log = xlog.get_logger("AB.PACE", { outfile = "alifebalance.log" })
 local TIMER_EV = "ab_pacing"
 local TIMER_TICK = "tick"
 local TICK_INTERVAL_SEC = 60
-local SEC_PER_HOUR = 3600
+local SEC_PER_MIN = 60
 local DEFAULT_RESPAWN_IDLE_SEC = 43200
 
 local CALLBACK = {
@@ -23,6 +23,7 @@ local CALLBACK = {
     ON_OPTION_CHANGE      = "on_option_change",
     LOAD_STATE            = "load_state",
     ACTOR_ON_FIRST_UPDATE = "actor_on_first_update",
+    ON_TRY_RESPAWN        = "on_try_respawn",
 }
 
 local STATUS_TIP_MS = 8000
@@ -50,7 +51,7 @@ end
 local cfg = {
     enabled = true,
     advances = 4,
-    min_hours = 1,
+    min_minutes = 60,
     show_markers = false,
     log_level = "WARN",
 }
@@ -213,66 +214,78 @@ local function _make_delta_ctime(seconds)
     return stamp - zero
 end
 
--- Per-smart cache: the per-advance CTime delta and scalar advance, plus max_age. Advance
--- is the equal subtract per advance, sized so that exactly `advances` advances carry a fresh smart
--- from age 0 to (respawn_idle - min_hours_sec), where the cooldown still has min_hours
--- of game time for the engine to age out on its own. max_age is the highest current age
--- that can accept another advance without crossing the floor. Cache invalidated in
--- _load_config when advances or min_hours change, and in _reset_state.
+-- Per-smart cache: the per-advance CTime delta, scalar advance, plus usable. Advance is
+-- the standard subtract per advance, sized so exactly `advances` advances carry a fresh
+-- smart from age 0 to `usable` (respawn_idle - min_minutes_sec), leaving exactly min_minutes
+-- of cooldown for the engine to age out on its own. `usable` is the floor's max age: any
+-- smart with age >= usable already has cooldown remaining <= min_minutes and is skipped
+-- (engine fires soon naturally). Cache invalidated in _load_config when advances or
+-- min_minutes change, and in _reset_state.
 local function _get_advance_params(smart)
     local cached = _delta_cache[smart.id]
     if cached then return cached end
     local idle        = smart.respawn_idle or DEFAULT_RESPAWN_IDLE_SEC
-    local usable      = idle - cfg.min_hours * SEC_PER_HOUR
+    local usable      = idle - cfg.min_minutes * SEC_PER_MIN
     local advance_sec = (usable > 0) and (usable / cfg.advances) or 0
-    local max_age     = usable - advance_sec
-    if max_age < 0 then max_age = 0 end
     local params      = {
         delta   = (advance_sec > 0) and _make_delta_ctime(advance_sec) or nil,
         advance = advance_sec,
-        max_age = max_age,
+        usable  = usable,
     }
     _delta_cache[smart.id] = params
     return params
 end
 
--- True if one more advance on this smart still leaves at least min_hours of cooldown
--- remaining. Skip outright if advance is 0 (min_hours >= respawn_idle = degenerate
--- config, vanilla pace owns this smart). A nil last_respawn_update means age is
--- effectively infinite (never spawned); we still allow an advance on it because the advance
--- initializes lru to now and subtracts the standard advance from there.
+-- Picker gate. Skip conditions:
+--   (a) degenerate config (advance <= 0, when min_minutes*60 >= respawn_idle)
+--   (b) fresh smart (lru == nil; engine gate already open, no acceleration needed)
+--   (c) advances >= 2: smart cannot accept a full `params.advance` push without overshoot
+--   (d) advances == 1: smart is within one `min_minutes` of the floor. Two reasons:
+--       precision-drift guard (a clamp-to-floor push lands age = usable plus or minus
+--       a few seconds; without this gate _can_advance would re-fire trivial pushes); and
+--       "don't waste a kill on a smart already close to firing naturally".
+-- For advances >= 2 the gate is strict: no clamping ever happens, every push is the
+-- cached delta. For advances == 1 the gate allows partial pushes >= min_minutes of
+-- headroom; _advance_smart clamps them to land exactly at the floor.
 local function _can_advance(smart)
     local params = _get_advance_params(smart)
     if params.advance <= 0 then return false end
     local lru = smart.last_respawn_update
-    if lru == nil then return true end
+    if lru == nil then return false end
     local now = xtime.game_time()
     if not now then return false end
-    return now:diffSec(lru) <= params.max_age
+    local max_push = params.usable - now:diffSec(lru)
+    if cfg.advances > 1 then return max_push >= params.advance end
+    return max_push >= cfg.min_minutes * SEC_PER_MIN
 end
 
--- Subtract the standard per-advance delta from the smart's cooldown. Constant amount per
--- smart, cached. AlifeBalance never crosses the min_hours floor and never triggers the
--- spawn directly -- _can_advance pre-filters smarts whose age would exceed the cap.
--- Marker hint refresh is the caller's responsibility (must run after _record_advance so
--- the hint's advance count reflects this advance, not the previous one).
+-- Push lru backward so age grows by `push_sec`. For advances >= 2 the picker gate
+-- ensures the full `params.advance` fits without overshoot, so push_sec is the cached
+-- advance and the cached delta is reused. For advances == 1 the push is clamped to
+-- (usable - age) so the smart lands at exactly the floor; a one-off CTime is built.
+-- Returns the push size in seconds (caller logs it).
 local function _advance_smart(smart)
     local lru = smart.last_respawn_update
-    if lru == nil then
-        lru = xtime.game_time()
-        if not lru then return end
-    end
-    lru:sub(_get_advance_params(smart).delta)
+    if lru == nil then return 0 end
+    local params = _get_advance_params(smart)
+    local now = xtime.game_time()
+    if not now then return 0 end
+    local age      = now:diffSec(lru)
+    local max_push = params.usable - age
+    if max_push <= 0 then return 0 end
+    local push_sec = (params.advance <= max_push) and params.advance or max_push
+    local delta    = (push_sec == params.advance) and params.delta or _make_delta_ctime(push_sec)
+    lru:sub(delta)
     smart.last_respawn_update = lru
+    return push_sec
 end
 
 -- ==================== MARKER LABEL (public, called by ab_map) ====================
 
 -- Hover hint for ab_map markers: mod / feature name + translated smart name +
--- recipe-derived factions + advance snapshot at the moment of the last applied advance
--- (count, room for more advances before the min_hours floor, cooldown remaining).
--- Exposed for ab_map.mark_smart_with_linger; reads pacing-side _smart_stats and
--- _delta_cache directly.
+-- recipe-derived factions + advance snapshot (count of advances applied, cooldown
+-- remaining the engine still ages out before firing).
+-- Exposed for ab_map.mark_smart_with_linger; reads pacing-side _smart_stats directly.
 function marker_label(smart)
     local name       = smart:name() or "?"
     local translated = game.translate_string(name)
@@ -285,18 +298,13 @@ function marker_label(smart)
     if #refills > 0 then
         lines[#lines + 1] = "refills: " .. table_concat(refills, ", ")
     end
-    local entry  = _smart_stats[smart.id]
-    local params = _get_advance_params(smart)
-    local now    = xtime.game_time()
-    local lru    = smart.last_respawn_update
+    local entry = _smart_stats[smart.id]
+    local now   = xtime.game_time()
+    local lru   = smart.last_respawn_update
     if entry and now and lru then
-        local age    = now:diffSec(lru)
-        local left   = (smart.respawn_idle or 0) - age
-        local room   = 0
-        if age <= params.max_age and params.advance > 0 then
-            room = math_floor((params.max_age - age) / params.advance) + 1
-        end
-        lines[#lines + 1] = string_format("advances: %d, room for %d more", entry.advances, room)
+        local age  = now:diffSec(lru)
+        local left = (smart.respawn_idle or 0) - age
+        lines[#lines + 1] = string_format("advances: %d", entry.advances)
         if left > 0 then
             lines[#lines + 1] = "engine spawns in " .. _fmt_hours(left) .. " of game time"
         else
@@ -313,22 +321,22 @@ local function _load_config()
     if not mcm then return end
     local was_show_markers = cfg.show_markers
     local was_advances     = cfg.advances
-    local was_min_hours    = cfg.min_hours
+    local was_min_minutes    = cfg.min_minutes
     cfg.enabled      = mcm.enabled
     cfg.advances     = mcm.advances or 4
-    cfg.min_hours    = mcm.min_hours or 1
+    cfg.min_minutes    = mcm.min_minutes or 60
     cfg.show_markers = mcm.show_markers
     cfg.log_level    = mcm.log_level
     log.set_level(cfg.log_level)
     -- DEBUG = 5 per xlog.script:8
     _dbg = log.get_level() >= 5
     -- advances or min-hours change invalidates the per-smart cached CTime advance.
-    if was_advances ~= cfg.advances or was_min_hours ~= cfg.min_hours then _delta_cache = {} end
+    if was_advances ~= cfg.advances or was_min_minutes ~= cfg.min_minutes then _delta_cache = {} end
     -- sync DEBUG flag to ab_recipe so its [INVENTORY] / [ELIGIBLE] log lines respect it,
     -- and clear its inventory gate so DEBUG re-dumps when re-enabled.
     ab_recipe.set_debug(_dbg)
-    log.info("[CONFIG] enabled=%s advances=%d min_hours=%d show_markers=%s log=%s",
-        tostring(cfg.enabled), cfg.advances, cfg.min_hours, tostring(cfg.show_markers), cfg.log_level)
+    log.info("[CONFIG] enabled=%s advances=%d min_minutes=%d show_markers=%s log=%s",
+        tostring(cfg.enabled), cfg.advances, cfg.min_minutes, tostring(cfg.show_markers), cfg.log_level)
     if was_show_markers and not cfg.show_markers then ab_map.clear_all_markers() end
 end
 
@@ -420,6 +428,24 @@ local function _on_npc_creation(squad, _se_obj, spawn_smart)
     end
 end
 
+-- Diagnostic: every engine try_respawn call on a smart we've advanced.
+-- Fires at line 1603 in smart_terrain.script BEFORE every gate, so a [TRY_RESPAWN]
+-- with no subsequent [SPAWN] (within a tick or two) means one of the later gates
+-- blocked: peace_info (1607), respawn_only_level (1611), actor distance (1619),
+-- respawn_params/already_spawned (1625), simulation availability (1630), or the
+-- cooldown gate (1651). Absence of [TRY_RESPAWN] for an advanced smart means the
+-- alife scheduler hasn't reached it yet.
+-- Filtered to _smart_stats only so the log doesn't drown in entries for every smart
+-- the engine touches. `flags` is the engine's {disabled = false} table; we never set
+-- disabled = true (we don't block any spawn).
+local function _on_try_respawn(smart, _flags)
+    if not _dbg then return end
+    if not smart or not smart.id then return end
+    if not _smart_stats[smart.id] then return end
+    log.debug("[TRY_RESPAWN] smart=%s cooldown=%s",
+        smart:name() or "?", _format_cooldown(smart))
+end
+
 -- ==================== PERIODIC TICK ====================
 
 -- Try to qualify one smart for the with_budget array; nil-skip + can-advance + budget check.
@@ -432,7 +458,7 @@ end
 
 -- Walk eligible smarts once. For each, evaluate budget for `faction` in a single pass
 -- (one pick_section_from_condlist per recipe) and keep those that have a matched open
--- recipe AND can still accept another advance without crossing the min_hours floor.
+-- recipe AND can still accept another advance without crossing the min_minutes floor.
 -- Returns array of { smart, budget_str } so the advance log line can reuse the same string
 -- the gate decided on -- no second evaluation that could disagree.
 local function _collect_with_budget(smarts, faction)
@@ -452,17 +478,21 @@ local function _fire_advance(level_id, faction, pick, triggering_count, threshol
     local tmr   = xprofiler.new_if(_dbg):start()
     local before_cooldown = _format_cooldown(smart)
     local pop_str         = _format_pop(smart)
-    _advance_smart(smart)
+    local push_sec        = _advance_smart(smart)
     _stats.advances = _stats.advances + 1
     _record_advance(smart, level_id, faction, triggering_count, threshold,
                  before_cooldown, pick.budget_str)
     if cfg.show_markers then ab_map.mark_smart_with_linger(smart) end
     tmr:stop()
     if _dbg then
+        local params    = _get_advance_params(smart)
+        local push_tag  = (push_sec < params.advance)
+                          and string_format(" clamped %s/%s", _fmt_hours(push_sec), _fmt_hours(params.advance))
+                          or ""
         log.debug(
-            "[ADVANCE] smart=%s level=%d faction=%s count=%d/threshold=%d advance=%d/%d pop=%s cooldown[%s -> %s] budget=%s [%.2fms]",
+            "[ADVANCE] smart=%s level=%d faction=%s count=%d/threshold=%d advance=%d/%d%s pop=%s cooldown[%s -> %s] budget=%s [%.2fms]",
             smart:name() or "?", level_id, faction, triggering_count, threshold,
-            _smart_stats[smart.id].advances, cfg.advances,
+            _smart_stats[smart.id].advances, cfg.advances, push_tag,
             pop_str, before_cooldown, _format_cooldown(smart), pick.budget_str, tmr:get_ms())
     end
 end
@@ -489,7 +519,7 @@ end
 -- count >= threshold AND at least one smart in with_budget can still advance.
 -- Each iteration picks the current front (farthest), fires the advance,
 -- subtracts threshold from count, and drops the smart from with_budget if it
--- hit the min_hours floor. After it drops, the next-farthest becomes the front.
+-- hit the min_minutes floor. After it drops, the next-farthest becomes the front.
 -- 100 kills with threshold 3 produces up to 33 advances in one tick, applied
 -- far-to-near. Leftover count (< threshold) carries to the next tick.
 -- Gate logs at DEBUG: [NOELIG] no recipe on this level produces the faction;
@@ -629,6 +659,7 @@ local function _on_first_update()
     RegisterScriptCallback(CALLBACK.SQUAD_ON_NPC_CREATION, _on_npc_creation)
     RegisterScriptCallback(CALLBACK.ON_OPTION_CHANGE, _on_option_change)
     RegisterScriptCallback(CALLBACK.LOAD_STATE, _on_load_state)
+    RegisterScriptCallback(CALLBACK.ON_TRY_RESPAWN, _on_try_respawn)
     RemoveTimeEvent(TIMER_EV, TIMER_TICK)
     CreateTimeEvent(TIMER_EV, TIMER_TICK, TICK_INTERVAL_SEC, _periodic_tick)
 end
@@ -645,7 +676,7 @@ function show_status()
     for _ in pairs(_smart_stats) do smarts_advanced = smarts_advanced + 1 end
     news_manager.send_tip(db.actor,
         "AlifeBalance " .. _ab_deps.get_version() .. " (advances=" .. tostring(cfg.advances)
-        .. " min_hours=" .. tostring(cfg.min_hours) .. ")",
+        .. " min_minutes=" .. tostring(cfg.min_minutes) .. ")",
         nil, nil, STATUS_TIP_MS)
     news_manager.send_tip(db.actor, string_format(
         "deaths: %d total (%d counted, %d protected, %d vermin)",

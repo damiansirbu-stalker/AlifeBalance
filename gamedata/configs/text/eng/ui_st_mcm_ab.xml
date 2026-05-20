@@ -37,11 +37,11 @@
     <string id="ui_mcm_ab_general_advances_desc">
         <text>How many advances are needed to fully push a smart's respawn cooldown to its floor. An advance fires when one squad's worth of deaths has accumulated for a (level, faction) pair, and subtracts 1/advances of the picked smart's respawn cooldown. At 1, one advance clears the full cooldown (instant refill). At 4 (default), four advances of accumulated combat refill the smart. At 8, the refill is paced across eight advances. Higher values mean refills feel more earned by sustained combat.</text>
     </string>
-    <string id="ui_mcm_ab_general_min_hours">
-        <text>Minimum cooldown remaining (game hours)</text>
+    <string id="ui_mcm_ab_general_min_minutes">
+        <text>Minimum cooldown remaining (game minutes)</text>
     </string>
-    <string id="ui_mcm_ab_general_min_hours_desc">
-        <text>Minimum cooldown that must remain on a smart after an advance applies, in game hours. AlifeBalance never pushes the cooldown below this floor; the engine's own clock ages out the last leg naturally and fires the spawn from there. A smart already at or below this floor is skipped on the next advance (counter holds for next tick). Default 1 hour. Raise to leave more natural cooldown after every advance.</text>
+    <string id="ui_mcm_ab_general_min_minutes_desc">
+        <text>Minimum cooldown that must remain on a smart after an advance applies, in game minutes. AlifeBalance never pushes the cooldown below this floor; the engine's own clock ages out the last leg naturally and fires the spawn from there. A smart already at or below this floor is skipped on the next advance (counter holds for next tick). Default 60 minutes (one game hour). Raise to leave more natural cooldown after every advance.</text>
     </string>
     <string id="ui_mcm_ab_development_show_markers">
         <text>Show map markers</text>
