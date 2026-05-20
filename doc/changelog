@@ -1,16 +1,2 @@
 1.0.0
-  Summary: cooldown advancement balance layer. Per-(level, faction) death events advance respawn cooldowns at the smart farthest from the actor; the engine still owns the spawn
-  Core:
-    Added: Smart Pacing pipeline. squad_on_npc_death fills per-(level, faction) counters; a 60s scanner reads them. When a counter reaches threshold and an eligible smart has open spawn budget, an advance subtracts 1/advances of the smart's respawn cooldown. The engine's try_respawn fires the squad after natural ageing
-    Added: threshold per (level, faction) set to MAX npc_in_squad across the level's eligible recipes. Cordon stalkers 3, Swamp boars 15. Read from squad_descr LTX on first death, cached for the session
-    Added: min_minutes floor on remaining cooldown. AlifeBalance never pushes below this; the engine's clock ages the final leg
-    Added: protection. Story squads, companions, task targets, vermin (rats, tushkanos) filtered before counting
-    Added: refill <= death invariant. The engine refills no more NPCs of a faction on a level than have died there
-  MCM:
-    Added: General > Smart Pacing. Enable toggle, advance count (1-8, default 4), min_minutes (10-360, default 120)
-    Added: Development > Diagnostics. Show map markers, show status, reset counters
-    Added: green PDA markers on every smart receiving an advance. Right-click to teleport or show stats
-  Compatibility:
-    Tested with vanilla Anomaly 1.5.3, GAMMA, ZCP, Redone, Warfare, AlifeGuard, AlifePlus, Night Mutants, GAMMA Dynamic Despawner, Guards Spawner, Nocturnal Mutants
-  Dependencies:
-    Required: xlibs 1.5.1+, MCM
+  First release. Advances respawn cooldowns at smart terrains where combat has produced deaths, so active regions recover faster without affecting the rest of the map.
