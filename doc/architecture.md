@@ -1,8 +1,8 @@
 # AlifeBalance Architecture
 
-AlifeBalance accelerates respawn at smart terrains whose recipes can produce a faction the player has been killing. It does not spawn anything. Per (level, faction), it counts deaths. Every 60 real-time seconds a scanner walks the counters. For each pair where `count >= threshold` and at least one eligible smart can still accept an advance, AlifeBalance subtracts `respawn_idle / advances` game-seconds from that smart's `last_respawn_update` field, then subtracts `threshold` from the counter and repeats while pressure remains. The same constant amount per advance per smart. 100 kills with threshold 3 produces up to 33 advances in one tick, distributed across eligible smarts until each one hits its `min_minutes` floor. AlifeBalance stops pushing once a smart has less than `min_minutes` of cooldown remaining; from there the engine's own clock ages out the last leg and fires `try_respawn` on its next alife tick. The engine still owns the spawn, the gates, and the squad selection. AlifeBalance never triggers the spawn directly.
+AlifeBalance accelerates respawn at smart terrains whose recipes produce a faction the player has been killing. It counts deaths per (level, faction), and every 60 wall-seconds advances the `last_respawn_update` timestamp of eligible smarts backward, bringing the engine's own cooldown gate closer to expiry. The engine still owns the spawn itself, the recipe choice, the squad section, and the NPC count. AlifeBalance writes exactly one field: `last_respawn_update`.
 
-`advances` is a player setting in MCM, range 1 to 8, default 4. Higher values pace refills across more sustained combat. A second MCM setting, `min_minutes` (range 10-360, default 120), sets the floor on the remaining cooldown that AlifeBalance will never push below. The default 120 means a smart fires its refill spawn roughly two game-hours after AlifeBalance's last push, leaving the engine's clock in charge of the final approach rather than collapsing the cooldown to zero.
+Two MCM knobs: `advances` (1-8, default 4) sets how many advances drive one smart from full cooldown to the floor; `min_minutes` (10-360, default 120) sets the floor on remaining cooldown that AlifeBalance never pushes below. With defaults, four advances of accumulated combat push one smart through, and the engine ages the final two game-hours on its own clock before firing `try_respawn`.
 
 Built on xlibs. `_ab_deps` asserts `xlibs >= 1.5.1` on load.
 
@@ -12,78 +12,52 @@ Built on xlibs. `_ab_deps` asserts `xlibs >= 1.5.1` on load.
 
 ## The cooldown clock
 
-**The one engine field AlifeBalance writes is `last_respawn_update`. Nothing else.**
-
 Every smart terrain holds two engine fields that together define when it can spawn next:
 
-- `respawn_idle` — cooldown DURATION in game-seconds. Set once from LTX (`smart_terrain.script:231`), per-smart. Vanilla default 43200 (12 game hours), ZCP under GAMMA is 21600 (6 game hours), Redone varies. **AlifeBalance only reads this field. Never writes.**
-- `last_respawn_update` — TIMESTAMP of the smart's last spawn. Reset to `curr_time` by the engine after every `SIMBOARD:create_squad` at `smart_terrain.script:1719`. **This is the single field AlifeBalance writes — one subtract per advance, in `_advance_smart` at `ab_pacing.script:260-268`.**
+- `respawn_idle` — cooldown duration in game-seconds. Set once from LTX (`smart_terrain.script:231`), per-smart. Vanilla LTX default 86400 (24 game hours); the engine code fallback for unset entries is 43200 (12h); ZCP under GAMMA is 21600 (6h); Redone varies. AlifeBalance only reads this field.
+- `last_respawn_update` — timestamp of the smart's last spawn. The engine resets it to `curr_time` after every `SIMBOARD:create_squad`. AlifeBalance writes this field; one subtract per advance, in `_advance_smart` at `ab_pacing.script:267-281`.
 
 The engine's cooldown gate at `smart_terrain.script:1651`:
 
 ```
 elapsed         = curr_time - last_respawn_update
 gate_open       = elapsed > respawn_idle
-hours_remaining = respawn_idle - elapsed       (the engine debug overlay reports this)
+hours_remaining = respawn_idle - elapsed       (debug overlay reports this)
 ```
 
-So `hours_remaining` is derived, not stored. It is the headline number a player would see in the debug overlay or in the marker hint, and it is what AlifeBalance moves indirectly.
-
-AlifeBalance accelerates the gate by aging `last_respawn_update` backward: one advance does
+AlifeBalance brings the gate closer by aging `last_respawn_update` backward:
 
 ```
 smart.last_respawn_update :sub( (respawn_idle - min_minutes * 60) / advances seconds )
 ```
 
-That makes `elapsed` artificially bigger, which makes `hours_remaining` artificially smaller, which brings the gate closer. The cooldown DURATION (`respawn_idle`) never changes — only the timestamp does. The engine's own `respawn_idle` setting remains the ground truth for cycle length.
+The cooldown duration (`respawn_idle`) never changes; only the timestamp does. The engine's `respawn_idle` setting remains the ground truth for cycle length.
 
 Worked example at vanilla LTX `respawn_idle=86400`, MCM `advances=4`, `min_minutes=120`:
 
 ```
 respawn_idle         = 86400 s   = 24.0 game-hours
-min_minutes*60       = 7200 s    = 2.0 game-hours
-usable               = 79200 s   = 22.0 game-hours      (the part we may advance)
-per-advance subtract    = 19800 s   = 5.5 game-hours       (usable / advances)
-advances to floor       = 4                                (usable / per-advance)
-floor remaining      = 7200 s    = 2.0 game-hours       (engine ages this naturally)
+usable               = 79200 s   = 22.0 game-hours      (respawn_idle - min_minutes*60)
+per-advance subtract = 19800 s   =  5.5 game-hours      (usable / advances)
+advances to floor    = 4
+floor remaining      =  7200 s   =  2.0 game-hours      (engine ages this naturally)
 ```
 
-Same math at ZCP under GAMMA `respawn_idle=21600`, MCM `advances=4`, `min_minutes=120`:
+Per-advance subtract scales with `respawn_idle`, so on shorter-cooldown modpacks each advance is a smaller game-time move while the kill cost stays the same:
 
-```
-usable               = 14400 s   = 4.0 game-hours
-per-advance subtract    = 3600 s    = 1.0 game-hours
-advances to floor       = 4
-floor remaining      = 7200 s    = 2.0 game-hours
-```
+| Scenario     | respawn_idle | usable | per-advance | floor |
+|--------------|-------------:|-------:|------------:|------:|
+| Vanilla LTX  |          24h |    22h |        5.5h |    2h |
+| ZCP @ GAMMA  |           6h |     4h |          1h |    2h |
 
-Advances-to-floor stays equal to `advances` (by construction of `advance = usable / advances`). Per-advance subtract scales with `respawn_idle`, so on shorter-cooldown modpacks each advance is a smaller game-time move while the kill cost stays the same.
+The picker's skip conditions in `_can_advance` (called per eligible smart per tick):
 
----
+- **Degenerate config**: `usable <= 0` (when `min_minutes * 60 >= respawn_idle`). Vanilla pace owns this smart.
+- **Fresh smart**: `last_respawn_update == nil`. Engine cooldown gate is already open; no acceleration needed.
+- **`advances >= 2`**: skip if a full advance push would overshoot the floor (`max_push < advance_seconds`). No clamping; the next tick can push again after natural ageing.
+- **`advances == 1`**: skip if the smart is within 60 game-seconds of the floor. Precision-drift guard.
 
-## Vocabulary
-
-- Smart terrain: an engine-level spawner with a configured pool of squad sections, a per-recipe budget cap, and a cooldown timestamp.
-- `respawn_idle`: per-smart cooldown duration in game-seconds, set in LTX (default 43200 = 12 game hours, vanilla range 12 to 24 hours). The engine cooldown gate is `curr_time:diffSec(last_respawn_update) > respawn_idle`.
-- Recipe: one entry in a smart's `respawn_params`. Holds a list of squad sections (`squads`) and a numeric condlist (`num`) for the per-recipe budget cap.
-- Faction: the value of `squad.player_id` at death. Matches the `faction` field in `squad_descr/*.ltx` for the source section.
-- Advance: one trigger event in the 60s scanner. Subtracts `advance_seconds = usable / advances` from one picked smart's `last_respawn_update`, where `usable = respawn_idle - min_minutes * 60`. The subtract is clamped down when the full amount would leave less than `min_minutes` of cooldown remaining; in that case the smart's cooldown lands at exactly `min_minutes`.
-- Threshold: kills required to fire one advance for a (level, faction) pair. Set to the largest `npc_in_squad` upper bound across all squad sections in eligible smarts' recipes that produce the faction. Examples: Cordon stalker = 3 (one stalker squad maxes at 3 NPCs); Swamp boar = 15 (one boar squad maxes at 15). Read from `squad_descr` LTX on first death for the pair, cached for the session. No MCM knob; the value is engine-grounded by construction.
-- Eligible smart: a smart on the target level with at least one section in its `respawn_params` recipes whose `squad_descr faction` equals the target faction.
-- Open budget: at least one matching recipe has `max > already_spawned[k].num` right now, where `max = pick_section_from_condlist(actor, smart, recipe.num)`.
-- Can-advance: three skip conditions (degenerate config, fresh smart with `last_respawn_update == nil`, smart already past the floor with `age >= usable`). A smart that fails any condition is dropped by the picker; the remaining ones receive a push, clamped at the floor when needed.
-- Picker order: `with_budget` is sorted descending by actor-to-smart distance once per tick. Advances pile onto the farthest qualifying smart first, then walk back toward the actor as smarts hit their floor. Soft preference, not a hard filter — if only near-actor smarts are eligible, they still receive advances (the engine's own `respawn_radius` gate at `smart_terrain.script:1619` defers the spawn until the actor moves out).
-
----
-
-## Invariants
-
-- **`last_respawn_update` is the only engine field AlifeBalance writes. One subtract per advance. Nothing else.**
-- AlifeBalance never calls `SIMBOARD:create_squad`. The engine spawns.
-- AlifeBalance does not modify `respawn_params`, `already_spawned`, `props`, `max_population`, `faction`, `respawn_idle`, or any other smart configuration.
-- No base script edits. No engine patches. Runtime callbacks only.
-- AlifeBalance never leaves a smart with less than `min_minutes` of cooldown remaining. The push lands cooldown at exactly `min_minutes` when the full `advance_seconds` would overshoot; smarts already past the floor (`age >= usable`) are skipped entirely.
-- Refill <= death per (level, faction), between consecutive engine spawns at any eligible smart for that pair. See "Population invariant" for the proof.
+The picker sorts eligible smarts by actor-to-smart distance descending. Advances pile on the farthest qualifying smart until it hits the floor, then move to the next-farthest. This is a soft preference: if only near-actor smarts are eligible, they still receive advances, and the engine's own `respawn_radius` gate at `smart_terrain.script:1619` will defer the spawn until the actor moves out.
 
 ---
 
@@ -119,15 +93,14 @@ _periodic_tick()
         else:
           sort with_budget by actor->smart distance descending
           while count >= threshold and #with_budget > 0:
-            smart = with_budget[1]                  (farthest from actor still eligible)
-            params = _get_advance_params(smart)     lazy: delta = respawn_idle/advances CTime; max_age = cap
+            smart = with_budget[1]                  (farthest from actor)
             smart.last_respawn_update:sub(params.delta)
             count -= threshold
             _stats.advances += 1                    [ADVANCE]
             if not _can_advance(smart):
-              remove smart from with_budget         (next-farthest becomes [1])
+              remove smart from with_budget
           by_faction[faction] = count               (leftover < threshold carries to next tick)
-          if burst_advances > 1: log [BURST]
+          if advances_this_tick > 1: log [BURST]
 
 ENGINE (its own alife tick at the advanced smart)
   - se_smart_terrain:update -> try_respawn
@@ -141,28 +114,11 @@ ENGINE (its own alife tick at the advanced smart)
   - writes last_respawn_update = curr_time
 ```
 
----
+**Threshold** for a (level, faction) pair is the MAX `npc_in_squad` upper bound across all squad sections in eligible smarts' recipes that produce the faction. Cordon stalker = 3, Swamp boar = 15. Read from `squad_descr` LTX on first death, cached for the session. No MCM knob — engine-grounded by construction.
 
-## Recipe analysis (ab_recipe)
+**Eligible smart**: a smart on the target level with at least one section in its `respawn_params` recipes whose `squad_descr faction` equals the target faction. Routing props are not checked; they govern where squads can move, not what recipes spawn.
 
-Recipe-side work is split out of `ab_pacing` into `ab_recipe.script`. ab_pacing calls two
-public entry points and owns no recipe state itself:
-
-- `ab_recipe.get_eligible_and_threshold(level_id, faction)` — lazy-cached per (level, faction).
-  Eligibility (which smarts on the level have a recipe section producing the faction) is
-  resolved via `xsmart.find_smarts_with_recipe`. Threshold (MAX `npc_in_squad` upper across
-  matching sections of eligible smarts) is computed locally via `xsmart.get_section_npc_max`
-  per section. Cache key is `(level_id, faction)`; entries are recipe-content derived and
-  static for the session, so the only invalidation path is `ab_recipe.reset_state()` which
-  ab_pacing calls from `_reset_state` (save load and MCM reset).
-- `ab_recipe.evaluate_budget_for_faction(smart, faction)` — single-pass per (smart, faction)
-  budget eval. One `pick_section_from_condlist` per recipe; the first recipe with open
-  budget AND a `xsmart.section_faction`-matching section wins. Returns the matched recipe
-  key and a `budget_str` snapshot so the [ADVANCE] log line reuses the same string the gate
-  decided on; no second evaluation that could disagree with the gate.
-
-xsmart primitives delegated to: `find_smarts_with_recipe`, `get_section_npc_max`,
-`section_faction`. `ab_pacing` never calls these directly.
+**Open budget**: at least one matching recipe has `max > already_spawned[k].num` right now, where `max = xr_logic.pick_section_from_condlist(actor, smart, recipe.num)`.
 
 ---
 
@@ -170,55 +126,16 @@ xsmart primitives delegated to: `find_smarts_with_recipe`, `get_section_npc_max`
 
 `smart_terrain.script:1597-1762` has eight gates. AlifeBalance affects one.
 
-| Gate | Source line | Our effect |
-|------|-------------|-----------|
-| Disabled / on_try_respawn callback | 1603 | Untouched |
-| Peace info | 1607 | Untouched |
-| Level filter (`respawn_only_level`) | 1611 | Untouched |
-| Actor distance (`respawn_radius`) | 1619 | Untouched |
-| `respawn_params and already_spawned` exist | 1625 | Untouched |
-| Simulation availability | 1630 | Untouched |
-| Cooldown timer | 1651 | Subtract `respawn_idle / advances` from `last_respawn_update` per advance |
-| Per-recipe budget | 1696 | Untouched |
-
----
-
-## The advance math
-
-Per smart, lazy-cached in `_delta_cache[smart_id]`:
-
-```
-usable          = respawn_idle - min_minutes * 60
-advance_seconds = usable / advances
-delta           = CTime of advance_seconds (built once, reused for unclamped pushes)
-```
-
-`advance_seconds` is the default push size per advance. For `advances >= 2` every push is the cached `delta`; the picker gate ensures the full push always fits. For `advances == 1` only, the push is clamped: if the full `usable` push would overshoot, AlifeBalance subtracts only `(usable - age)` so the smart lands at exactly `min_minutes` of cooldown remaining. Clamped pushes build a one-off CTime; the cached delta is reused otherwise.
-
-The CTime delta is built via two CTime instances. One is zeroed via `setHMSms(0, 0, 0, 0)`, the other has the H/M/S of `advance_seconds` via `setHMSms(h, m, s, 0)`. The (year=1, month=1, day=1) base of the engine's `generate_time(...)` cancels under subtraction; the result is a pure duration usable with `xrTime:sub`.
-
-Skip conditions in `_can_advance` (the picker's gate, called per eligible smart per tick):
-
-- degenerate config: `advance_seconds <= 0` (when `min_minutes * 60 >= respawn_idle`). Vanilla pace owns this smart.
-- fresh smart: `last_respawn_update == nil`. The engine cooldown gate at `smart_terrain.script:1651` is already open; the engine fires on its next `try_respawn` tick. AlifeBalance offers no acceleration.
-- `advances >= 2`: skip if a full `advance_seconds` push would overshoot the floor (`max_push < advance_seconds`). Strict — no clamping; the next tick can push this smart once its natural aging plus another threshold cross qualifies.
-- `advances == 1`: skip if the smart is within 60 game-seconds of the floor (`max_push < 60`). Precision-drift guard so a clamp-to-floor push doesn't re-fire trivial sub-minute throwaway pushes on the same smart in the next iteration.
-
-Per push:
-
-```
-lru     = smart.last_respawn_update
-age     = now:diffSec(lru)
-maxPush = usable - age
-pushSec = min(advance_seconds, maxPush)        -- clamped iff full push overshoots
-delta   = (pushSec == advance_seconds) and cached_delta or _make_delta_ctime(pushSec)
-lru:sub(delta)
-smart.last_respawn_update = lru
-```
-
-Three luabind calls per push (read lru, subtract, write back). The delta cache prevents repeat CTime construction in the common (unclamped) case. Clamped pushes build one extra CTime per push. A change to `advances` or `min_minutes` in MCM invalidates the cache.
-
-On a fresh smart pushed unclamped, exactly `advances` advances carry age from 0 to `usable`, leaving `min_minutes` of cooldown for the engine to age out. On an aged smart, fewer advances may reach the floor (since each unclamped push covers the same `advance_seconds`, but the last fitting push gets clamped and lands the smart at exactly `min_minutes` cooldown remaining).
+| Gate                                          | Source line | Our effect |
+|-----------------------------------------------|-------------|------------|
+| Disabled / on_try_respawn callback            | 1603        | Untouched |
+| Peace info                                    | 1607        | Untouched |
+| Level filter (`respawn_only_level`)           | 1611        | Untouched |
+| Actor distance (`respawn_radius`)             | 1619        | Untouched |
+| `respawn_params and already_spawned` exist    | 1625        | Untouched |
+| Simulation availability                       | 1630        | Untouched |
+| Cooldown timer                                | 1651        | Subtract `(respawn_idle - min_minutes*60) / advances` from `last_respawn_update` per advance |
+| Per-recipe budget                             | 1696        | Untouched |
 
 ---
 
@@ -226,52 +143,42 @@ On a fresh smart pushed unclamped, exactly `advances` advances carry age from 0 
 
 For any (level, faction) pair, between consecutive engine spawns at any eligible smart for that pair, the engine refills no more NPCs of that faction than have died on that level.
 
-Proof. A spawn at an eligible smart fires when the smart's cooldown has aged past `respawn_idle`. AlifeBalance contributes to that age in equal increments of `respawn_idle / advances` per advance but stops once the remaining cooldown would drop below `min_minutes`. The engine ages the remaining `min_minutes` naturally and fires. Each advance fires after the (level, faction) counter reaches `threshold = MAX(npc_in_squad upper)` across matching sections, and the picker rejects smarts already at the floor. Total deaths between consecutive spawns at the same smart `>= floor(applied_advances) * threshold`, where `applied_advances` is the number of advances the smart accepted before hitting the floor. The spawn creates at most one squad. If the engine picks a matching section (`squad_descr faction == target faction`), the squad has at most `MAX npc_in_squad` NPCs of the target faction. If a non-matching section in a mixed-faction pool, zero NPCs of the target faction spawn. Either way: `deaths_since_last_spawn >= MAX >= refill`.
+*Proof*: each advance fires only after the counter reaches `threshold = MAX npc_in_squad` across matching sections, and the picker rejects smarts already at the floor. Total deaths between consecutive spawns at a smart `>= applied_advances * threshold`. The spawn creates at most one squad; if the engine picks a matching section, that squad contains at most `MAX npc_in_squad` NPCs of the target faction; if it picks a non-matching section in a mixed pool, zero. Either way `deaths >= MAX >= refill`. ∎
 
-The vanilla cooldown ages from game-time. If the player ignores a level, no deaths fire, no advances apply, and after `respawn_idle` of game-time the cooldown expires and the engine spawns at vanilla pace. Pacing accelerates the cooldown. It never delays vanilla.
-
----
-
-## Why advance, not clear
-
-Setting `last_respawn_update = nil` bypasses the cooldown gate entirely. The engine then fires on its next alife tick. The signal "combat happened" becomes "spawn now," with no middle ground. Combat intensity stops mattering once threshold is crossed once.
-
-Per-advance advance keeps the gate engaged. Each advance is a small constant push, and sustained combat produces sustained refill. Burst combat that crosses threshold once produces `1 / advances` of a cycle, which the vanilla cooldown then ages out at vanilla pace if combat stops. The pacing matches death rate without overriding the engine's own gate.
-
-The `min_minutes` floor on remaining cooldown guarantees the engine always fires the last leg on its own. AlifeBalance pushes the cooldown closer but never to expiry; from the floor the engine's natural ageing closes the gap and `try_respawn` runs from the engine's clock, not ours. The picker drops smarts whose age would cross the floor on the next advance, so the floor is a hard guarantee, not a soft target.
+The vanilla cooldown ages from game-time alone. If the player ignores a level, no deaths fire, no advances apply, and the engine spawns at vanilla pace after `respawn_idle` of game-time. AlifeBalance accelerates the cooldown; it never delays vanilla.
 
 ---
 
-## What we own
+## Design rationale: why advance, not clear
 
-- `_deaths[level_id][faction]` (ab_pacing): death counter per (level, faction). Decremented by `threshold` per advance; remainder under threshold carries to the next tick.
-- `_eligible[level_id][faction]` (ab_recipe): cached array of smart objects whose recipes produce the faction. Recipe-content derived, static for the session.
-- `_thresholds[level_id][faction]` (ab_recipe): cached MAX `npc_in_squad` upper bound across matching sections of eligible smarts.
-- `_delta_cache[smart_id]` (ab_pacing): cached `{ delta, advance, max_age }` per smart. `delta` is the CTime of `respawn_idle / advances` seconds, `advance` is the same value as a scalar (seconds), `max_age` is `respawn_idle - min_minutes * 60 - advance`. Invalidated on `advances` or `min_minutes` change in MCM and on `_reset_state`.
-- `_smart_stats[smart_id]` (ab_pacing): per-smart advance bookkeeping for the right-click "Show stats" tip.
-- `_seen_squads[squad.id]` (ab_pacing): dedup set for spawn tracing (DEBUG only).
-- `_markers[smart_id]` (ab_map): linger expiry per marked smart.
-- `_stats`: 11 diagnostic counters (`deaths, counted, protected, vermin, no_squad, no_faction, no_level, ticks, advances, spawns, spawns_from_us`).
-- Callbacks: `squad_on_npc_death`, `squad_on_npc_creation`, `on_option_change`, `load_state`, `actor_on_first_update`, `map_spot_menu_add_property`, `map_spot_menu_property_clicked`.
-- One `CreateTimeEvent` timer at 60-second wall interval.
+Setting `last_respawn_update = nil` bypasses the cooldown gate entirely — the engine fires on its next alife tick. "Combat happened" becomes "spawn now," with no middle ground; combat intensity stops mattering once threshold is crossed once.
 
-No persistence for AlifeBalance state. Counters and caches reset on game load. Advanced `last_respawn_update` values survive in the engine's own save data via `utils_data.w_CTime / r_CTime`.
+Per-advance subtract keeps the gate engaged. Each advance is a small constant push, and sustained combat produces sustained refill. Burst combat that crosses threshold once produces `1 / advances` of a cycle; the vanilla cooldown ages out the rest naturally if combat stops. The pacing matches death rate without overriding the engine's own gate.
+
+The `min_minutes` floor guarantees the engine fires the last leg on its own clock. AlifeBalance pushes closer but never to expiry; from the floor the engine's natural ageing closes the gap and `try_respawn` runs from the engine's clock, not ours. The picker drops smarts whose age would cross the floor on the next advance, so the floor is a hard guarantee, not a soft target.
 
 ---
 
-## What we do not own
+## State and callbacks
 
-Which recipe the engine picks (random over open-budget recipes). Which squad section within that recipe (random). NPC count within `npc_in_squad` range (random). ZCP `smr_handle_spawn` substitution. Online cap enforcement (GAMMA Dynamic Despawner, AlifeGuard).
+Owned state, all in-memory, reset on game load:
 
----
+| Owner      | State                                | Purpose |
+|------------|--------------------------------------|---------|
+| ab_pacing  | `_deaths[level_id][faction]`         | death counter per pair, decremented by threshold per advance |
+| ab_recipe  | `_eligible[level_id][faction]`       | cached eligible smarts, recipe-content derived, static for the session |
+| ab_recipe  | `_thresholds[level_id][faction]`     | cached MAX `npc_in_squad` across matching sections |
+| ab_pacing  | `_delta_cache[smart_id]`             | cached `{ delta, advance, max_age }`, invalidated on MCM change or reset |
+| ab_pacing  | `_smart_stats[smart_id]`             | per-smart advance bookkeeping for the right-click "Show stats" tip |
+| ab_pacing  | `_seen_squads[squad.id]`             | dedup set for spawn tracing (DEBUG only) |
+| ab_map     | `_markers[smart_id]`                 | linger expiry per marked smart |
+| ab_pacing  | `_stats`                             | 11 diagnostic counters (deaths, counted, protected, vermin, ticks, advances, spawns, etc.) |
 
-## ZCP integration
+Callbacks: `squad_on_npc_death`, `squad_on_npc_creation`, `on_option_change`, `load_state`, `actor_on_first_update`, `map_spot_menu_add_property`, `map_spot_menu_property_clicked`. One `CreateTimeEvent` timer at 60-second wall interval.
 
-ZCP's `smr_pop.smart_can_respawn` (`smr_pop.script:342-368`) reads the same `last_respawn_update` field but applies its own configured `respawn_idle` (default 86400 = 24h game-time). Our per-advance subtract is sized at `smart.respawn_idle / advances` (vanilla 12h / 4 = 3h), so under default ZCP the advance covers only ~half the gate. The min_minutes floor still holds. The remainder ages naturally.
+No persistence for AlifeBalance state. Advanced `last_respawn_update` values survive in the engine's own save data via `utils_data.w_CTime / r_CTime`.
 
-ZCP's `smr_handle_spawn` substitutes the squad section in flight. The replacement still gets `respawn_point_id` and `respawn_point_prop_section` set, so engine budget accounting stays intact. The substituted section may have a different `faction` field than the original; ZCP's design assumes intentional substitution by the modpack author, and AlifeBalance has no opinion on the outcome.
-
-ZCP does not ship its own `squad_descr` overrides for vanilla sections; `xsmart.section_faction` reads the same values under vanilla and ZCP.
+Not owned by AlifeBalance: which recipe the engine picks (random over open-budget), which squad section within that recipe (random), NPC count within `npc_in_squad` range (random), ZCP `smr_handle_spawn` substitution, online cap enforcement (GAMMA Dynamic Despawner, AlifeGuard).
 
 ---
 
@@ -282,27 +189,28 @@ ZCP does not ship its own `squad_descr` overrides for vanilla sections; `xsmart.
 | `gamedata/scripts/_ab_deps.script` | Version string, xlibs dependency gate |
 | `gamedata/scripts/ab_mcm.script` | MCM defaults, UI definition, button handlers |
 | `gamedata/scripts/ab_pacing.script` | Death handler, periodic tick burst-advance loop, per-smart CTime delta cache, `_advance_smart` cooldown subtract, public `marker_label` + `show_smart_stats` for ab_map |
-| `gamedata/scripts/ab_recipe.script` | Per-(level, faction) eligibility + threshold cache, single-pass budget evaluation. Delegates smart discovery and squad-size lookup to xsmart. |
+| `gamedata/scripts/ab_recipe.script` | Per-(level, faction) eligibility + threshold cache, single-pass budget evaluation. Two entry points called by ab_pacing: `get_eligible_and_threshold` and `evaluate_budget_for_faction`. Delegates smart discovery and squad-size lookup to xsmart. |
 | `gamedata/scripts/ab_map.script` | PDA marker render-state, right-click menu (teleport, show stats). Calls back into ab_pacing for label + stats formatting. |
 | `gamedata/scripts/ab_test.script` | Console-driven test harness. Fires fake NPC deaths every 3s, alternating on-level / off-level pools. Same protection + vermin filters as ab_pacing. |
 | `gamedata/configs/text/eng/ui_st_mcm_ab.xml` | MCM strings (English) |
+| `gamedata/configs/text/rus/ui_st_mcm_ab.xml` | MCM strings (Russian) |
 | `gamedata/textures/ab_mcm_banner.dds` | MCM banner (512x50) |
 
 ---
 
 ## MCM
 
-| Setting | Tab | Section | Type | Default | Range | Effect |
-|---------|-----|---------|------|---------|-------|--------|
-| `enabled` | General | Smart Pacing | check | true | - | Master toggle |
-| `advances` | General | Smart Pacing | track | 4 | 1-8 | Per-advance subtract is `respawn_idle / advances` |
-| `min_minutes` | General | Smart Pacing | track | 120 | 10-360 | Minimum cooldown remaining after every advance, in game minutes |
-| `log_level` | Development | Logging | list | WARN | - | ERROR / WARN / INFO / DEBUG |
-| `show_markers` | Development | Diagnostics | check | false | - | Green PDA marker on every advanced smart, 5-min linger, right-click teleport / stats |
-| `btn_show_status` | Development | Diagnostics | button | - | - | PDA tip with death / counted / protected / vermin / tick / advance / spawn counters |
-| `btn_reset_counters` | Development | Diagnostics | button | - | - | Clears `_deaths`, `_delta_cache`, `_smart_stats`, `_seen_squads`, `_stats`, ab_recipe caches, and all markers |
+| Setting              | Tab         | Section       | Type   | Default | Range   | Effect |
+|----------------------|-------------|---------------|--------|---------|---------|--------|
+| `enabled`            | General     | Smart Pacing  | check  | true    | -       | Master toggle |
+| `advances`           | General     | Smart Pacing  | track  | 4       | 1-8     | Per-advance subtract is `(respawn_idle - min_minutes*60) / advances` |
+| `min_minutes`        | General     | Smart Pacing  | track  | 120     | 10-360  | Minimum cooldown remaining after every advance, in game minutes |
+| `log_level`          | Development | Logging       | list   | WARN    | -       | ERROR / WARN / INFO / DEBUG |
+| `show_markers`       | Development | Diagnostics   | check  | false   | -       | Green PDA marker on every advanced smart, 5-min linger, right-click teleport / stats |
+| `btn_show_status`    | Development | Diagnostics   | button | -       | -       | PDA tip with death / counted / protected / vermin / tick / advance / spawn counters |
+| `btn_reset_counters` | Development | Diagnostics   | button | -       | -       | Clears `_deaths`, `_delta_cache`, `_smart_stats`, `_seen_squads`, `_stats`, ab_recipe caches, and all markers |
 
-Threshold has no knob. It is engine-grounded, read from `squad_descr` LTX per (level, faction) and cached.
+Threshold has no knob — it is engine-grounded, read from `squad_descr` LTX per (level, faction) and cached.
 
 ---
 
@@ -311,16 +219,18 @@ Threshold has no knob. It is engine-grounded, read from `squad_descr` LTX per (l
 | Operation | Cost |
 |-----------|------|
 | Per death | O(1). Protection check, vermin species lookup (cached), faction read, level lookup, counter increment. |
-| `ab_recipe.get_eligible_and_threshold`, first call per pair | O(S * R * Q) over smarts on level * recipes per smart * sections per recipe. 2 luabind `ini_sys:r_string_ex` per section (faction + npc_in_squad, both medium). Cached. |
+| `ab_recipe.get_eligible_and_threshold`, first call per pair | O(S * R * Q) over smarts on level * recipes per smart * sections per recipe. 2 luabind `ini_sys:r_string_ex` per section. Cached. |
 | `ab_recipe.get_eligible_and_threshold`, cache hit | O(1) |
-| `ab_recipe.evaluate_budget_for_faction`, per tick per eligible smart | O(R * Q) over recipes * sections. 1 luabind `pick_section_from_condlist` per recipe + 1 `ini_sys:r_string_ex` per section until first faction match. |
-| `_get_advance_params`, first call per smart | 2 CTime constructions + 2 `setHMSms` + 1 operator-. About 5 luabind. Cached. |
+| `ab_recipe.evaluate_budget_for_faction`, per tick per eligible smart | O(R * Q) over recipes * sections. 1 `pick_section_from_condlist` per recipe + 1 `ini_sys:r_string_ex` per section until first faction match. |
+| `_get_advance_params`, first call per smart | 2 CTime constructions + 2 `setHMSms` + 1 operator-. ~5 luabind. Cached. |
 | `_get_advance_params`, cache hit | O(1) |
 | `_can_advance`, per tick per eligible smart | 1 luabind: `xtime.game_time():diffSec(lru)`. |
 | Per advance | 3 luabind: `last_respawn_update` read, `:sub` with cached delta, write back. |
 | Per tick (60s) | O(L * F) over death pairs * O(E * R * Q) budget evaluation per pair, plus one-time computes per new pair or new smart. |
 | Marker prune | O(M) markers per tick. |
 | Persistence | None for AlifeBalance state. The engine persists `last_respawn_update` via its own save path. |
+
+Observed at playtest: 0.84-3.20ms per tick across 15 ticks under sustained synthetic load.
 
 ---
 
@@ -329,7 +239,8 @@ Threshold has no knob. It is engine-grounded, read from `squad_descr` LTX per (l
 | Mod | Interaction |
 |-----|-------------|
 | Vanilla `try_respawn` | Reads `last_respawn_update` at `smart_terrain.script:1651`. The advance moves the same field. |
-| ZCP (forked `try_respawn`) | Reads the same field at `smr_pop.script:342-368`. The advance applies identically. |
+| ZCP (forked `try_respawn`) | Reads the same field at `smr_pop.script:342-368`, applies its own MCM cooldown. The advance applies identically; the per-advance subtract is sized at `smart.respawn_idle / advances`, so under shorter ZCP cooldowns each advance covers a smaller fraction of the gate. The `min_minutes` floor still holds. |
+| ZCP `smr_handle_spawn` | Substitutes the squad section in flight. Replacement still gets `respawn_point_id` and `respawn_point_prop_section` set, so engine budget accounting stays intact. AlifeBalance has no opinion on the substitution. |
 | Redone Collection | Pure LTX configuration. AlifeBalance writes runtime state. No conflict. |
 | GAMMA NPC Spawns | Pure LTX. No conflict. |
 | Night Mutants | Parallel `SIMBOARD:create_squad` path. Spawned squads still get `respawn_point_id` set. No conflict. |
@@ -337,4 +248,4 @@ Threshold has no knob. It is engine-grounded, read from `squad_descr` LTX per (l
 | GAMMA Dynamic Despawner | Enforces online cap on the despawning side. Despawn does not fire `squad_on_npc_death`. No false advances. |
 | AlifeGuard | Squad-aware despawner. Same: despawn is not death. |
 | AlifePlus | Reactive A-Life framework. Different fields and patterns. No overlap. |
-| Warfare | `faction_controlled` smarts (16 of about 490) have an injected `respawn_params` entry whose `.squads` field is the vanilla `squads_by_faction[faction]` list. `xsmart.section_faction` reads those vanilla sections normally. Works. |
+| Warfare | `faction_controlled` smarts (16 of ~490) have an injected `respawn_params` entry whose `.squads` field is the vanilla `squads_by_faction[faction]` list. `xsmart.section_faction` reads those vanilla sections normally. Works. |
