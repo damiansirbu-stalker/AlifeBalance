@@ -4,7 +4,7 @@ AlifeBalance accelerates respawn at smart terrains whose recipes produce a facti
 
 Two MCM knobs: `advances` (1-8, default 4) sets how many advances drive one smart from full cooldown to the floor; `min_minutes` (10-360, default 120) sets the floor on remaining cooldown that AlifeBalance never pushes below. With defaults, four advances of accumulated combat push one smart through, and the engine ages the final two game-hours on its own clock before firing `try_respawn`.
 
-Built on xlibs. `_ab_deps` asserts `xlibs >= 1.5.1` on load.
+Built on xlibs. `_ab_deps` asserts the minimum xlibs version on load.
 
 ![Layered position](img/layers.png)
 
