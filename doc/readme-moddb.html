@@ -5,8 +5,6 @@
 <p>Built as a companion to <a href="https://www.moddb.com/mods/stalker-anomaly/addons/alifeplus">AlifePlus</a>, which increases NPC activity and combat across the Zone. More activity means more deaths, and AlifeBalance scales refill to match. Both mods are independent and can be used separately.</p>
 <h2>Why not just shorten the global cooldown to 1h or 2h?</h2>
 <p>The engine's <code>respawn_idle</code> is one number applied to every smart on every level. Shorten it and every smart cycles faster, including the ones a hundred metres behind you. The engine's actor-distance gate blocks the spawn only while you stand inside its radius; the moment you walk out, the smart's overdue cooldown triggers an engine spawn and the squad lands at your back. AlifeBalance applies one targeted advance per threshold of deaths, and the picker chooses the eligible smart farthest from you. Refills happen on the level where the kills happened, away from your current combat, one squad at a time.</p>
-<p><img src="https://github.com/damiansirbu-stalker/AlifeBalance/raw/main/doc/img/pop-stacked.png" alt="Population over time under vanilla 24h, ZCP 6h, ZCP+AlifeBalance, and ZCP@2h" /></p>
-<p>Population at one level (5 stalker smarts) under identical combat. Vanilla refill is too slow and the level depletes; ZCP at 6h dips but recovers; <b>AlifeBalance + ZCP keeps the refill in step with deaths</b>; ZCP at 2h (the "just lower it" answer) still crashes when combat outpaces the fixed cooldown, because the refill rate is independent of how much was lost.</p>
 <h2>What you'll notice</h2>
 <ul>
 <li>Active regions recover faster after heavy firefights.</li>
