@@ -257,7 +257,10 @@ local function _can_advance(smart)
     if lru == nil then return false end
     local now = xtime.game_time()
     if not now then return false end
-    local max_push = params.usable - now:diffSec(lru)
+    -- lru in future means a third-party mod set a deferred respawn; don't fight it.
+    local age = now:diffSec(lru)
+    if age < 0 then return false end
+    local max_push = params.usable - age
     if cfg.advances > 1 then return max_push >= params.advance end
     return max_push >= cfg.min_minutes * SEC_PER_MIN
 end
