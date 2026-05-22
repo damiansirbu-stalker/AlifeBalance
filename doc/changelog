@@ -1,6 +1,9 @@
-next
+1.0.1
+  Summary: Crash fix on malformed respawn params, third-party respawn-delay compatibility
   Fixed:
     Fixed: Crash in Smart Pacing budget evaluation when scanning malformed or misconfigured smart terrains whose respawn_params.num condlist has no default branch.
+  Compatibility:
+    Skip smart terrains whose last_respawn_update is set to a future game-time by another mod. Honors third-party deferred-respawn intent instead of overriding it.
 
 1.0.0
   First release. Advances respawn cooldowns at smart terrains where combat has produced deaths, so active regions recover faster without affecting the rest of the map.
