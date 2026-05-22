@@ -107,6 +107,11 @@ O(1) per death, O(active state) per scan, cached.
 DEBUG-level tracing reports per-event and per-tick timings to alifebalance.log.
 At WARN the mod is silent.
 
+Companion mods:
+
+AlifePlus (reactive A-Life framework) -- https://www.moddb.com/mods/stalker-anomaly/addons/alifeplus-v1-0-01 | https://www.nexusmods.com/stalkeranomaly/mods/105
+AlifeGuard (entity hygiene) -- https://www.moddb.com/mods/stalker-anomaly/addons/alifeguard-1001 | https://www.nexusmods.com/stalkeranomaly/mods/104
+
 Requirements:
 
 - Anomaly 1.5.3

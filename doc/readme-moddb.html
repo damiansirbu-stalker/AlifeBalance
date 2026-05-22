@@ -2,7 +2,13 @@
 <h3><a href="https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/architecture.md">Architecture</a> | <a href="https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/changelog">Changelog</a> | <a href="https://github.com/damiansirbu-stalker/AlifeBalance/issues">Bugs, suggestions</a></h3>
 <p><b>! Please use the RESET button in MCM when updating to a new version !</b></p>
 <p>The Anomaly A-Life simulation runs respawn cooldowns on a fixed schedule. The schedule does not know about combat pressure or quiet periods, so heavily fought regions empty out while ignored ones drift toward overcrowding. AlifeBalance is a balance layer that corrects this gap without rewriting the engine.</p>
-<p>Built as a companion to <a href="https://www.moddb.com/mods/stalker-anomaly/addons/alifeplus">AlifePlus</a>, which increases NPC activity and combat across the Zone. More activity means more deaths, and AlifeBalance scales refill to match. Both mods are independent and can be used separately.</p>
+<p>Built as a companion to <a href="https://www.moddb.com/mods/stalker-anomaly/addons/alifeplus-v1-0-01">AlifePlus</a>, which increases NPC activity and combat across the Zone. More activity means more deaths, and AlifeBalance scales refill to match. Both mods are independent and can be used separately.</p>
+
+<h2>Companion mods</h2>
+<ul>
+<li><b>AlifePlus</b> (reactive A-Life framework) &mdash; <a href="https://www.moddb.com/mods/stalker-anomaly/addons/alifeplus-v1-0-01">ModDB</a> | <a href="https://www.nexusmods.com/stalkeranomaly/mods/105">Nexus</a></li>
+<li><b>AlifeGuard</b> (entity hygiene) &mdash; <a href="https://www.moddb.com/mods/stalker-anomaly/addons/alifeguard-1001">ModDB</a> | <a href="https://www.nexusmods.com/stalkeranomaly/mods/104">Nexus</a></li>
+</ul>
 <h2>Why not just shorten the global cooldown to 1h or 2h?</h2>
 <p>The engine's <i>respawn_idle</i> is one number shared by every smart terrain in the entire Zone: every level, every faction, every empty corner. Shorten it and the world cycles faster everywhere at once. The level you are fighting in and the quiet maps you will never visit this session both refill at the new accelerated rate. The engine has no concept of where combat is happening; it accelerates uniformly. Tactically the actor-distance gate blocks the spawn only while you stand inside a smart's radius, so the moment you walk out the overdue cooldown fires immediately and the squad lands at your back. AlifeBalance applies one targeted advance per threshold of deaths, and the picker chooses the eligible smart farthest from you. Refills happen on the level where the kills happened, away from your current combat, one squad at a time.</p>
 <h2>What you'll notice</h2>

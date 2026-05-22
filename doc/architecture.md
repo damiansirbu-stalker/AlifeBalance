@@ -6,6 +6,8 @@ Two MCM knobs: `advances` (1-8, default 4) sets how many advances drive one smar
 
 Built on xlibs. `_ab_deps` asserts the minimum xlibs version on load.
 
+Part of a three-mod alife family: **AlifePlus** extends A-Life with new behaviors, **AlifeBalance** tunes existing rates and counts (this mod), **AlifeGuard** keeps alife state clean.
+
 ![Layered position](img/layers.png)
 
 ---

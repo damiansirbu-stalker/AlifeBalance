@@ -107,6 +107,11 @@ O(1) на смерть, O(активное состояние) на скан, к
 Трассировка на уровне DEBUG пишет тайминги по событиям и тикам в alifebalance.log.
 На уровне WARN мод молчит.
 
+Моды-компаньоны:
+
+AlifePlus (реактивный фреймворк A-Life) -- https://www.moddb.com/mods/stalker-anomaly/addons/alifeplus-v1-0-01 | https://www.nexusmods.com/stalkeranomaly/mods/105
+AlifeGuard (очистка сущностей) -- https://www.moddb.com/mods/stalker-anomaly/addons/alifeguard-1001 | https://www.nexusmods.com/stalkeranomaly/mods/104
+
 Требования:
 
 - Anomaly 1.5.3
