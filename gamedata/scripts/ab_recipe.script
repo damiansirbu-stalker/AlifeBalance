@@ -164,7 +164,10 @@ function evaluate_budget_for_faction(smart, faction)
     for k, recipe in pairs(smart.respawn_params) do
         local cur = (smart.already_spawned and smart.already_spawned[k]
                      and smart.already_spawned[k].num) or 0
-        local max = tonumber(xr_logic.pick_section_from_condlist(db.actor, smart, recipe.num)) or 0
+        -- pick_section_from_condlist returns zero values on fall-through (xr_logic.script:498);
+        -- capture into a local so tonumber sees nil, not a missing argument.
+        local picked = xr_logic.pick_section_from_condlist(db.actor, smart, recipe.num)
+        local max = tonumber(picked) or 0
         local open = max > cur
         if open then any_open = true end
         if not matched_key and open and _recipe_max_for_faction(recipe, faction) > 0 then

@@ -122,7 +122,10 @@ local function _format_budget(smart)
     for k, v in pairs(smart.respawn_params) do
         local cur = (smart.already_spawned and smart.already_spawned[k]
                      and smart.already_spawned[k].num) or 0
-        local max = tonumber(xr_logic.pick_section_from_condlist(db.actor, smart, v.num)) or 0
+        -- pick_section_from_condlist returns zero values on fall-through (xr_logic.script:498);
+        -- capture into a local so tonumber sees nil, not a missing argument.
+        local picked = xr_logic.pick_section_from_condlist(db.actor, smart, v.num)
+        local max = tonumber(picked) or 0
         if max > cur then any_open = true end
         parts[#parts + 1] = string_format("%s %d/%d", tostring(k), cur, max)
     end

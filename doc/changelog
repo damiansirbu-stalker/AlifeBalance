@@ -1,2 +1,6 @@
+next
+  Fixed:
+    Fixed: Crash in Smart Pacing budget evaluation when scanning malformed or misconfigured smart terrains whose respawn_params.num condlist has no default branch.
+
 1.0.0
   First release. Advances respawn cooldowns at smart terrains where combat has produced deaths, so active regions recover faster without affecting the rest of the map.
