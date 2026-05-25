@@ -1,5 +1,5 @@
 --- ab_recipe: smart-terrain recipe analysis for AlifeBalance Smart Pacing.
---- Delegates eligibility (find_smarts_with_recipe) and squad-size lookup
+--- Delegates eligibility (find_smarts_spawning) and squad-size lookup
 --- (get_section_npc_max) to xsmart; the threshold compute (MAX npc_in_squad
 --- upper across matching sections of eligible smarts) and the per-tick budget
 --- eval (evaluate_budget_for_faction) live here as AlifeBalance-specific.
@@ -138,7 +138,7 @@ function get_eligible_and_threshold(level_id, faction)
         return lvl_cache[faction], _thresholds[level_id][faction]
     end
     _log_inventory(level_id)
-    local smarts = xsmart.find_smarts_with_recipe(level_id, faction)
+    local smarts = xsmart.find_smarts_spawning(level_id, faction)
     local threshold = _compute_threshold(smarts, faction)
     _eligible[level_id] = _eligible[level_id] or {}
     _thresholds[level_id] = _thresholds[level_id] or {}
