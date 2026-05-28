@@ -74,7 +74,6 @@ DEATH (engine fires squad_on_npc_death)
 _on_npc_death(squad, npc, killer)
   - if disabled: return
   - _stats.deaths += 1
-  - if xsquad.is_protected:        _stats.protected += 1, return
   - if _is_vermin_squad (rat / tushkano): _stats.vermin += 1, return
   - faction  = squad.player_id
   - level_id = xlevel.get_level_id(npc or squad)
@@ -174,7 +173,7 @@ Owned state, all in-memory, reset on game load:
 | ab_pacing  | `_smart_stats[smart_id]`             | per-smart advance bookkeeping for the right-click "Show stats" tip |
 | ab_pacing  | `_seen_squads[squad.id]`             | dedup set for spawn tracing (DEBUG only) |
 | ab_map     | `_markers[smart_id]`                 | linger expiry per marked smart |
-| ab_pacing  | `_stats`                             | 11 diagnostic counters (deaths, counted, protected, vermin, ticks, advances, spawns, etc.) |
+| ab_pacing  | `_stats`                             | 10 diagnostic counters (deaths, counted, vermin, ticks, advances, spawns, etc.) |
 
 Callbacks: `squad_on_npc_death`, `squad_on_npc_creation`, `on_option_change`, `load_state`, `actor_on_first_update`, `map_spot_menu_add_property`, `map_spot_menu_property_clicked`. One `CreateTimeEvent` timer at 60-second wall interval.
 
@@ -325,7 +324,7 @@ No persistence. The cooldown table not saved; on game load every NPC is fresh an
 | `gamedata/scripts/ab_recipe.script` | Per-(level, faction) eligibility + threshold cache, single-pass budget evaluation. Two entry points called by ab_pacing: `get_eligible_and_threshold` and `evaluate_budget_for_faction`. Delegates smart discovery and squad-size lookup to xsmart. |
 | `gamedata/scripts/ab_map.script` | PDA marker render-state, right-click menu (teleport, show stats). Calls back into ab_pacing for label + stats formatting. |
 | `gamedata/scripts/ab_loot.script` | Online inventory scanner. Public API (`trim_npc`, `evaluate_item`, `build_state`, `default_policy`), xslice scheduler with per-NPC game-day cooldown. |
-| `gamedata/scripts/ab_test.script` | Console-driven test harness. Fires fake NPC deaths every 3s, alternating on-level / off-level pools. Same protection + vermin filters as ab_pacing. |
+| `gamedata/scripts/ab_test.script` | Console-driven test harness. Fires fake NPC deaths every 3s, alternating on-level / off-level pools. Same vermin filter as ab_pacing. |
 | `gamedata/configs/text/eng/ui_st_mcm_ab.xml` | MCM strings (English) |
 | `gamedata/configs/text/rus/ui_st_mcm_ab.xml` | MCM strings (Russian) |
 | `gamedata/textures/ab_mcm_banner.dds` | MCM banner (512x50) |
@@ -346,7 +345,7 @@ No persistence. The cooldown table not saved; on game load every NPC is fresh an
 | `surplus_per_category` | General   | Loot Balance  | track  | 2       | 0-10    | Per-category non-equipped surplus cap for weapons / outfits / helmets / artefacts. |
 | `log_level`          | Development | Logging       | list   | WARN    | -       | ERROR / WARN / INFO / DEBUG |
 | `show_markers`       | Development | Diagnostics   | check  | false   | -       | Green PDA marker on every advanced smart, 5-min linger, right-click teleport / stats |
-| `btn_show_status`    | Development | Diagnostics   | button | -       | -       | PDA tip with death / counted / protected / vermin / tick / advance / spawn counters |
+| `btn_show_status`    | Development | Diagnostics   | button | -       | -       | PDA tip with death / counted / vermin / tick / advance / spawn counters |
 | `btn_reset_counters` | Development | Diagnostics   | button | -       | -       | Clears `_deaths`, `_delta_cache`, `_smart_stats`, `_seen_squads`, `_stats`, ab_recipe caches, and all markers |
 
 Threshold has no knob — it is engine-grounded, read from `squad_descr` LTX per (level, faction) and cached.

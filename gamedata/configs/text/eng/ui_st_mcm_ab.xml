@@ -127,7 +127,7 @@
         <text>Show status</text>
     </string>
     <string id="ui_mcm_ab_development_btn_show_status_desc">
-        <text>Display total deaths, counted deaths (faction + level resolved), protected and trash-tier filtered, scan ticks, advances fired, and engine spawns observed.</text>
+        <text>Display total deaths, counted deaths (faction + level resolved), trash-tier filtered, scan ticks, advances fired, and engine spawns observed.</text>
     </string>
     <string id="ui_mcm_ab_development_btn_reset_counters">
         <text>Reset counters</text>

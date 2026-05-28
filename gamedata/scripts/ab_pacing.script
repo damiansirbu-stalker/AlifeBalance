@@ -5,7 +5,7 @@ local math_floor, string_format = math.floor, string.format
 local table_concat, table_sort, table_remove = table.concat, table.sort, table.remove
 local os_clock, RegisterScriptCallback = os.clock, RegisterScriptCallback
 local xlog, xprofiler = xlog, xprofiler
-local xsmart, xsquad, xlevel, xtime, xcreature = xsmart, xsquad, xlevel, xtime, xcreature
+local xsmart, xlevel, xtime, xcreature = xsmart, xlevel, xtime, xcreature
 -- NOTE: never cache CreateTimeEvent/ResetTimeEvent/RemoveTimeEvent as locals (doc/library/xray/internals/globals.md:208-219).
 -- demonized_time_events.script replaces the globals at load time; cached locals point at a dead queue.
 
@@ -28,14 +28,6 @@ local CALLBACK = {
 
 local STATUS_TIP_MS = 8000
 local RESET_TIP_MS  = 5000
-
--- Protection options for xsquad.is_protected: skip story/companion/task-target squads.
--- Exposed so ab_test can use the same filter set without drift.
-protection_opts = {
-    exclude_permanent   = true,
-    exclude_active_role = true,
-    exclude_task_target = true,
-}
 
 -- Vermin species: gameplay-trivial pest mobs whose deaths shouldn't drive respawn
 -- pressure. Their squads are big (10-15) so threshold throttling already absorbs them,
@@ -76,7 +68,7 @@ local _deaths       = {}
 local _delta_cache  = {}
 local _seen_squads  = {}
 local _smart_stats  = {}
-local _stats        = { deaths = 0, counted = 0, protected = 0, vermin = 0,
+local _stats        = { deaths = 0, counted = 0, vermin = 0,
                         no_squad = 0, no_faction = 0, no_level = 0,
                         ticks = 0, advances = 0, spawns = 0, spawns_from_us = 0 }
 
@@ -348,13 +340,10 @@ end
 
 -- ==================== DEATH HANDLER ====================
 
--- Filter chain:
---   protected: story / companion / task-target squads are not A-life population.
---   vermin: rat and tushkano squads are gameplay-trivial pest mobs; kill spam from them
---           would dominate the counter without representing meaningful combat.
--- Every other species counts toward the per-(level, faction) counter; the threshold
--- mechanism (MAX npc_in_squad upper bound per faction) throttles big-squad species
--- proportionally.
+-- Filter: vermin (rat / tushkano) squads are gameplay-trivial pest mobs; kill spam from
+-- them would dominate the counter without representing meaningful combat. Every other
+-- species counts toward the per-(level, faction) counter; the threshold mechanism (MAX
+-- npc_in_squad upper bound per faction) throttles big-squad species proportionally.
 -- Every skip path is counted in _stats AND traced at DEBUG so the player can correlate
 -- in-game kills to recorded deaths. Luabind calls inside log lines are gated by `_dbg`.
 local function _on_npc_death(squad, npc, _killer)
@@ -365,14 +354,6 @@ local function _on_npc_death(squad, npc, _killer)
         if _dbg then
             log.debug("[SKIP] reason=no_squad npc=%s",
                 (npc and npc.section_name and npc:section_name()) or "?")
-        end
-        return
-    end
-    if xsquad.is_protected(squad, protection_opts) then
-        _stats.protected = _stats.protected + 1
-        if _dbg then
-            log.debug("[SKIP] reason=protected squad=%d player_id=%s",
-                squad.id, tostring(squad.player_id))
         end
         return
     end
@@ -588,8 +569,8 @@ local function _periodic_tick()
     ab_map.prune_markers()
     tmr:stop()
     if _dbg then
-        log.debug("[SUMMARY] deaths=%d counted=%d protected=%d vermin=%d no_squad=%d no_faction=%d no_level=%d ticks=%d advances=%d spawns=%d from_advance=%d [%.2fms]",
-            _stats.deaths, _stats.counted, _stats.protected, _stats.vermin,
+        log.debug("[SUMMARY] deaths=%d counted=%d vermin=%d no_squad=%d no_faction=%d no_level=%d ticks=%d advances=%d spawns=%d from_advance=%d [%.2fms]",
+            _stats.deaths, _stats.counted, _stats.vermin,
             _stats.no_squad, _stats.no_faction, _stats.no_level,
             _stats.ticks, _stats.advances, _stats.spawns, _stats.spawns_from_us, tmr:get_ms())
     end
@@ -643,7 +624,7 @@ local function _reset_state()
     _delta_cache  = {}
     _seen_squads  = {}
     _smart_stats  = {}
-    _stats        = { deaths = 0, counted = 0, protected = 0, vermin = 0,
+    _stats        = { deaths = 0, counted = 0, vermin = 0,
                       no_squad = 0, no_faction = 0, no_level = 0,
                       ticks = 0, advances = 0, spawns = 0, spawns_from_us = 0 }
 end
@@ -685,8 +666,8 @@ function show_status()
         .. " min_minutes=" .. tostring(cfg.min_minutes) .. ")",
         nil, nil, STATUS_TIP_MS)
     news_manager.send_tip(db.actor, string_format(
-        "deaths: %d total (%d counted, %d protected, %d vermin)",
-        _stats.deaths, _stats.counted, _stats.protected, _stats.vermin),
+        "deaths: %d total (%d counted, %d vermin)",
+        _stats.deaths, _stats.counted, _stats.vermin),
         nil, nil, STATUS_TIP_MS)
     news_manager.send_tip(db.actor, string_format(
         "skips: %d no squad, %d no faction, %d no level",
