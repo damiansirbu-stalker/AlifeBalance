@@ -43,6 +43,10 @@ local _dbg = false
 -- unconditionally so all prior policies + their side effects (active-weapon self-transfer,
 -- bolt destroy, ...) run before our additional releases.
 local _prev_keep_item
+-- Second wrap point: decide_items_to_keep is the function that calls iterate_inventory.
+-- Wrapping it gives us an "iteration ended" hook so we can flush DEBUG stats per NPC at the
+-- correct moment (right after the trim finishes) instead of one NPC late.
+local _prev_decide_items
 local _patched = false
 
 -- LTX caches. Lazy: filled on first keep_item call, after itms_manager.ini_death is ready.
@@ -58,10 +62,11 @@ local _equipped_ids
 local _equipped_ammo
 local _section_seen
 
--- Per-NPC DEBUG accumulator. Updated only when _dbg; flushed lazily by _build_state when the
--- next NPC arrives (the last NPC of a session is not flushed -- acceptable for DEBUG-only). One
--- line per NPC summarising items seen, total ADDITIONAL releases by ab_loot, and elapsed clock.
--- Vanilla-chain releases are NOT counted; only our stricter releases on top.
+-- Per-NPC DEBUG accumulator. Updated only when _dbg; flushed by the decide_items_to_keep wrap
+-- right after iterate_inventory returns, so every NPC's summary lands at the moment its trim
+-- finishes (including the last NPC of a session). One line per NPC summarising items seen,
+-- total ADDITIONAL releases by ab_loot, and elapsed clock. Vanilla-chain releases are NOT
+-- counted; only our stricter releases on top.
 local _stats
 
 -- ==================== LTX CACHE ====================
@@ -143,10 +148,7 @@ local function _collect_equipped_slots(npc)
 end
 
 local function _build_state(npc)
-    if _dbg then
-        _flush_stats()
-        _new_stats(npc:id())
-    end
+    if _dbg then _new_stats(npc:id()) end
     _equipped_ids = {}
     _equipped_ammo = {}
     _section_seen = {}
@@ -255,6 +257,18 @@ local function _sync_log_level()
     _dbg = log.get_level() >= 5
 end
 
+-- Wraps decide_items_to_keep so we can flush per-NPC DEBUG stats right after the trim
+-- iteration ends. Calls through to the chain head unconditionally; the flush runs only when
+-- _dbg is on and there is a pending _stats accumulator.
+local function decide_items_to_keep(npc, npc_id, npc_name)
+    _prev_decide_items(npc, npc_id, npc_name)
+    if _dbg and _stats then
+        _flush_stats()
+        _stats = nil
+        _current_npc_id = nil
+    end
+end
+
 function on_game_start()
     if _patched then return end
     if not death_manager or not death_manager.keep_item then
@@ -263,8 +277,10 @@ function on_game_start()
     end
     _prev_keep_item = death_manager.keep_item
     death_manager.keep_item = keep_item
+    _prev_decide_items = death_manager.decide_items_to_keep
+    death_manager.decide_items_to_keep = decide_items_to_keep
     _patched = true
-    log.info("[INSTALL] ab_loot wrap installed on death_manager.keep_item (N=%d)", STACKABLE_KEEP_N)
+    log.info("[INSTALL] ab_loot wraps installed on death_manager.keep_item + decide_items_to_keep (N=%d)", STACKABLE_KEEP_N)
     RegisterScriptCallback("actor_on_first_update", _sync_log_level)
     RegisterScriptCallback("on_option_change", _sync_log_level)
 end
