@@ -363,33 +363,50 @@ local function _cfg_cooldown_sec()
     return hours * 3600
 end
 
--- Single-NPC eligibility predicate. Flat returns keep _pick_eligible at depth 1.
--- Traders are skipped via utils_obj.is_trader (community=trader, clsid script_trader/trader,
--- section name contains "trader", or storage logic has a `trade` line). Trader stock IS the
--- trader; trimming it breaks the economy.
+-- Single-NPC eligibility predicate. Returns (id, last_scan_time) on accept; (nil, reason)
+-- on reject. Flat returns keep _pick_eligible at depth 2 and let the caller bucket rejection
+-- counts by reason. Traders are skipped via utils_obj.is_trader (community=trader, clsid
+-- script_trader/trader, section name contains "trader", or storage logic has a `trade` line).
+-- Trader stock IS the trader; trimming it breaks the economy.
 local function _is_eligible(obj, actor_id, now, cooldown_sec)
     local id = obj:id()
-    if id == actor_id then return false end
-    if not IsStalker(obj) then return false end
-    if not obj:alive() then return false end
-    if utils_obj and utils_obj.is_trader and utils_obj.is_trader(obj) then return false end
+    if id == actor_id then return nil, "actor" end
+    if not IsStalker(obj) then return nil, "nonstalker" end
+    if not obj:alive() then return nil, "dead" end
+    if utils_obj and utils_obj.is_trader and utils_obj.is_trader(obj) then return nil, "trader" end
     local last = _last_scan_game_sec[id] or 0
-    if now - last < cooldown_sec then return false end
-    return true, id, last
+    if now - last < cooldown_sec then return nil, "cooldown" end
+    return id, last
 end
 
 -- Walk online stalkers, pick the batch_cap NPCs whose last_scan is older than cooldown,
--- oldest-scanned first. Skips actor, dead, and non-stalker entities.
+-- oldest-scanned first. Skips actor, dead, non-stalkers, traders, and NPCs still inside the
+-- cooldown window. Times itself and reports rejection counts by reason so the [PICK] log
+-- can surface the eligible-set composition.
 -- @cost O(N online + K log K) where K = eligible count; sort dominated by table.sort
 local function _pick_eligible(batch_cap, cooldown_sec)
-    if not (db and db.actor) then return {}, 0 end
+    local timer = xprofiler.new_if(_dbg):start()
+    local stats = {
+        total = 0, eligible = 0, dt_ms = 0,
+        actor = 0, nonstalker = 0, dead = 0, trader = 0, cooldown = 0,
+    }
+    if not (db and db.actor) then
+        timer:stop(); stats.dt_ms = timer:get_ms()
+        return {}, stats
+    end
+
     local actor_id = db.actor:id()
     local now = xtime.game_sec()
     local eligible = {}
 
     for obj in xcreature.online_iter() do
-        local ok, id, last = _is_eligible(obj, actor_id, now, cooldown_sec)
-        if ok then eligible[#eligible + 1] = { id = id, last = last } end
+        stats.total = stats.total + 1
+        local id, last_or_reason = _is_eligible(obj, actor_id, now, cooldown_sec)
+        if id then
+            eligible[#eligible + 1] = { id = id, last = last_or_reason }
+        else
+            stats[last_or_reason] = stats[last_or_reason] + 1
+        end
     end
 
     table_sort(eligible, function(a, b) return a.last < b.last end)
@@ -397,7 +414,11 @@ local function _pick_eligible(batch_cap, cooldown_sec)
     local take = math_min(#eligible, batch_cap)
     local picks = {}
     for i = 1, take do picks[i] = eligible[i].id end
-    return picks, #eligible
+
+    stats.eligible = #eligible
+    timer:stop()
+    stats.dt_ms = timer:get_ms()
+    return picks, stats
 end
 
 local function _on_cycle_done()
@@ -412,7 +433,14 @@ end
 
 local function _visit(npc_id)
     local npc = level.object_by_id(npc_id)
-    if not npc or not npc:alive() then return true end
+    if not npc then
+        if _dbg then log.debug("[SKIP] reason=offline npc=%d", npc_id) end
+        return true
+    end
+    if not npc:alive() then
+        if _dbg then log.debug("[SKIP] reason=dead npc=%d", npc_id) end
+        return true
+    end
 
     local result = trim_npc(npc)
     _last_scan_game_sec[npc_id] = xtime.game_sec()
@@ -425,7 +453,14 @@ local function _start_cycle()
     if not _enabled() then return end
     if xslice.is_active(SCAN_QUEUE) then return end
 
-    local picks, eligible_total = _pick_eligible(_cfg_batch(), _cfg_cooldown_sec())
+    local picks, ps = _pick_eligible(_cfg_batch(), _cfg_cooldown_sec())
+
+    if _dbg then
+        log.debug("[PICK] online=%d eligible=%d picked=%d (skip: actor=%d nonstalker=%d dead=%d trader=%d cooldown=%d) dt=%.2fms",
+            ps.total, ps.eligible, #picks,
+            ps.actor, ps.nonstalker, ps.dead, ps.trader, ps.cooldown, ps.dt_ms)
+    end
+
     if #picks == 0 then return end
 
     _cycle_id = _cycle_id + 1
@@ -435,8 +470,8 @@ local function _start_cycle()
     _cycle_timer = xprofiler.new_if(_dbg):start()
 
     if _dbg then
-        log.debug("[SCAN] cycle=%d tid=%d open batch=%d eligible=%d step=%d cooldown=%dh",
-            _cycle_id, _cycle_tid, #picks, eligible_total, _cfg_step(), _cfg_cooldown_sec() / 3600)
+        log.debug("[SCAN] cycle=%d tid=%d open batch=%d step=%d cooldown=%dh",
+            _cycle_id, _cycle_tid, #picks, _cfg_step(), _cfg_cooldown_sec() / 3600)
     end
 
     xslice.start(SCAN_QUEUE, picks, {
