@@ -184,6 +184,121 @@ Not owned by AlifeBalance: which recipe the engine picks (random over open-budge
 
 ---
 
+## Loot trim
+
+A second balance sub-domain, independent of smart pacing. Wraps vanilla `death_manager.keep_item` with stricter release rules layered on top, so an NPC corpse no longer carries the full hoard the dying stalker accumulated by looting other corpses while alive. Installed at `on_game_start` via the canonical wrap pattern (`script-loading.md` "Composing Wrappers"): captures the current chain head, calls through it unconditionally, then applies additional releases.
+
+### Hook seam
+
+```
+NPC dies
+  |
+  v
+first interaction with corpse (NPC-looter via xr_corpse_detection
+or player via xr_motivator use_callback)
+  |
+  v
+death_manager.create_release_item(corpse)              -- vanilla
+  - se_load_var(npc_id, name, "death_dropped") guard   -- runs once per corpse
+  - decide_items_to_keep(npc, npc_id, npc_name)        -- vanilla
+      - npc:iterate_inventory(keep_item, npc)          -- vanilla iteration
+          - keep_item = ab_loot wrap                   -- our function
+              - calls _prev_keep_item(npc, item)       -- vanilla + any other wrappers
+              - applies our stricter releases on top
+  - try_spawn_ammo, spawn_cosmetics, create_item_list  -- vanilla death-loot spawn (untouched)
+```
+
+One hook covers both timings: the player-jackpot case (player loots a dead looter) and the upstream chain where a live NPC feeds on a dead corpse before dying themselves.
+
+### Policy
+
+The chain runs first (vanilla + any other wrappers). ab_loot then adds release-only rules on top. We never override vanilla keep decisions; we only release things vanilla kept that we judge excessive.
+
+What the vanilla chain handles (preserved by ab_loot, not duplicated):
+
+| Vanilla branch | Behavior |
+|---|---|
+| `[keep_items]` whitelist | Keeps; sets condition where applicable |
+| `dont_keep_items` flag on spawn_ini or section_logic | Releases all |
+| `axr_companions.is_assigned_item` | Keeps |
+| `anim` kind | Releases |
+| equipped weapon (slot 2/3, non-strapped, non-grenade-class) | Keeps via `set_weapon_drop_condition` |
+| outfit / helmet | Keeps via condition roll (`get_comb_coeff`, `get_condition_by_rank`) |
+| ammo stack > 5 | Releases entire stack |
+| `grenade_ammo` kind (vog / cluster) | Releases |
+| `[keep_one]` section (throwable grenades) | Keeps first, releases rest |
+
+What ab_loot adds (stricter releases applied after the chain):
+
+| Case | Action |
+|------|--------|
+| Vanilla `[keep_items]` whitelist hit | Skip (chain kept; we don't trim) |
+| Player-gifted (`axr_companions.is_assigned_item`) | Skip |
+| Player-strapped weapon (`se_load_var(item_id, _, "strapped_item")`) | Skip |
+| Equipped (slots `KNIFE`, `INV_SLOT_2`, `INV_SLOT_3`, `OUTFIT_SLOT`, `HELMET_SLOT`) | Skip |
+| Non-equipped weapon (non-grenade class) | Release |
+| Non-worn outfit / helmet | Release |
+| Ammo for a section not in the equipped weapon's ammo classes | Release |
+| Vanilla `[keep_one]` section | Skip (chain handled) |
+| Stackable consumable above `STACKABLE_KEEP_N` (3) | Release excess |
+
+Equipped detection uses `npc:item_in_slot(slot)` against slot constants from `xray-monolith/src/xrServerEntities/inventory_space.h:7-43`. Ammo class set is built per NPC from `parse_list(ini_sys, weapon:section(), "ammo_class")` for weapons in pistol and rifle slots.
+
+### Per-call state
+
+One pre-walk per dying NPC, triggered by an `npc:id()` sentinel inside `keep_item`. Rebuilds `equipped_ids`, `equipped_ammo`, `section_seen` when the id changes; subsequent calls within the same vanilla `iterate_inventory` share the state. iterate_inventory is synchronous so a single dying NPC's items all see the same state.
+
+### Prerequisites and conflicts
+
+ab_loot exists to make vanilla NPC looting safe to re-enable. The intended deployment is:
+
+1. Vanilla `xr_corpse_detection.ltx [settings] always_detect_dist` left at a reasonable value (vanilla default 2500). NPCs walk to nearby corpses and transfer items via `corpse:transfer_item(item, npc)` per `xr_corpse_detection.script:248-256`.
+2. ab_loot trims the looter's own corpse on death, so the chain "A loots B, A dies, player loots A" no longer produces a pinata.
+
+For this to work, NPC looting must not be blocked by another mod. Any mod that:
+
+- zeros `xr_corpse_detection.ltx [settings] always_detect_dist` (kills the corpse-detection scheme), OR
+- ships a whole-file override of `death_manager.script` (bypasses our wrap chain), OR
+- ships a whole-file override of `xr_corpse_detection.script` (replaces the entire scheme)
+
+defeats ab_loot's purpose and must be disabled.
+
+Known offender shipped in GAMMA:
+
+| Mod | What it does | Action |
+|---|---|---|
+| `311- NPC Stop Looting Dead Bodies - DTTheGunslinger` | Sets `always_detect_dist = 0` in its `gamedata/configs/ai_tweaks/xr_corpse_detection.ltx` AND ships a whole-file override of `gamedata/scripts/death_manager.script`. Both layers must go. | Disable the entire mod in MO2. |
+
+ab_loot continues to function with such mods enabled (it still trims duplicates from vanilla `xrs_rnd_npc_loadout` spawn loadouts), but the headline benefit (pinata removal) presupposes live looting.
+
+Generic detection pattern: grep your modlist for offenders by intent ("disable NPC loot", "no NPC looting", "stop NPC looting") AND by mechanism (any `gamedata/configs/ai_tweaks/xr_corpse_detection.ltx` overlay; any whole-file `gamedata/scripts/death_manager.script` or `xr_corpse_detection.script`).
+
+### Composition with other death_manager.keep_item patchers
+
+ab_loot uses the canonical wrap pattern documented at `doc/library/modding/script-loading.md` "Composing Wrappers (Wrap vs Replace)". Other GAMMA mods on the same seam compose naturally:
+
+| Layer | Source | Behavior |
+|---|---|---|
+| vanilla `keep_item` | `death_manager.script:373` | per-item keep/release |
+| `134- Weapons Drop on bodies (Jabbers)` | `keep_guns_on_bodies.script:1-18` | wraps; transfers active weapon to corpse |
+| `124- Nitpickers BoltBeGone (Ish)` | `ish_bolt_b_gone.script:1-15` | wraps; destroys bolts |
+| ab_loot | `ab_loot.script` | wraps; stricter releases (duplicate weapons, non-matching ammo, stackable cap) |
+
+Each layer captures whatever was at the slot when it installed and calls through to it. Runtime chain order matches install order; every layer runs exactly once per item regardless of load order.
+
+### Out of scope
+
+- Live online tick. Engine `is_overweight(npc)` at `xr_corpse_detection.script:421` self-limits live hoarding by weight cap; this hook bounds end-state.
+- Death-loot spawn (`try_spawn_ammo`, `spawn_cosmetics`, `create_item_list`). Vanilla owns it; untouched.
+- Mutant loot. Different code path (`ui_mutant_loot`).
+- `xr_corpse_detection.ltx [settings] always_detect_dist` re-enable. Separate later task once trim is shipping.
+
+### MCM toggle
+
+`enabled_loot` (General tab, default true). When off, the installed hook delegates to the captured vanilla `keep_item` so disabling means "vanilla behavior", not "no trim at all".
+
+---
+
 ## Files
 
 | File | Purpose |

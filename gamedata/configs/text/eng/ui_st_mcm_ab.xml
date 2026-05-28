@@ -43,6 +43,18 @@
     <string id="ui_mcm_ab_general_min_minutes_desc">
         <text>Minimum cooldown that must remain on a smart after an advance applies, in game minutes. AlifeBalance never pushes the cooldown below this floor; the engine's own clock ages out the last leg naturally and fires the spawn from there. A smart already at or below this floor is skipped on the next advance (counter holds for next tick). Default 120 minutes (two game hours). Raise to leave more natural cooldown after every advance.</text>
     </string>
+
+    <!-- General - Loot Trim -->
+    <string id="ui_mcm_ab_hdr_loot">
+        <text>Loot Trim</text>
+    </string>
+    <string id="ui_mcm_ab_general_enabled_loot">
+        <text>Enable Loot Trim</text>
+    </string>
+    <string id="ui_mcm_ab_general_enabled_loot_desc">
+        <text>Trim NPC corpse inventories at the moment of death so corpses no longer carry the full hoard the dying stalker accumulated by looting other corpses. Keeps the equipped weapon (with vanilla condition roll), ammo matching the equipped weapon, worn outfit and helmet (with condition roll), vanilla whitelist items, and up to 3 of each stackable consumable. Releases duplicate weapons, non-matching ammo, extra outfits or helmets, grenade ammo, and surplus stacks. Vanilla [keep_one] grenade rules still apply (one of each throwable grenade type kept). When off, vanilla trim applies: only ammo stacks larger than 5 and grenade ammo are released; everything else passes through.</text>
+    </string>
+
     <string id="ui_mcm_ab_development_show_markers">
         <text>Show map markers</text>
     </string>

@@ -1,4 +1,7 @@
 next
+  Summary: Loot Trim. NPC corpses no longer carry the full hoard accumulated by looting other corpses while alive.
+  Added:
+    Added: Loot Trim. New death-time inventory trim wraps vanilla death_manager.keep_item with stricter release rules layered on top. Corpses keep the equipped weapon, worn outfit and helmet, vanilla whitelist items, vanilla [keep_one] grenades, player-gifted items, and player-strapped weapons; up to 3 of each other stackable consumable also stay. Duplicate weapons, duplicate outfits and helmets, ammo for weapons the NPC is not carrying, and surplus stacks are released. Composes with other mods that patch death_manager.keep_item (Jabbers' "Weapons Drop on bodies" 134, Ish's BoltBeGone in Nitpicker's Modpack 124) via the standard wrap pattern; behaviors stack regardless of load order. MCM toggle (General -> Loot Trim) defaults to on; when off, vanilla trim applies. Requires NPC corpse looting enabled; disable "311- NPC Stop Looting Dead Bodies - DTTheGunslinger" or any equivalent NPC-loot disabler for full benefit.
 
 1.0.2
   Summary: Crash fix on xlibs 1.7.0

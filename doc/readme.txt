@@ -50,6 +50,27 @@ Example:
 
 A firefight kills 30 bandits on Cordon in one minute. Cordon bandit squads max out at 3, so 10 separate adjustments are available. AlifeBalance picks up to 10 different bandit-spawning Cordon smart terrains and shortens each one's wait. The refills land over the next couple of game-hours as the engine reaches each smart's now-shorter wait. If every Cordon bandit smart terrain is already at population cap or already at the minimum wait, the adjustments are held and the kills carry over to the next check.
 
+Loot Trim
+
+Trims NPC corpses at the moment of death so corpses no longer carry the full hoard a stalker accumulated by looting other corpses while alive.
+
+In plain words: vanilla Anomaly already trims a few obvious things on death (anim items, excess ammo stacks, grenade ammo, one of each [keep_one] grenade). Loot Trim adds stricter rules on top: duplicate weapons, duplicate outfits and helmets, ammo for weapons the NPC is not carrying, and stackable consumables above a sensible cushion (3 of each) are released. Equipped weapon (with vanilla condition roll), worn outfit and helmet, vanilla whitelist items, vanilla [keep_one] grenades, player-gifted items, and player-strapped weapons are preserved.
+
+What it fixes: the "loot pinata" where an NPC loots several corpses, dies, and the player or another NPC finds a corpse carrying 50 medkits, three rifles, and a backpack of mismatched ammo. With Loot Trim active, the corpse carries roughly what the stalker was actually using.
+
+Loot Trim is meant to be paired with vanilla NPC looting enabled. Vanilla xr_corpse_detection lets living NPCs walk to dead bodies and pick up items, and Loot Trim is what makes that chain safe: the looter accumulates less per pickup (every source corpse is already trimmed), and the looter's own death trims again. The mod requires vanilla looting to actually loot to deliver its headline benefit; without live looting it still bounds the natural variation from spawn loadouts but the pinata case is moot.
+
+Known conflict to disable for full benefit:
+
+- "311- NPC Stop Looting Dead Bodies - DTTheGunslinger" (shipped in GAMMA). Sets always_detect_dist=0 to kill the corpse-detection scheme AND ships a whole-file override of death_manager.script. Disable the mod entirely in MO2 to restore vanilla NPC looting.
+
+Generic pattern: any mod that zeros xr_corpse_detection.ltx [settings] always_detect_dist, or ships a whole-file override of death_manager.script or xr_corpse_detection.script, disables the chain Loot Trim relies on. Disable such mods.
+
+Loot Trim composes with other mods that patch death_manager.keep_item via the standard monkey-patch wrap pattern. Verified to compose with Jabbers' "Weapons Drop on bodies" (134) and Ish's BoltBeGone in Nitpicker's Modpack (124); behaviors stack regardless of load order.
+
+Setting in MCM:
+- Enable Loot Trim (default on). When off, vanilla trim applies (only excess ammo stacks > 5 and grenade ammo are released).
+
 Compatibility:
 
 Compatible with vanilla Anomaly 1.5.3, GAMMA, ZCP, Redone, Warfare, AlifeGuard, AlifePlus, Night Mutants, GAMMA Dynamic Despawner, Guards Spawner, Nocturnal Mutants.
@@ -59,6 +80,8 @@ Compatible with vanilla Anomaly 1.5.3, GAMMA, ZCP, Redone, Warfare, AlifeGuard, 
 - Night Mutants spawns through the engine's own path. Squads still register against their origin smart.
 - Nocturnal Mutants spawns outside smart terrains. No interaction.
 - Dynamic Despawner and AlifeGuard despawn without firing the death event. Never trigger advances.
+- Loot Trim composes with other death_manager.keep_item patchers (Jabbers, BoltBeGone) via the standard wrap pattern.
+- Loot Trim conflicts with mods that disable NPC corpse looting. Disable "311- NPC Stop Looting Dead Bodies - DTTheGunslinger" or any mod that zeros xr_corpse_detection always_detect_dist or whole-file overrides death_manager.script.
 
 MCM:
 

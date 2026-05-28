@@ -1,0 +1,270 @@
+--- ab_loot: Death-time inventory trim. Wraps death_manager.keep_item with a stricter
+--- release-only policy layered on top of vanilla. Composes with other patchers on the same
+--- seam (Jabbers' 134, Ish's BoltBeGone 124, any future wrapper) via the canonical wrap chain.
+---
+--- Hook: function-level monkey-patch (wrap, not replace) on death_manager.keep_item at
+--- on_game_start. Pattern per doc/library/modding/script-loading.md "Composing Wrappers".
+--- Idempotent install. Captured _prev_keep_item is the chain head at install time (could be
+--- vanilla or any prior wrapper); we never assume it is vanilla specifically.
+---
+--- Trigger path (vanilla): xr_corpse_detection.action_search_corpse:469 (NPC-looter) or
+--- xr_motivator use_callback (player) calls death_manager.create_release_item(corpse) once per
+--- corpse, guarded by se_load_var(..., "death_dropped"). create_release_item then calls
+--- decide_items_to_keep -> iterate_inventory(keep_item, npc). The chain runs once per item.
+
+local ipairs, tostring = ipairs, tostring
+local os_clock = os.clock
+local alife_object, alife_release = alife_object, alife_release
+local IsWeapon, IsOutfit, IsHeadgear, IsItem = IsWeapon, IsOutfit, IsHeadgear, IsItem
+local RegisterScriptCallback = RegisterScriptCallback
+
+-- Slot constants from xray-monolith/src/xrServerEntities/inventory_space.h:7-43.
+local KNIFE_SLOT, INV_SLOT_2, INV_SLOT_3 = 1, 2, 3
+local OUTFIT_SLOT, HELMET_SLOT = 7, 11
+
+-- Anti-pinata cap for stackable consumables (medkits, food, drugs, anything without a stronger
+-- rule). Calibrated by goal "outlier detection", not per-section trade economy. Single knob;
+-- sections needing nuance can later land in [ab_death_keep].
+local STACKABLE_KEEP_N = 3
+
+-- Named LTX sections read from itms_manager.ini_death.
+local KEEP_ITEMS_SECTION = "keep_items"
+local KEEP_ONE_SECTION = "keep_one"
+-- Save-var key written by itms_manager when the player straps a weapon onto an NPC.
+local STRAPPED_VAR = "strapped_item"
+
+local log = xlog.get_logger("AB.LOOT", { outfile = "alifebalance.log" })
+-- mirrors log level >= DEBUG; updated by _sync_log_level on MCM load and on_option_change. Used
+-- to gate all per-item counter math so the policy path costs nothing when debug logging is off.
+local _dbg = false
+
+-- Hook state. _prev_keep_item is the captured chain head at install time. Could be raw vanilla
+-- or any prior wrapper (Jabbers' 134, Ish's BoltBeGone 124, ...). We call through it
+-- unconditionally so all prior policies + their side effects (active-weapon self-transfer,
+-- bolt destroy, ...) run before our additional releases.
+local _prev_keep_item
+local _patched = false
+
+-- LTX caches. Lazy: filled on first keep_item call, after itms_manager.ini_death is ready.
+local _keep_items_set
+local _keep_one_set
+
+-- Per-NPC iteration state. _current_npc_id sentinel rebuilds _equipped_ids, _equipped_ammo,
+-- _section_seen each time vanilla iterate_inventory starts on a new NPC. iterate_inventory is
+-- synchronous so all keep_item calls for one NPC share the same state; the next NPC death
+-- triggers a rebuild.
+local _current_npc_id
+local _equipped_ids
+local _equipped_ammo
+local _section_seen
+
+-- Per-NPC DEBUG accumulator. Updated only when _dbg; flushed lazily by _build_state when the
+-- next NPC arrives (the last NPC of a session is not flushed -- acceptable for DEBUG-only). One
+-- line per NPC summarising items seen, total ADDITIONAL releases by ab_loot, and elapsed clock.
+-- Vanilla-chain releases are NOT counted; only our stricter releases on top.
+local _stats
+
+-- ==================== LTX CACHE ====================
+
+local function _load_keep_items(ini)
+    if not ini:section_exist(KEEP_ITEMS_SECTION) then return end
+    local line_count = ini:line_count(KEEP_ITEMS_SECTION)
+    for i = 0, line_count - 1 do
+        local _, id, val = ini:r_line_ex(KEEP_ITEMS_SECTION, i, "", "")
+        if val == "true" then _keep_items_set[id] = true end
+    end
+end
+
+local function _load_keep_one(ini)
+    if not ini:section_exist(KEEP_ONE_SECTION) then return end
+    local line_count = ini:line_count(KEEP_ONE_SECTION)
+    for i = 0, line_count - 1 do
+        local _, id = ini:r_line_ex(KEEP_ONE_SECTION, i, "", "")
+        if id and id ~= "" then _keep_one_set[id] = true end
+    end
+end
+
+local function _ensure_caches()
+    if _keep_items_set then return end
+    local ini = itms_manager and itms_manager.ini_death
+    if not ini then return end
+    _keep_items_set = {}
+    _keep_one_set = {}
+    _load_keep_items(ini)
+    _load_keep_one(ini)
+end
+
+-- ==================== DEBUG ACCUMULATOR ====================
+
+local function _flush_stats()
+    if not _stats then return end
+    local rel = _stats.released
+    log.debug("[TRIM] npc=%s items=%d ab_loot_released=%d (W=%d O=%d Am=%d Stk=%d) kept_by_us=%d dt=%.2fms",
+        tostring(_stats.npc_id), _stats.total,
+        rel.total, rel.weapon, rel.outfit, rel.ammo, rel.stackable,
+        _stats.total - rel.total,
+        (os_clock() - _stats.start) * 1000)
+end
+
+local function _new_stats(npc_id)
+    _stats = {
+        npc_id = npc_id,
+        start = os_clock(),
+        total = 0,
+        released = { total = 0, weapon = 0, outfit = 0, ammo = 0, stackable = 0 },
+    }
+end
+
+-- Centralised release that counts when _dbg. cat is the per-branch category label.
+local function _release(se_item, cat)
+    alife_release(se_item)
+    if not (_dbg and _stats) then return end
+    local rel = _stats.released
+    rel.total = rel.total + 1
+    local key = (cat and rel[cat] ~= nil) and cat or "stackable"
+    rel[key] = rel[key] + 1
+end
+
+-- ==================== PER-NPC STATE ====================
+
+local function _collect_weapon_ammo(wpn)
+    if not wpn then return end
+    local classes = parse_list(ini_sys, wpn:section(), "ammo_class")
+    if not classes then return end
+    for _, sec in ipairs(classes) do _equipped_ammo[sec] = true end
+end
+
+local function _collect_equipped_slots(npc)
+    local slots = { KNIFE_SLOT, INV_SLOT_2, INV_SLOT_3, OUTFIT_SLOT, HELMET_SLOT }
+    for _, slot in ipairs(slots) do
+        local it = npc:item_in_slot(slot)
+        if it then _equipped_ids[it:id()] = true end
+    end
+end
+
+local function _build_state(npc)
+    if _dbg then
+        _flush_stats()
+        _new_stats(npc:id())
+    end
+    _equipped_ids = {}
+    _equipped_ammo = {}
+    _section_seen = {}
+    _collect_equipped_slots(npc)
+    _collect_weapon_ammo(npc:item_in_slot(INV_SLOT_2))
+    _collect_weapon_ammo(npc:item_in_slot(INV_SLOT_3))
+end
+
+-- ==================== POLICY ====================
+
+local function _enabled()
+    return ab_mcm and ab_mcm.cfg and ab_mcm.cfg.enabled_loot ~= false
+end
+
+local function _is_grenade_item(cls)
+    return cls == clsid.wpn_grenade_rgd5_s or cls == clsid.wpn_grenade_f1_s
+end
+
+-- Stricter release helpers. Each returns true when the item was handled (released or
+-- explicitly skipped). The top-level keep_item calls them in priority order.
+
+local function _try_weapon_dup(item, cls, se_item)
+    if not (IsWeapon(item, cls) and not _is_grenade_item(cls)) then return false end
+    _release(se_item, "weapon")
+    return true
+end
+
+local function _try_outfit_dup(cls, se_item)
+    if not (IsOutfit(nil, cls) or IsHeadgear(nil, cls)) then return false end
+    _release(se_item, "outfit")
+    return true
+end
+
+local function _try_non_matching_ammo(section, se_item)
+    if not IsItem("ammo", section) then return false end
+    if not _equipped_ammo[section] then _release(se_item, "ammo") end
+    return true
+end
+
+local function _apply_stackable(section, se_item)
+    local seen = (_section_seen[section] or 0) + 1
+    _section_seen[section] = seen
+    if seen > STACKABLE_KEEP_N then _release(se_item, "stackable") end
+end
+
+local function keep_item(npc, item)
+    if not (npc and item) then return end
+
+    -- Always run the existing chain first (vanilla + any prior wrappers). This preserves
+    -- vanilla policy plus other patchers' side effects (Jabbers' active-weapon self-transfer,
+    -- BoltBeGone's bolt destroy, ...) regardless of load order.
+    if _prev_keep_item then _prev_keep_item(npc, item) end
+
+    if not _enabled() then return end
+
+    _ensure_caches()
+
+    local npc_id = npc:id()
+    if _current_npc_id ~= npc_id then
+        _current_npc_id = npc_id
+        _build_state(npc)
+    end
+
+    if _dbg and _stats then _stats.total = _stats.total + 1 end
+
+    local section = item:section()
+    local item_id = item:id()
+
+    -- Vanilla [keep_items] whitelist preserved.
+    if _keep_items_set and _keep_items_set[section] then return end
+
+    -- Player-gifted via companion management or player-strapped weapon preserved.
+    if axr_companions and axr_companions.is_assigned_item and axr_companions.is_assigned_item(npc_id, item_id) then
+        return
+    end
+    -- se_load_var ignores the `name` arg (only used for debug printf in _g.script:2647); the
+    -- lookup is by id + varname only. itms_manager.script:264 saves this var with name=nil; any
+    -- non-nil placeholder works for reads. Literal here satisfies the pstor-nil-key validator.
+    if se_load_var(item_id, "ab_loot", STRAPPED_VAR) then return end
+
+    -- The chain may already have released this item; verify before our own release.
+    local se_item = alife_object(item_id)
+    if not se_item then return end
+
+    -- Never release equipped (vanilla also kept these).
+    if _equipped_ids[item_id] then return end
+
+    local cls = item:clsid()
+
+    if _try_weapon_dup(item, cls, se_item) then return end
+    if _try_outfit_dup(cls, se_item) then return end
+    if _try_non_matching_ammo(section, se_item) then return end
+
+    -- Vanilla [keep_one] grenades already handled by the chain; skip our stackable cap so
+    -- we do not double-count grenades.
+    if _keep_one_set and _keep_one_set[section] then return end
+
+    _apply_stackable(section, se_item)
+end
+
+-- ==================== INSTALL ====================
+
+local function _sync_log_level()
+    if not (ab_mcm and ab_mcm.cfg) then return end
+    log.set_level(ab_mcm.cfg.log_level or "WARN")
+    _dbg = log.get_level() >= 5
+end
+
+function on_game_start()
+    if _patched then return end
+    if not death_manager or not death_manager.keep_item then
+        log.warn("[INSTALL] death_manager.keep_item missing; ab_loot disabled this session")
+        return
+    end
+    _prev_keep_item = death_manager.keep_item
+    death_manager.keep_item = keep_item
+    _patched = true
+    log.info("[INSTALL] ab_loot wrap installed on death_manager.keep_item (N=%d)", STACKABLE_KEEP_N)
+    RegisterScriptCallback("actor_on_first_update", _sync_log_level)
+    RegisterScriptCallback("on_option_change", _sync_log_level)
+end
