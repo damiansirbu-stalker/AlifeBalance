@@ -13,7 +13,7 @@
 --- decide_items_to_keep -> iterate_inventory(keep_item, npc). The chain runs once per item.
 
 local ipairs, tostring = ipairs, tostring
-local os_clock = os.clock
+local xlog, xprofiler = xlog, xprofiler
 local alife_object, alife_release = alife_object, alife_release
 local IsWeapon, IsOutfit, IsHeadgear, IsItem = IsWeapon, IsOutfit, IsHeadgear, IsItem
 local RegisterScriptCallback = RegisterScriptCallback
@@ -103,18 +103,19 @@ end
 
 local function _flush_stats()
     if not _stats then return end
+    _stats.timer:stop()
     local rel = _stats.released
-    log.debug("[TRIM] npc=%s items=%d ab_loot_released=%d (W=%d O=%d Am=%d Stk=%d) kept_by_us=%d dt=%.2fms",
+    log.debug("[TRIM] npc=%s items=%d ab_loot_released=%d (W=%d O=%d Am=%d Stk=%d) kept_by_us=%d dt=%.3fms",
         tostring(_stats.npc_id), _stats.total,
         rel.total, rel.weapon, rel.outfit, rel.ammo, rel.stackable,
         _stats.total - rel.total,
-        (os_clock() - _stats.start) * 1000)
+        _stats.timer:get_ms())
 end
 
 local function _new_stats(npc_id)
     _stats = {
         npc_id = npc_id,
-        start = os_clock(),
+        timer = xprofiler.new():start(),
         total = 0,
         released = { total = 0, weapon = 0, outfit = 0, ammo = 0, stackable = 0 },
     }
