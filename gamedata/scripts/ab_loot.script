@@ -1,73 +1,92 @@
---- ab_loot: Death-time inventory trim. Wraps death_manager.keep_item with a stricter
---- release-only policy layered on top of vanilla. Composes with other patchers on the same
---- seam (Jabbers' 134, Ish's BoltBeGone 124, any future wrapper) via the canonical wrap chain.
+--- ab_loot: Periodic scanner that trims NPC inventories so long-lived NPCs never accumulate
+--- a corpse-sized hoard. Walks online stalkers via xslice frame-spread; each NPC is rescanned
+--- at most once per game-day. Public API (`trim_npc`, `evaluate_item`, `build_state`,
+--- `default_policy`) exposes the per-NPC trim and per-item decision so probes, MCM buttons,
+--- and other modules can drive trimming externally without going through the scheduler.
 ---
---- Hook: function-level monkey-patch (wrap, not replace) on death_manager.keep_item at
---- on_game_start. Pattern per doc/library/modding/script-loading.md "Composing Wrappers".
---- Idempotent install. Captured _prev_keep_item is the chain head at install time (could be
---- vanilla or any prior wrapper); we never assume it is vanilla specifically.
+--- Why scanner, not death-time hook:
+---   1. Long-lived NPCs (story NPCs, traders, companions, gulag survivors) keep looting and
+---      never die. Death-time only catches NPCs that die. The hoarding population is the
+---      population that survives. Hundreds of online stalkers all carrying full hoards drive
+---      save bloat, server-object inflation, and steady performance drag.
+---   2. Save bloat. Every looted item is a server object persisted in the save. Continuous
+---      trim bounds live state; death-time only releases when (and if) the NPC dies.
+---   3. Bursty performance. N deaths in a firefight = N trims in the same frame as the corpse
+---      spawn. xslice spreads the cost across frames.
 ---
---- Trigger path (vanilla): xr_corpse_detection.action_search_corpse:469 (NPC-looter) or
---- xr_motivator use_callback (player) calls death_manager.create_release_item(corpse) once per
---- corpse, guarded by se_load_var(..., "death_dropped"). create_release_item then calls
---- decide_items_to_keep -> iterate_inventory(keep_item, npc). The chain runs once per item.
+--- Public API contract:
+---   - trim_npc(npc, opts)        apply policy to one NPC; returns counts; opts.dry_run reports without releasing
+---   - evaluate_item(npc, it, st) pure per-item decision; returns (action, category)
+---   - build_state(npc)           per-NPC snapshot reusable by external callers
+---   - default_policy()           returns the canonical policy closure for composition
+---
+--- Trace + profile parity with AlifePlus: xtrace ids for cycle correlation in logs,
+--- xprofiler timing per cycle and per NPC, both null-pattern when DEBUG off (zero luabind).
 
-local ipairs, tostring = ipairs, tostring
-local xlog, xprofiler = xlog, xprofiler
-local alife_object, alife_release = alife_object, alife_release
-local IsWeapon, IsOutfit, IsHeadgear, IsItem = IsWeapon, IsOutfit, IsHeadgear, IsItem
+local ipairs = ipairs
+local table_sort, math_min = table.sort, math.min
+local os_clock = os.clock
+local xlog, xtrace, xprofiler, xslice, xcreature, xtime = xlog, xtrace, xprofiler, xslice, xcreature, xtime
+local alife_object, alife_release, level = alife_object, alife_release, level
+local IsWeapon, IsOutfit, IsHeadgear, IsItem, IsStalker, IsArtefact = IsWeapon, IsOutfit, IsHeadgear, IsItem, IsStalker, IsArtefact
 local RegisterScriptCallback = RegisterScriptCallback
 
--- Slot constants from xray-monolith/src/xrServerEntities/inventory_space.h:7-43.
-local KNIFE_SLOT, INV_SLOT_2, INV_SLOT_3 = 1, 2, 3
-local OUTFIT_SLOT, HELMET_SLOT = 7, 11
+-- Main inventory slots. Engine enumerates KNIFE(1), INV_SLOT_2(2 pistol), INV_SLOT_3(3 rifle),
+-- GRENADE(4), BINOCULAR(5), BOLT(6), OUTFIT(7), PDA(8), DETECTOR(9), TORCH(10), ARTEFACT(11),
+-- HELMET(12), BACKPACK(13). We walk 1..12 for equipped_ids (item_in_slot is nil-safe per slot
+-- per CInventory::ItemFromSlot), and read INV_SLOT_2/3 for ammo_class.
+-- Source: xray-monolith/src/xrServerEntities/inventory_space.h:7-43.
+local INV_SLOT_2, INV_SLOT_3 = 2, 3
+local LAST_MAIN_SLOT = 12
 
--- Anti-pinata cap for stackable consumables (medkits, food, drugs, anything without a stronger
--- rule). Calibrated by goal "outlier detection", not per-section trade economy. Single knob;
--- sections needing nuance can later land in [ab_death_keep].
+-- Anti-pinata cap on stackable consumables (medkits, food, drugs). Calibrated by goal
+-- "outlier detection", not per-section economy. Single knob; per-section nuance can later
+-- land in [ab_death_keep] if data justifies it.
 local STACKABLE_KEEP_N = 3
 
--- Named LTX sections read from itms_manager.ini_death.
+-- Per-category cap on non-equipped "big" items (weapon / outfit / headgear / artefact).
+-- An NPC keeps equipped + matching ammo + this many extras per category. Tunable via MCM
+-- (surplus_per_category). The default 2 leaves a "killed two stalkers, kept their gear"
+-- loot pool intact while bounding inventories on long-lived NPCs.
+local DEFAULT_SURPLUS_KEEP_N = 2
+
+-- LTX sections in itms_manager.ini_death.
 local KEEP_ITEMS_SECTION = "keep_items"
 local KEEP_ONE_SECTION = "keep_one"
 -- Save-var key written by itms_manager when the player straps a weapon onto an NPC.
 local STRAPPED_VAR = "strapped_item"
 
+-- Scheduler.
+local SCAN_QUEUE = "ab_loot_scan"
+-- Per-cycle batch cap. Picks at most N eligible NPCs per cycle (oldest-scanned first).
+local DEFAULT_NPCS_PER_CYCLE = 20
+-- xslice step (NPCs trimmed per frame). 1 keeps any single frame cheap.
+local DEFAULT_NPCS_PER_FRAME = 1
+-- actor_on_update poll interval, wall-seconds. Bounds the cost of "nothing eligible" probes
+-- against ~30 fps actor_on_update fire rate. Sourced from os.clock() (no luabind bridge).
+local UPDATE_INTERVAL_SEC = 30
+
 local log = xlog.get_logger("AB.LOOT", { outfile = "alifebalance.log" })
--- mirrors log level >= DEBUG; updated by _sync_log_level on MCM load and on_option_change. Used
--- to gate all per-item counter math so the policy path costs nothing when debug logging is off.
+-- Mirrors log level >= DEBUG. Updated by _sync_log_level on first update and on_option_change.
+-- All hot-path tracing/profiling gates on this so cost is zero when DEBUG is off.
 local _dbg = false
 
--- Hook state. _prev_keep_item is the captured chain head at install time. Could be raw vanilla
--- or any prior wrapper (Jabbers' 134, Ish's BoltBeGone 124, ...). We call through it
--- unconditionally so all prior policies + their side effects (active-weapon self-transfer,
--- bolt destroy, ...) run before our additional releases.
-local _prev_keep_item
--- Second wrap point: decide_items_to_keep is the function that calls iterate_inventory.
--- Wrapping it gives us an "iteration ended" hook so we can flush DEBUG stats per NPC at the
--- correct moment (right after the trim finishes) instead of one NPC late.
-local _prev_decide_items
-local _patched = false
-
--- LTX caches. Lazy: filled on first keep_item call, after itms_manager.ini_death is ready.
+-- LTX caches. Lazy: filled on first scan, after itms_manager.ini_death is ready.
 local _keep_items_set
 local _keep_one_set
 
--- Per-NPC iteration state. _current_npc_id sentinel rebuilds _equipped_ids, _equipped_ammo,
--- _section_seen each time vanilla iterate_inventory starts on a new NPC. iterate_inventory is
--- synchronous so all keep_item calls for one NPC share the same state; the next NPC death
--- triggers a rebuild.
-local _current_npc_id
-local _equipped_ids
-local _equipped_ammo
-local _section_seen
+-- Per-NPC last-scan timestamp, game-seconds. Persists for the session only; on game load
+-- the table is empty and every NPC is eligible. Stale entries (NPC despawned) are harmless
+-- (hash by id, ids unique; the engine's id allocator never recycles within a save).
+local _last_scan_game_sec = {}
 
--- Per-NPC DEBUG accumulator. Updated only when _dbg; flushed by the decide_items_to_keep wrap
--- right after iterate_inventory returns, so every NPC's summary lands at the moment its trim
--- finishes (including the last NPC of a session). One line per NPC summarising items seen,
--- total ADDITIONAL releases by ab_loot, and elapsed clock. Vanilla-chain releases are NOT
--- counted; only our stricter releases on top.
-local _stats
+-- Cycle state. Reset per cycle in _start_cycle, used by _visit + _on_cycle_done.
+local _cycle_id = 0
+local _cycle_tid = 0
+local _cycle_visited = 0
+local _cycle_released = 0
+local _cycle_timer
+local _last_update = 0
 
 -- ==================== LTX CACHE ====================
 
@@ -99,189 +118,366 @@ local function _ensure_caches()
     _load_keep_one(ini)
 end
 
--- ==================== DEBUG ACCUMULATOR ====================
-
-local function _flush_stats()
-    if not _stats then return end
-    _stats.timer:stop()
-    local rel = _stats.released
-    log.debug("[TRIM] npc=%s items=%d ab_loot_released=%d (W=%d O=%d Am=%d Stk=%d) kept_by_us=%d dt=%.3fms",
-        tostring(_stats.npc_id), _stats.total,
-        rel.total, rel.weapon, rel.outfit, rel.ammo, rel.stackable,
-        _stats.total - rel.total,
-        _stats.timer:get_ms())
-end
-
-local function _new_stats(npc_id)
-    _stats = {
-        npc_id = npc_id,
-        timer = xprofiler.new():start(),
-        total = 0,
-        released = { total = 0, weapon = 0, outfit = 0, ammo = 0, stackable = 0 },
-    }
-end
-
--- Centralised release that counts when _dbg. cat is the per-branch category label.
-local function _release(se_item, cat)
-    alife_release(se_item)
-    if not (_dbg and _stats) then return end
-    local rel = _stats.released
-    rel.total = rel.total + 1
-    local key = (cat and rel[cat] ~= nil) and cat or "stackable"
-    rel[key] = rel[key] + 1
-end
-
--- ==================== PER-NPC STATE ====================
-
-local function _collect_weapon_ammo(wpn)
-    if not wpn then return end
-    local classes = parse_list(ini_sys, wpn:section(), "ammo_class")
-    if not classes then return end
-    for _, sec in ipairs(classes) do _equipped_ammo[sec] = true end
-end
-
-local function _collect_equipped_slots(npc)
-    local slots = { KNIFE_SLOT, INV_SLOT_2, INV_SLOT_3, OUTFIT_SLOT, HELMET_SLOT }
-    for _, slot in ipairs(slots) do
-        local it = npc:item_in_slot(slot)
-        if it then _equipped_ids[it:id()] = true end
-    end
-end
-
-local function _build_state(npc)
-    if _dbg then _new_stats(npc:id()) end
-    _equipped_ids = {}
-    _equipped_ammo = {}
-    _section_seen = {}
-    _collect_equipped_slots(npc)
-    _collect_weapon_ammo(npc:item_in_slot(INV_SLOT_2))
-    _collect_weapon_ammo(npc:item_in_slot(INV_SLOT_3))
-end
-
 -- ==================== POLICY ====================
-
-local function _enabled()
-    return ab_mcm and ab_mcm.cfg and ab_mcm.cfg.enabled_loot ~= false
-end
 
 local function _is_grenade_item(cls)
     return cls == clsid.wpn_grenade_rgd5_s or cls == clsid.wpn_grenade_f1_s
 end
 
--- Stricter release helpers. Each returns true when the item was handled (released or
--- explicitly skipped). The top-level keep_item calls them in priority order.
-
-local function _try_weapon_dup(item, cls, se_item)
-    if not (IsWeapon(item, cls) and not _is_grenade_item(cls)) then return false end
-    _release(se_item, "weapon")
-    return true
+-- Read surplus cap from MCM, default DEFAULT_SURPLUS_KEEP_N when MCM not loaded.
+local function _surplus_cap()
+    local mcm = ab_mcm and ab_mcm.cfg
+    return (mcm and mcm.surplus_per_category) or DEFAULT_SURPLUS_KEEP_N
 end
 
-local function _try_outfit_dup(cls, se_item)
-    if not (IsOutfit(nil, cls) or IsHeadgear(nil, cls)) then return false end
-    _release(se_item, "outfit")
-    return true
+--- Per-NPC snapshot. Reusable by external callers that want to evaluate items against a
+--- fixed slot configuration. Pure construction; no engine writes.
+--- @safety SAFE - guarded item_in_slot calls; parse_list nil-tolerant
+--- @cost O(1) | 5 item_in_slot + up to 2 parse_list (ammo_class) luabind
+--- @param npc game_object Online stalker
+--- @return table { equipped_ids = {id=true}, equipped_ammo = {sec=true}, section_seen = {}, cat_count = {...}, surplus_cap = N }
+function build_state(npc)
+    local equipped_ids = {}
+    local equipped_ammo = {}
+
+    for slot = 1, LAST_MAIN_SLOT do
+        local it = npc:item_in_slot(slot)
+        if it then equipped_ids[it:id()] = true end
+    end
+
+    local function collect_ammo(wpn)
+        if not wpn then return end
+        local classes = parse_list(ini_sys, wpn:section(), "ammo_class")
+        if not classes then return end
+        for _, sec in ipairs(classes) do equipped_ammo[sec] = true end
+    end
+    collect_ammo(npc:item_in_slot(INV_SLOT_2))
+    collect_ammo(npc:item_in_slot(INV_SLOT_3))
+
+    return {
+        equipped_ids = equipped_ids,
+        equipped_ammo = equipped_ammo,
+        section_seen = {},
+        cat_count = { weapon = 0, outfit = 0, helmet = 0, artefact = 0 },
+        surplus_cap = _surplus_cap(),
+    }
 end
 
-local function _try_non_matching_ammo(section, se_item)
-    if not IsItem("ammo", section) then return false end
-    if not _equipped_ammo[section] then _release(se_item, "ammo") end
-    return true
+-- Per-category cap: increment the counter for `cat`, release if cap exceeded.
+-- Returns (action, category) tuples consistent with evaluate_item.
+local function _apply_cat_cap(state, cat, release_label, keep_label)
+    local cap = state.surplus_cap
+    local count = state.cat_count[cat] + 1
+    state.cat_count[cat] = count
+    if count > cap then return "release", release_label end
+    return "keep", keep_label
 end
 
-local function _apply_stackable(section, se_item)
-    local seen = (_section_seen[section] or 0) + 1
-    _section_seen[section] = seen
-    if seen > STACKABLE_KEEP_N then _release(se_item, "stackable") end
+--- Per-item decision. Returns (action, category) where action in {"keep","release"}.
+--- Mutates state.section_seen and state.cat_count. No engine writes.
+---
+--- Order matters. First-match wins:
+---   1-3  hard keeps (quest / money / curated whitelist)         engine + curated coverage
+---   4-5  player intent  (companion-gifted, player-strapped)     mirrors vanilla
+---   6    equipped (slots 1/2/3/7/11)                            our guard, not vanilla
+---   7    ammo (matching equipped weapon kept, else released)    ours
+---   8    [keep_one] grenades                                    vanilla owns the 1-cap
+---   9-12 per-category surplus cap (weapon/outfit/helmet/aft)    ours, MCM-tunable
+---   13   stackable cap N=3                                      ours, consumable bound
+---
+--- Vanilla [keep_items] is NOT moot in the presence of the quest gate. About half its
+--- entries have kind=i_quest (quest gate catches), the other half are quest-given uniques
+--- whose kind is the normal weapon/device class (gauss has kind=w_sniper, scientific
+--- detector inherits from detector_elite). The whitelist patches those gaps.
+---
+--- @safety SAFE - nil-guarded section/cls; state table required
+--- @cost O(1) | hash lookups + a few IsItem/IsWeapon/IsOutfit/IsHeadgear/IsArtefact bridges
+--- @param npc game_object Owner of the item
+--- @param item game_object Item to evaluate
+--- @param state table From build_state(npc)
+--- @return string,string action ("keep"|"release"), category
+function evaluate_item(npc, item, state)
+    local section = item:section()
+    local item_id = item:id()
+    local npc_id = npc:id()
+
+    -- Hard keeps: engine quest flag, money, and curated unique-quest whitelist.
+    if IsItem("quest", section) then return "keep", "quest" end
+    if IsItem("money", section) then return "keep", "money" end
+    if _keep_items_set and _keep_items_set[section] then return "keep", "whitelist" end
+
+    -- Player intent: companion-gifted gear and player-strapped weapons.
+    if axr_companions and axr_companions.is_assigned_item
+       and axr_companions.is_assigned_item(npc_id, item_id) then
+        return "keep", "companion"
+    end
+    -- se_load_var ignores the `name` arg (only used for debug printf in _g.script:2647); the
+    -- lookup is by id + varname only. Literal placeholder satisfies the pstor-nil-key validator.
+    if se_load_var(item_id, "ab_loot", STRAPPED_VAR) then
+        return "keep", "strapped"
+    end
+
+    -- Equipped: never released regardless of category.
+    if state.equipped_ids[item_id] then return "keep", "equipped" end
+
+    -- Ammo: matching equipped weapon's ammo_class kept (unbounded); rest released.
+    if IsItem("ammo", section) then
+        if state.equipped_ammo[section] then return "keep", "ammo_matched" end
+        return "release", "ammo"
+    end
+
+    -- Vanilla [keep_one] grenades; vanilla owns the per-section 1-cap.
+    if _keep_one_set and _keep_one_set[section] then return "keep", "keep_one" end
+
+    -- Per-category surplus cap. Counted only when reached this point (equipped + ammo
+    -- already short-circuited). Equipped items do NOT count toward the cap.
+    local cls = item:clsid()
+    if IsWeapon(item, cls) and not _is_grenade_item(cls) then
+        return _apply_cat_cap(state, "weapon", "weapon", "weapon_surplus")
+    end
+    if IsOutfit(nil, cls) then
+        return _apply_cat_cap(state, "outfit", "outfit", "outfit_surplus")
+    end
+    if IsHeadgear(nil, cls) then
+        return _apply_cat_cap(state, "helmet", "helmet", "helmet_surplus")
+    end
+    if IsArtefact(item, cls) then
+        return _apply_cat_cap(state, "artefact", "artefact", "artefact_surplus")
+    end
+
+    -- Stackable cap for everything else (consumables: medkits, food, drugs, bandages,
+    -- repair kits, devices NPCs may hoard multiples of the same section).
+    local seen = (state.section_seen[section] or 0) + 1
+    state.section_seen[section] = seen
+    if seen > STACKABLE_KEEP_N then
+        return "release", "stackable"
+    end
+    return "keep", "default"
 end
 
-local function keep_item(npc, item)
-    if not (npc and item) then return end
+--- Returns the canonical policy as a callable for composition. External callers can wrap
+--- the default to add their own rules (e.g. preserve a specific section).
+--- @return function evaluate_item
+function default_policy()
+    return evaluate_item
+end
 
-    -- Always run the existing chain first (vanilla + any prior wrappers). This preserves
-    -- vanilla policy plus other patchers' side effects (Jabbers' active-weapon self-transfer,
-    -- BoltBeGone's bolt destroy, ...) regardless of load order.
-    if _prev_keep_item then _prev_keep_item(npc, item) end
+-- ==================== PER-NPC TRIM (PUBLIC) ====================
 
-    if not _enabled() then return end
+-- Apply a collected release list, update counters, emit per-release log lines. Kept as a
+-- helper so trim_npc's body stays at nesting depth 2 (code-standards.md:125). Caller passes
+-- do_release=false to dry-run (counters update, no engine release).
+local function _apply_releases(releases, result, do_release, npc_id)
+    for _, rel in ipairs(releases) do
+        if do_release then alife_release(rel.se) end
+        result.released = result.released + 1
+        local key = result.released_by_category[rel.category] ~= nil and rel.category or "stackable"
+        result.released_by_category[key] = result.released_by_category[key] + 1
+        if _dbg then log.debug("[RELEASE] npc=%d section=%s category=%s", npc_id, rel.section, rel.category) end
+    end
+end
+
+--- Apply policy to one NPC. Public; the scheduler calls this for each NPC in its batch but
+--- callers (probes, MCM buttons, other modules) may call it directly. The cooldown table is
+--- the scheduler's concern: trim_npc never touches it, so repeated calls all trim.
+--- @safety SAFE - returns nil on nil npc; iterate_inventory tolerates nil item entries
+--- @cost O(items) | 1 build_state (5 item_in_slot + parse_list) + iterate_inventory + 0-N alife_release per release
+--- @param npc game_object Online stalker
+--- @param opts table|nil { dry_run = false, policy = nil }
+--- @return table|nil { items, released, released_by_category = {weapon, outfit, ammo, stackable}, dt_ms }
+function trim_npc(npc, opts)
+    if not npc then return nil end
+    opts = opts or {}
+    local dry_run = opts.dry_run == true
+    local policy = opts.policy or evaluate_item
 
     _ensure_caches()
 
+    local trace = xtrace.new_if(_dbg)
+    local seg = trace:push("trim_npc")
+    local timer = xprofiler.new_if(_dbg):start()
+
+    local state = build_state(npc)
+    local result = {
+        items = 0,
+        released = 0,
+        released_by_category = { weapon = 0, outfit = 0, helmet = 0, ammo = 0, artefact = 0, stackable = 0 },
+        dt_ms = 0,
+    }
     local npc_id = npc:id()
-    if _current_npc_id ~= npc_id then
-        _current_npc_id = npc_id
-        _build_state(npc)
+
+    -- Collect-then-release: mutation during iterate_inventory is unsafe (engine event queue
+    -- can interleave; deepseek-inventory-iteration-mutation rule enforces this).
+    local releases = {}
+    npc:iterate_inventory(function(_, item)
+        if not item then return end
+        result.items = result.items + 1
+        local action, category = policy(npc, item, state)
+        if action ~= "release" then return end
+        local se_item = alife_object(item:id())
+        if not se_item then return end
+        releases[#releases + 1] = { se = se_item, category = category, section = item:section() }
+    end, npc)
+
+    _apply_releases(releases, result, not dry_run, npc_id)
+
+    timer:stop()
+    result.dt_ms = timer:get_ms()
+
+    if _dbg then
+        local rel_cnt = result.released_by_category
+        log.debug("[VISIT] npc=%d items=%d released=%d (W=%d O=%d H=%d Am=%d Af=%d Stk=%d) dt=%.3fms",
+            npc_id, result.items, result.released,
+            rel_cnt.weapon, rel_cnt.outfit, rel_cnt.helmet,
+            rel_cnt.ammo, rel_cnt.artefact, rel_cnt.stackable, result.dt_ms)
+    end
+    trace:pop(seg)
+
+    return result
+end
+
+-- ==================== SCHEDULER ====================
+
+local function _cfg()
+    return ab_mcm and ab_mcm.cfg or nil
+end
+
+local function _enabled()
+    local mcm = _cfg()
+    return mcm and mcm.enabled_loot ~= false
+end
+
+local function _cfg_step()
+    local mcm = _cfg()
+    return (mcm and mcm.npcs_per_frame) or DEFAULT_NPCS_PER_FRAME
+end
+
+local function _cfg_batch()
+    local mcm = _cfg()
+    return (mcm and mcm.npcs_per_cycle) or DEFAULT_NPCS_PER_CYCLE
+end
+
+local function _cfg_cooldown_sec()
+    local mcm = _cfg()
+    local hours = mcm and mcm.scan_cooldown_h or 24
+    return hours * 3600
+end
+
+-- Single-NPC eligibility predicate. Flat returns keep _pick_eligible at depth 1.
+-- Traders are skipped via utils_obj.is_trader (community=trader, clsid script_trader/trader,
+-- section name contains "trader", or storage logic has a `trade` line). Trader stock IS the
+-- trader; trimming it breaks the economy.
+local function _is_eligible(obj, actor_id, now, cooldown_sec)
+    local id = obj:id()
+    if id == actor_id then return false end
+    if not IsStalker(obj) then return false end
+    if not obj:alive() then return false end
+    if utils_obj and utils_obj.is_trader and utils_obj.is_trader(obj) then return false end
+    local last = _last_scan_game_sec[id] or 0
+    if now - last < cooldown_sec then return false end
+    return true, id, last
+end
+
+-- Walk online stalkers, pick the batch_cap NPCs whose last_scan is older than cooldown,
+-- oldest-scanned first. Skips actor, dead, and non-stalker entities.
+-- @cost O(N online + K log K) where K = eligible count; sort dominated by table.sort
+local function _pick_eligible(batch_cap, cooldown_sec)
+    if not (db and db.actor) then return {}, 0 end
+    local actor_id = db.actor:id()
+    local now = xtime.game_sec()
+    local eligible = {}
+
+    for obj in xcreature.online_iter() do
+        local ok, id, last = _is_eligible(obj, actor_id, now, cooldown_sec)
+        if ok then eligible[#eligible + 1] = { id = id, last = last } end
     end
 
-    if _dbg and _stats then _stats.total = _stats.total + 1 end
+    table_sort(eligible, function(a, b) return a.last < b.last end)
 
-    local section = item:section()
-    local item_id = item:id()
+    local take = math_min(#eligible, batch_cap)
+    local picks = {}
+    for i = 1, take do picks[i] = eligible[i].id end
+    return picks, #eligible
+end
 
-    -- Vanilla [keep_items] whitelist preserved.
-    if _keep_items_set and _keep_items_set[section] then return end
-
-    -- Player-gifted via companion management or player-strapped weapon preserved.
-    if axr_companions and axr_companions.is_assigned_item and axr_companions.is_assigned_item(npc_id, item_id) then
-        return
+local function _on_cycle_done()
+    if _cycle_timer then _cycle_timer:stop() end
+    if _dbg then
+        local ms = _cycle_timer and _cycle_timer:get_ms() or 0
+        log.debug("[SCAN] cycle=%d tid=%d visited=%d released=%d dt=%.2fms",
+            _cycle_id, _cycle_tid, _cycle_visited, _cycle_released, ms)
     end
-    -- se_load_var ignores the `name` arg (only used for debug printf in _g.script:2647); the
-    -- lookup is by id + varname only. itms_manager.script:264 saves this var with name=nil; any
-    -- non-nil placeholder works for reads. Literal here satisfies the pstor-nil-key validator.
-    if se_load_var(item_id, "ab_loot", STRAPPED_VAR) then return end
+    _cycle_timer = nil
+end
 
-    -- The chain may already have released this item; verify before our own release.
-    local se_item = alife_object(item_id)
-    if not se_item then return end
+local function _visit(npc_id)
+    local npc = level.object_by_id(npc_id)
+    if not npc or not npc:alive() then return true end
 
-    -- Never release equipped (vanilla also kept these).
-    if _equipped_ids[item_id] then return end
+    local result = trim_npc(npc)
+    _last_scan_game_sec[npc_id] = xtime.game_sec()
+    _cycle_visited = _cycle_visited + 1
+    if result then _cycle_released = _cycle_released + result.released end
+    return true
+end
 
-    local cls = item:clsid()
+local function _start_cycle()
+    if not _enabled() then return end
+    if xslice.is_active(SCAN_QUEUE) then return end
 
-    if _try_weapon_dup(item, cls, se_item) then return end
-    if _try_outfit_dup(cls, se_item) then return end
-    if _try_non_matching_ammo(section, se_item) then return end
+    local picks, eligible_total = _pick_eligible(_cfg_batch(), _cfg_cooldown_sec())
+    if #picks == 0 then return end
 
-    -- Vanilla [keep_one] grenades already handled by the chain; skip our stackable cap so
-    -- we do not double-count grenades.
-    if _keep_one_set and _keep_one_set[section] then return end
+    _cycle_id = _cycle_id + 1
+    _cycle_visited = 0
+    _cycle_released = 0
+    _cycle_tid = xtrace.new_if(_dbg).id
+    _cycle_timer = xprofiler.new_if(_dbg):start()
 
-    _apply_stackable(section, se_item)
+    if _dbg then
+        log.debug("[SCAN] cycle=%d tid=%d open batch=%d eligible=%d step=%d cooldown=%dh",
+            _cycle_id, _cycle_tid, #picks, eligible_total, _cfg_step(), _cfg_cooldown_sec() / 3600)
+    end
+
+    xslice.start(SCAN_QUEUE, picks, {
+        step = _cfg_step(),
+        func = _visit,
+        on_done = _on_cycle_done,
+    })
+end
+
+local function actor_on_update()
+    if not _enabled() then return end
+    if xslice.is_active(SCAN_QUEUE) then return end
+    local now = os_clock()
+    if now - _last_update < UPDATE_INTERVAL_SEC then return end
+    _last_update = now
+    _start_cycle()
 end
 
 -- ==================== INSTALL ====================
 
 local function _sync_log_level()
-    if not (ab_mcm and ab_mcm.cfg) then return end
-    log.set_level(ab_mcm.cfg.log_level or "WARN")
+    local mcm = _cfg()
+    if not mcm then return end
+    log.set_level(mcm.log_level or "WARN")
     _dbg = log.get_level() >= 5
 end
 
--- Wraps decide_items_to_keep so we can flush per-NPC DEBUG stats right after the trim
--- iteration ends. Calls through to the chain head unconditionally; the flush runs only when
--- _dbg is on and there is a pending _stats accumulator.
-local function decide_items_to_keep(npc, npc_id, npc_name)
-    _prev_decide_items(npc, npc_id, npc_name)
-    if _dbg and _stats then
-        _flush_stats()
-        _stats = nil
-        _current_npc_id = nil
-    end
+-- Prune the per-NPC cooldown row when an NPC despawns. The table is hash-by-id and ids
+-- never recycle within a save, so the entry would otherwise leak. Cheap: one hash erase.
+local function npc_on_net_destroy(npc)
+    if not npc then return end
+    _last_scan_game_sec[npc:id()] = nil
 end
 
 function on_game_start()
-    if _patched then return end
-    if not death_manager or not death_manager.keep_item then
-        log.warn("[INSTALL] death_manager.keep_item missing; ab_loot disabled this session")
-        return
-    end
-    _prev_keep_item = death_manager.keep_item
-    death_manager.keep_item = keep_item
-    _prev_decide_items = death_manager.decide_items_to_keep
-    death_manager.decide_items_to_keep = decide_items_to_keep
-    _patched = true
-    log.info("[INSTALL] ab_loot wraps installed on death_manager.keep_item + decide_items_to_keep (N=%d)", STACKABLE_KEEP_N)
+    _last_update = 0
+    _last_scan_game_sec = {}
+    log.info("[INSTALL] ab_loot scanner armed (stackable_n=%d batch=%d)",
+        STACKABLE_KEEP_N, DEFAULT_NPCS_PER_CYCLE)
     RegisterScriptCallback("actor_on_first_update", _sync_log_level)
     RegisterScriptCallback("on_option_change", _sync_log_level)
+    RegisterScriptCallback("actor_on_update", actor_on_update)
+    RegisterScriptCallback("npc_on_net_destroy", npc_on_net_destroy)
 end

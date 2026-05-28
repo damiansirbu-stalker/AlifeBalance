@@ -1,4 +1,4 @@
---- ab_mcm: MCM configuration for AlifeBalance Smart Pacing
+--- ab_mcm: MCM configuration for AlifeBalance (Smart Balance + Loot Balance)
 
 -- ==================== DEFAULTS ====================
 
@@ -7,6 +7,10 @@ defaults = {
     advances = 4,
     min_minutes = 120,
     enabled_loot = true,
+    npcs_per_frame = 1,
+    npcs_per_cycle = 20,
+    scan_cooldown_h = 24,
+    surplus_per_category = 2,
     show_markers = false,
     log_level = "WARN",
 }
@@ -56,17 +60,21 @@ function on_mcm_load()
                         text = "ui_mcm_ab_title", size = {512, 50}, spacing = 20 },
                     { id = "desc", type = "desc", text = "ui_mcm_ab_general_info" },
 
-                    -- Smart Pacing
+                    -- Smart Balance
                     { id = "div_pacing", type = "line" },
                     { id = "hdr_pacing", type = "desc", text = "ui_mcm_ab_hdr_pacing", clr = {255, 200, 200, 200} },
                     { id = "enabled", type = "check", val = 1, def = true },
                     { id = "advances", type = "track", val = 2, min = 1, max = 8, step = 1, def = 4 },
                     { id = "min_minutes", type = "track", val = 2, min = 10, max = 360, step = 5, def = 120 },
 
-                    -- Loot Trim
+                    -- Loot Balance
                     { id = "div_loot", type = "line" },
                     { id = "hdr_loot", type = "desc", text = "ui_mcm_ab_hdr_loot", clr = {255, 200, 200, 200} },
                     { id = "enabled_loot", type = "check", val = 1, def = true },
+                    { id = "npcs_per_frame", type = "track", val = 2, min = 1, max = 10, step = 1, def = 1 },
+                    { id = "npcs_per_cycle", type = "track", val = 2, min = 5, max = 50, step = 5, def = 20 },
+                    { id = "scan_cooldown_h", type = "track", val = 2, min = 1, max = 72, step = 1, def = 24 },
+                    { id = "surplus_per_category", type = "track", val = 2, min = 0, max = 10, step = 1, def = 2 },
 
                     -- Version footer
                     { id = "div_version", type = "line" },

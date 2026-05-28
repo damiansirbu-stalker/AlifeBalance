@@ -184,118 +184,134 @@ Not owned by AlifeBalance: which recipe the engine picks (random over open-budge
 
 ---
 
-## Loot trim
+## Loot Balance
 
-A second balance sub-domain, independent of smart pacing. Wraps vanilla `death_manager.keep_item` with stricter release rules layered on top, so an NPC corpse no longer carries the full hoard the dying stalker accumulated by looting other corpses while alive. Installed at `on_game_start` via the canonical wrap pattern (`script-loading.md` "Composing Wrappers"): captures the current chain head, calls through it unconditionally, then applies additional releases.
+Periodic scanner over online stalkers. Walks the online set in small batches, trims one NPC per frame, rescans each NPC at most once per game-day. Long-lived NPCs (story NPCs, companions, gulag survivors) never accumulate a corpse-sized hoard because the trim no longer waits for death. Traders are skipped at the scheduler level (their stock IS the trader).
 
-### Hook seam
+### Why scanner, not death-time hook
+
+The previous shipped approach wrapped `death_manager.keep_item` and only ran when an NPC died. Three failure modes were missed:
+
+1. **Long-lived NPCs never trim**. The population that survives is the population that hoards. Hundreds of online stalkers (story NPCs, companions, gulag survivors) keep looting corpses they walk over and never die. Death-time only catches NPCs that die; the survivors drive save bloat and steady performance drag indefinitely. (Traders are skipped at the scheduler level so their stock is untouched.)
+2. **Save bloat accumulates between deaths**. Every looted item is a server object persisted in the save. Long sessions accumulate without bound. Continuous trim bounds live state instead of waiting for the death event.
+3. **Bursty performance**. N deaths in a firefight = N trims in the same frame as the corpse spawn. xslice spreads the trim cost across frames.
+
+The engine `utils_item.is_overweight(npc)` self-limit at `xr_corpse_detection.script:421` caps live hoarding by weight (around 50kg) but the cap is generous; NPCs accumulate plenty before hitting it.
+
+### Pipeline
 
 ```
-NPC dies
+TICK (every 30 wall-seconds via actor_on_update)
   |
   v
-first interaction with corpse (NPC-looter via xr_corpse_detection
-or player via xr_motivator use_callback)
+_start_cycle()
+  - if not enabled_loot: return
+  - if xslice.is_active("ab_loot_scan"): return
+  - now = xtime.game_sec()
+  - eligible = [ npc_id for npc in xcreature.online_iter()
+                 if IsStalker(npc) and npc:alive()
+                    and not utils_obj.is_trader(npc)
+                    and now - _last_scan_game_sec[npc_id] >= scan_cooldown_h * 3600 ]
+  - sort eligible by oldest scan first
+  - picks = eligible[1 .. npcs_per_cycle]
+  - if #picks == 0: return
+  - cycle_id += 1; open xprofiler
+  - xslice.start("ab_loot_scan", picks, { step = npcs_per_frame, func = _visit, on_done = _on_cycle_done })
+
+FRAME (each frame while queue active)
   |
   v
-death_manager.create_release_item(corpse)              -- vanilla
-  - se_load_var(npc_id, name, "death_dropped") guard   -- runs once per corpse
-  - decide_items_to_keep(npc, npc_id, npc_name)        -- vanilla
-      - npc:iterate_inventory(keep_item, npc)          -- vanilla iteration
-          - keep_item = ab_loot wrap                   -- our function
-              - calls _prev_keep_item(npc, item)       -- vanilla + any other wrappers
-              - applies our stricter releases on top
-  - try_spawn_ammo, spawn_cosmetics, create_item_list  -- vanilla death-loot spawn (untouched)
+_visit(npc_id)
+  - npc = level.object_by_id(npc_id)
+  - if not npc or not npc:alive(): return true  (drain; went offline)
+  - r = trim_npc(npc)
+  - _last_scan_game_sec[npc_id] = xtime.game_sec()
+  - cycle counters += r
+  - return true  (drain)
+
+CYCLE END
+  |
+  v
+_on_cycle_done()
+  - log [SCAN] cycle summary (cycle_id, visited, released, dt_ms)
 ```
 
-One hook covers both timings: the player-jackpot case (player loots a dead looter) and the upstream chain where a live NPC feeds on a dead corpse before dying themselves.
+### Public API
 
-### Policy
+| Function | Purpose | Returns |
+|---|---|---|
+| `trim_npc(npc, opts)` | Apply policy to one NPC. opts: `{ dry_run, policy }`. Cooldown table NOT touched. | `{ items, released, released_by_category, dt_ms }` |
+| `evaluate_item(npc, item, state)` | Per-item decision. Mutates `state.section_seen` (stackable counter) and `state.cat_count` (per-category surplus counter). | `(action, category)` where action in `{"keep","release"}` |
+| `build_state(npc)` | Per-NPC snapshot. Reusable by external callers. | `{ equipped_ids, equipped_ammo, section_seen, cat_count, surplus_cap }` |
+| `default_policy()` | Returns evaluate_item for composition. | function |
 
-The chain runs first (vanilla + any other wrappers). ab_loot then adds release-only rules on top. We never override vanilla keep decisions; we only release things vanilla kept that we judge excessive.
+Probes call `trim_npc` directly without scheduler involvement. MCM "trim now" buttons, TestZone probes, console diagnostics, and future modules wrap the default policy or replace it entirely.
 
-What the vanilla chain handles (preserved by ab_loot, not duplicated):
+### Policy table
 
-| Vanilla branch | Behavior |
+Evaluated in order. First match wins.
+
+| Order | Predicate | Action / Category |
+|---|---|---|
+| 1 | `IsItem("quest", section)` (engine `quest_item=1` or `kind=i_quest`) | keep / quest |
+| 2 | `IsItem("money", section)` | keep / money |
+| 3 | section in vanilla `[keep_items]` | keep / whitelist |
+| 4 | `axr_companions.is_assigned_item(npc_id, item_id)` | keep / companion |
+| 5 | `se_load_var(item_id, "ab_loot", "strapped_item")` (player-strapped) | keep / strapped |
+| 6 | item_id in `state.equipped_ids` (all main slots 1..12) | keep / equipped |
+| 7 | `IsItem("ammo", section)` and section in `state.equipped_ammo` | keep / ammo_matched |
+| 8 | `IsItem("ammo", section)` (no match) | release / ammo |
+| 9 | section in vanilla `[keep_one]` | keep / keep_one |
+| 10 | `IsWeapon(item, cls)` non-grenade, surplus count > cap | release / weapon |
+| 10b | `IsWeapon(item, cls)` non-grenade, within cap | keep / weapon_surplus |
+| 11 | `IsOutfit(nil, cls)`, surplus count > cap | release / outfit |
+| 11b | `IsOutfit(nil, cls)`, within cap | keep / outfit_surplus |
+| 12 | `IsHeadgear(nil, cls)`, surplus count > cap | release / helmet |
+| 12b | `IsHeadgear(nil, cls)`, within cap | keep / helmet_surplus |
+| 13 | `IsArtefact(item, cls)`, surplus count > cap | release / artefact |
+| 13b | `IsArtefact(item, cls)`, within cap | keep / artefact_surplus |
+| 14 | `state.section_seen[section] + 1 > 3` (stackable cap) | release / stackable |
+| - | otherwise | keep / default |
+
+Rules 1-6 are hard keeps that mirror vanilla `death_manager.keep_item` plus the engine quest flag and an explicit money guard. Rule 6 (equipped-slot skip) is ours: vanilla never checks equipped because vanilla keeps all weapons and outfits regardless. Rule 7-8 (ammo gate) is ours. Rules 10-13 implement the per-category surplus cap (MCM `surplus_per_category`, default 2) for non-equipped "big" items; equipped items short-circuit before the count. Rule 14 (stackable cap N=3) bounds consumable hoarding (medkits, food, drugs, bandages, repair kits, devices).
+
+Why both `IsItem("quest", section)` and `[keep_items]`: about half the vanilla whitelist entries have `kind = i_quest` (caught by the engine flag) and become redundant; the other half (gauss rifle `kind = w_sniper`, scientific detector inheriting `detector_elite`, named PDAs sharing the regular PDA clsid) are quest-given uniques whose item class is "normal" and the engine flag misses. The whitelist patches those gaps.
+
+### State
+
+| State | Purpose |
 |---|---|
-| `[keep_items]` whitelist | Keeps; sets condition where applicable |
-| `dont_keep_items` flag on spawn_ini or section_logic | Releases all |
-| `axr_companions.is_assigned_item` | Keeps |
-| `anim` kind | Releases |
-| equipped weapon (slot 2/3, non-strapped, non-grenade-class) | Keeps via `set_weapon_drop_condition` |
-| outfit / helmet | Keeps via condition roll (`get_comb_coeff`, `get_condition_by_rank`) |
-| ammo stack > 5 | Releases entire stack |
-| `grenade_ammo` kind (vog / cluster) | Releases |
-| `[keep_one]` section (throwable grenades) | Keeps first, releases rest |
+| `_last_scan_game_sec[npc_id]` | game-second of last visit. Persists for session only; on game load every NPC is eligible. Stale ids harmless (id allocator never recycles within a save). |
+| `_keep_items_set`, `_keep_one_set` | LTX caches from `itms_manager.ini_death`. Lazy on first scan. |
+| `_cycle_id`, `_cycle_tid`, `_cycle_visited`, `_cycle_released`, `_cycle_timer` | per-cycle counters. Reset in `_start_cycle`. |
+| `_last_update`, `_dbg` | wall-clock gate (os.clock), debug-level mirror. |
 
-What ab_loot adds (stricter releases applied after the chain):
-
-| Case | Action |
-|------|--------|
-| Vanilla `[keep_items]` whitelist hit | Skip (chain kept; we don't trim) |
-| Player-gifted (`axr_companions.is_assigned_item`) | Skip |
-| Player-strapped weapon (`se_load_var(item_id, _, "strapped_item")`) | Skip |
-| Equipped (slots `KNIFE`, `INV_SLOT_2`, `INV_SLOT_3`, `OUTFIT_SLOT`, `HELMET_SLOT`) | Skip |
-| Non-equipped weapon (non-grenade class) | Release |
-| Non-worn outfit / helmet | Release |
-| Ammo for a section not in the equipped weapon's ammo classes | Release |
-| Vanilla `[keep_one]` section | Skip (chain handled) |
-| Stackable consumable above `STACKABLE_KEEP_N` (3) | Release excess |
-
-Equipped detection uses `npc:item_in_slot(slot)` against slot constants from `xray-monolith/src/xrServerEntities/inventory_space.h:7-43`. Ammo class set is built per NPC from `parse_list(ini_sys, weapon:section(), "ammo_class")` for weapons in pistol and rifle slots.
-
-### Per-call state
-
-One pre-walk per dying NPC, triggered by an `npc:id()` sentinel inside `keep_item`. Rebuilds `equipped_ids`, `equipped_ammo`, `section_seen` when the id changes; subsequent calls within the same vanilla `iterate_inventory` share the state. iterate_inventory is synchronous so a single dying NPC's items all see the same state.
+No persistence. The cooldown table not saved; on game load every NPC is fresh and the first round of cycles trims everyone, then steady-state takes over.
 
 ### Prerequisites and conflicts
 
-ab_loot exists to make vanilla NPC looting safe to re-enable. The intended deployment is:
+| Mod / setting | Interaction |
+|---|---|
+| Vanilla NPC corpse looting enabled | Required for the broader value. With looting disabled, NPCs do not accumulate from corpses; the scanner still runs but releases far less. |
+| `311- NPC Stop Looting Dead Bodies - DTTheGunslinger` (or equivalent) | Defeats the source of accumulation. Disable for full benefit. |
+| Jabbers' "Weapons Drop on bodies" 134 | No conflict. They patch `death_manager.keep_item`; we no longer touch that seam. The scanner releases from online inventories; their wrap fires at death on whatever the scanner left behind. |
+| Ish's BoltBeGone in Nitpicker's Modpack 124 | Same as Jabbers'. No conflict. |
+| `[keep_items]` and `[keep_one]` LTX | Read once per session. Quest items, special weapons, and pdas in `[keep_items]` survive. Vanilla `[keep_one]` grenade rules pass through unchanged. |
+| Traders (`utils_obj.is_trader`) | Skipped at scheduler level. Trader stock IS the trader; trimming would destroy the economy. Detection covers community=trader, clsid `script_trader`/`trader`, section name containing "trader", or storage logic with a `trade` line. |
+| Quest-flagged items (`IsItem("quest", section)`) | Never released regardless of category. Engine flag (`quest_item=1` or `kind=i_quest`) is checked first; the curated `[keep_items]` whitelist patches uniques whose item class is "normal". |
+| Companion-assigned items | `axr_companions.is_assigned_item` consulted per item; player gifts always survive. |
+| Strapped weapons | `se_load_var(item_id, _, "strapped_item")` consulted per item; player-strapped weapons always survive. |
 
-1. Vanilla `xr_corpse_detection.ltx [settings] always_detect_dist` left at a reasonable value (vanilla default 2500). NPCs walk to nearby corpses and transfer items via `corpse:transfer_item(item, npc)` per `xr_corpse_detection.script:248-256`.
-2. ab_loot trims the looter's own corpse on death, so the chain "A loots B, A dies, player loots A" no longer produces a pinata.
+### Performance
 
-For this to work, NPC looting must not be blocked by another mod. Any mod that:
-
-- zeros `xr_corpse_detection.ltx [settings] always_detect_dist` (kills the corpse-detection scheme), OR
-- ships a whole-file override of `death_manager.script` (bypasses our wrap chain), OR
-- ships a whole-file override of `xr_corpse_detection.script` (replaces the entire scheme)
-
-defeats ab_loot's purpose and must be disabled.
-
-Known offender shipped in GAMMA:
-
-| Mod | What it does | Action |
-|---|---|---|
-| `311- NPC Stop Looting Dead Bodies - DTTheGunslinger` | Sets `always_detect_dist = 0` in its `gamedata/configs/ai_tweaks/xr_corpse_detection.ltx` AND ships a whole-file override of `gamedata/scripts/death_manager.script`. Both layers must go. | Disable the entire mod in MO2. |
-
-ab_loot continues to function with such mods enabled (it still trims duplicates from vanilla `xrs_rnd_npc_loadout` spawn loadouts), but the headline benefit (pinata removal) presupposes live looting.
-
-Generic detection pattern: grep your modlist for offenders by intent ("disable NPC loot", "no NPC looting", "stop NPC looting") AND by mechanism (any `gamedata/configs/ai_tweaks/xr_corpse_detection.ltx` overlay; any whole-file `gamedata/scripts/death_manager.script` or `xr_corpse_detection.script`).
-
-### Composition with other death_manager.keep_item patchers
-
-ab_loot uses the canonical wrap pattern documented at `doc/library/modding/script-loading.md` "Composing Wrappers (Wrap vs Replace)". Other GAMMA mods on the same seam compose naturally:
-
-| Layer | Source | Behavior |
-|---|---|---|
-| vanilla `keep_item` | `death_manager.script:373` | per-item keep/release |
-| `134- Weapons Drop on bodies (Jabbers)` | `keep_guns_on_bodies.script:1-18` | wraps; transfers active weapon to corpse |
-| `124- Nitpickers BoltBeGone (Ish)` | `ish_bolt_b_gone.script:1-15` | wraps; destroys bolts |
-| ab_loot | `ab_loot.script` | wraps; stricter releases (duplicate weapons, non-matching ammo, stackable cap) |
-
-Each layer captures whatever was at the slot when it installed and calls through to it. Runtime chain order matches install order; every layer runs exactly once per item regardless of load order.
-
-### Out of scope
-
-- Live online tick. Engine `is_overweight(npc)` at `xr_corpse_detection.script:421` self-limits live hoarding by weight cap; this hook bounds end-state.
-- Death-loot spawn (`try_spawn_ammo`, `spawn_cosmetics`, `create_item_list`). Vanilla owns it; untouched.
-- Mutant loot. Different code path (`ui_mutant_loot`).
-- `xr_corpse_detection.ltx [settings] always_detect_dist` re-enable. Separate later task once trim is shipping.
-
-### MCM toggle
-
-`enabled_loot` (General tab, default true). When off, the installed hook delegates to the captured vanilla `keep_item` so disabling means "vanilla behavior", not "no trim at all".
+| Operation | Cost |
+|---|---|
+| `_start_cycle`, eligible-set walk | O(N online) with N ~ 200 typical. 1 `xtime.game_sec()` + per-NPC `IsStalker` + `alive()` + hash read. |
+| `_pick_eligible` sort | O(K log K) where K = eligible count. `table.sort` over an array of tables. |
+| Per NPC visit | O(items) inventory walk. 12 `item_in_slot` (one per main slot) + ~2 `parse_list` (ammo_class for slots 2 and 3) for state, plus per-item policy (hashes + clsid + IsItem/IsWeapon/IsOutfit/IsHeadgear/IsArtefact bridges). |
+| Per release | 1 `alife_object` + 1 `alife_release`. |
+| Per cycle dt | Single-digit ms for typical batches (20 NPCs * 1 per frame = 20 frames). |
+| Idle cost | 1 `xslice.is_active` hash lookup per actor_on_update + 1 `os.clock()` compare. |
 
 ---
 
@@ -308,6 +324,7 @@ Each layer captures whatever was at the slot when it installed and calls through
 | `gamedata/scripts/ab_pacing.script` | Death handler, periodic tick burst-advance loop, per-smart CTime delta cache, `_advance_smart` cooldown subtract, public `marker_label` + `show_smart_stats` for ab_map |
 | `gamedata/scripts/ab_recipe.script` | Per-(level, faction) eligibility + threshold cache, single-pass budget evaluation. Two entry points called by ab_pacing: `get_eligible_and_threshold` and `evaluate_budget_for_faction`. Delegates smart discovery and squad-size lookup to xsmart. |
 | `gamedata/scripts/ab_map.script` | PDA marker render-state, right-click menu (teleport, show stats). Calls back into ab_pacing for label + stats formatting. |
+| `gamedata/scripts/ab_loot.script` | Online inventory scanner. Public API (`trim_npc`, `evaluate_item`, `build_state`, `default_policy`), xslice scheduler with per-NPC game-day cooldown. |
 | `gamedata/scripts/ab_test.script` | Console-driven test harness. Fires fake NPC deaths every 3s, alternating on-level / off-level pools. Same protection + vermin filters as ab_pacing. |
 | `gamedata/configs/text/eng/ui_st_mcm_ab.xml` | MCM strings (English) |
 | `gamedata/configs/text/rus/ui_st_mcm_ab.xml` | MCM strings (Russian) |
@@ -319,9 +336,14 @@ Each layer captures whatever was at the slot when it installed and calls through
 
 | Setting              | Tab         | Section       | Type   | Default | Range   | Effect |
 |----------------------|-------------|---------------|--------|---------|---------|--------|
-| `enabled`            | General     | Smart Pacing  | check  | true    | -       | Master toggle |
-| `advances`           | General     | Smart Pacing  | track  | 4       | 1-8     | Per-advance subtract is `(respawn_idle - Min Minutes*60) / advances` |
-| `Min Minutes`        | General     | Smart Pacing  | track  | 120     | 10-360  | Minimum cooldown remaining after every advance, in game minutes |
+| `enabled`            | General     | Smart Balance | check  | true    | -       | Master toggle |
+| `advances`           | General     | Smart Balance | track  | 4       | 1-8     | Per-advance subtract is `(respawn_idle - Min Minutes*60) / advances` |
+| `Min Minutes`        | General     | Smart Balance | track  | 120     | 10-360  | Minimum cooldown remaining after every advance, in game minutes |
+| `enabled_loot`       | General     | Loot Balance  | check  | true    | -       | Scanner enable. When off, no scheduler, no trims. |
+| `npcs_per_frame`     | General     | Loot Balance  | track  | 1       | 1-10    | xslice step: NPCs trimmed per frame inside a cycle. |
+| `npcs_per_cycle`     | General     | Loot Balance  | track  | 20      | 5-50    | Per-cycle batch cap: max NPCs picked per cycle (oldest-scanned first). |
+| `scan_cooldown_h`    | General     | Loot Balance  | track  | 24      | 1-72    | Per-NPC rescan cooldown in game-hours. |
+| `surplus_per_category` | General   | Loot Balance  | track  | 2       | 0-10    | Per-category non-equipped surplus cap for weapons / outfits / helmets / artefacts. |
 | `log_level`          | Development | Logging       | list   | WARN    | -       | ERROR / WARN / INFO / DEBUG |
 | `show_markers`       | Development | Diagnostics   | check  | false   | -       | Green PDA marker on every advanced smart, 5-min linger, right-click teleport / stats |
 | `btn_show_status`    | Development | Diagnostics   | button | -       | -       | PDA tip with death / counted / protected / vermin / tick / advance / spawn counters |

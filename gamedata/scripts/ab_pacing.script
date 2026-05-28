@@ -1,4 +1,4 @@
---- ab_pacing: Smart Pacing - per-(level, faction) death pressure advances smart cooldowns by 1/advances per advance
+--- ab_pacing: Smart Balance - per-(level, faction) death pressure advances smart cooldowns by 1/advances per advance
 
 local pairs, ipairs, tonumber, tostring = pairs, ipairs, tonumber, tostring
 local math_floor, string_format = math.floor, string.format
@@ -300,7 +300,7 @@ function marker_label(smart)
     for faction in pairs(_smart_recipe_factions(smart)) do
         refills[#refills + 1] = faction
     end
-    local lines = { "Smart Pacing: " .. display }
+    local lines = { "Smart Balance: " .. display }
     if #refills > 0 then
         lines[#lines + 1] = "refills: " .. table_concat(refills, ", ")
     end

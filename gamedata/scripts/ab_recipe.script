@@ -1,4 +1,4 @@
---- ab_recipe: smart-terrain recipe analysis for AlifeBalance Smart Pacing.
+--- ab_recipe: smart-terrain recipe analysis for AlifeBalance Smart Balance.
 --- Delegates eligibility (find_smarts_spawning) and squad-size lookup
 --- (get_section_npc_max) to xsmart; the threshold compute (MAX npc_in_squad
 --- upper across matching sections of eligible smarts) and the per-tick budget

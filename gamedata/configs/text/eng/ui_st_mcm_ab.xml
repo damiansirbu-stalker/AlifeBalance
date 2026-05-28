@@ -21,15 +21,15 @@
         <text>Combat thins the Zone faster than the engine refills it. AlifeBalance tracks deaths per (level, faction) and advances the respawn cooldown of an eligible smart on that level by a fraction of its cooldown each advance. After the configured number of advances the cooldown expires and the engine spawns one squad from the smart's own configured pool on its next alife tick. It does not spawn anything itself. Works alongside vanilla, ZCP, Redone, and any other spawner mod.</text>
     </string>
 
-    <!-- General - Smart Pacing -->
+    <!-- General - Smart Balance -->
     <string id="ui_mcm_ab_hdr_pacing">
-        <text>Smart Pacing</text>
+        <text>Smart Balance</text>
     </string>
     <string id="ui_mcm_ab_general_enabled">
-        <text>Enable Smart Pacing</text>
+        <text>Enable Smart Balance</text>
     </string>
     <string id="ui_mcm_ab_general_enabled_desc">
-        <text>Master toggle. When off, no death tracking and no cooldown advances.</text>
+        <text>Master toggle for Smart Balance. When off, no death tracking and no cooldown advances.</text>
     </string>
     <string id="ui_mcm_ab_general_advances">
         <text>Advances to floor</text>
@@ -44,15 +44,39 @@
         <text>Minimum cooldown that must remain on a smart after an advance applies, in game minutes. AlifeBalance never pushes the cooldown below this floor; the engine's own clock ages out the last leg naturally and fires the spawn from there. A smart already at or below this floor is skipped on the next advance (counter holds for next tick). Default 120 minutes (two game hours). Raise to leave more natural cooldown after every advance.</text>
     </string>
 
-    <!-- General - Loot Trim -->
+    <!-- General - Loot Balance -->
     <string id="ui_mcm_ab_hdr_loot">
-        <text>Loot Trim</text>
+        <text>Loot Balance</text>
     </string>
     <string id="ui_mcm_ab_general_enabled_loot">
-        <text>Enable Loot Trim</text>
+        <text>Enable Loot Balance</text>
     </string>
     <string id="ui_mcm_ab_general_enabled_loot_desc">
-        <text>Trim NPC corpse inventories at the moment of death so corpses no longer carry the full hoard the dying stalker accumulated by looting other corpses. Keeps the equipped weapon (with vanilla condition roll), ammo matching the equipped weapon, worn outfit and helmet (with condition roll), vanilla whitelist items, and up to 3 of each stackable consumable. Releases duplicate weapons, non-matching ammo, extra outfits or helmets, grenade ammo, and surplus stacks. Vanilla [keep_one] grenade rules still apply (one of each throwable grenade type kept). When off, vanilla trim applies: only ammo stacks larger than 5 and grenade ammo are released; everything else passes through.</text>
+        <text>Periodic scanner that trims online NPC inventories so long-lived NPCs (story NPCs, traders, companions, gulag survivors) never accumulate a corpse-sized hoard. Each online stalker is rescanned at most once per game-day; the scanner walks the eligible set in small batches spread across frames. Per-NPC policy keeps the equipped weapon, worn outfit and helmet, ammo matching the equipped weapon, vanilla whitelist items, vanilla [keep_one] grenades, player-gifted items, and player-strapped weapons; up to 3 of each other stackable consumable also stay. Duplicate weapons, duplicate outfits and helmets, ammo for weapons the NPC is not carrying, and surplus stacks are released. When off, vanilla trim applies and online inventories accumulate without bound.</text>
+    </string>
+    <string id="ui_mcm_ab_general_npcs_per_frame">
+        <text>NPCs per frame</text>
+    </string>
+    <string id="ui_mcm_ab_general_npcs_per_frame_desc">
+        <text>How many NPCs the scanner trims in a single frame. 1 keeps every frame cheap (one inventory walk per frame). Raise only if the scanner cannot keep up with the eligible set on very large saves; the per-NPC cooldown already paces work across long stretches of game-time.</text>
+    </string>
+    <string id="ui_mcm_ab_general_npcs_per_cycle">
+        <text>NPCs per cycle</text>
+    </string>
+    <string id="ui_mcm_ab_general_npcs_per_cycle_desc">
+        <text>Maximum NPCs picked per scanner cycle. The scanner walks online stalkers, takes the N whose last scan is oldest, and trims them across frames at NPCs-per-frame pace. Lower values keep each cycle smaller (less work bunched together); higher values cover more of the online set per cycle.</text>
+    </string>
+    <string id="ui_mcm_ab_general_scan_cooldown_h">
+        <text>Per-NPC rescan cooldown (game hours)</text>
+    </string>
+    <string id="ui_mcm_ab_general_scan_cooldown_h_desc">
+        <text>An NPC is not rescanned until this many game-hours have elapsed since its last scan. Default 24 (one game-day). Lower values trim more often (more aggressive against fast hoarders); higher values reduce overall work and let NPCs hold modest loot longer. Combined with NPCs-per-cycle this is the rate limit on the whole feature.</text>
+    </string>
+    <string id="ui_mcm_ab_general_surplus_per_category">
+        <text>Surplus per category</text>
+    </string>
+    <string id="ui_mcm_ab_general_surplus_per_category_desc">
+        <text>How many non-equipped items per category an NPC keeps before the scanner releases extras. Categories tracked: weapons, outfits, helmets, artefacts. Equipped gear, ammo for the equipped weapon, vanilla single-copy grenades, quest items, money, companion gifts, and player-strapped weapons are always kept regardless. Default 2 leaves an NPC with their equipped loadout plus 2 backup weapons, 2 spare outfits, 2 spare helmets, and 2 spare artefacts (lootable / sellable to the player). Lower for stricter trimming; 0 keeps only the equipped + ammo + protected categories. Stackable consumables (medkits, food, drugs, bandages) use a separate hard cap of 3 of each section.</text>
     </string>
 
     <string id="ui_mcm_ab_development_show_markers">
