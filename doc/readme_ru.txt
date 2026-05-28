@@ -1,5 +1,5 @@
 AlifeBalance: Слой балансировки A-Life для STALKER Anomaly, автор Damian
-Версия: 1.0.1 (xlibs 1.5.2)
+Версия: 1.0.2 (xlibs 1.7.0)
 GitHub: https://github.com/damiansirbu-stalker/AlifeBalance
 Список изменений: https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/changelog
 Архитектура: https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/architecture.md
@@ -115,7 +115,7 @@ AlifeGuard (очистка сущностей) -- https://www.moddb.com/mods/sta
 Требования:
 
 - Anomaly 1.5.3
-- xlibs (https://www.moddb.com/mods/stalker-anomaly/addons/xlibs-1001) 1.5.1+
+- xlibs (https://www.moddb.com/mods/stalker-anomaly/addons/xlibs-1001) 1.7.0+
 - MCM
 
 Установка (MO2):

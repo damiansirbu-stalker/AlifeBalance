@@ -1,0 +1,70 @@
+=== VALIDATE (9 mods) ===
+
+--- AlifeBalance ---
+  luacheck... [92mOK[0m
+  selene... [92mOK[0m
+  contract... [92mOK[0m
+  load... [92mOK[0m
+  gitleaks... [92mOK[0m
+
+--- AlifeGuard ---
+  luacheck... [92mOK[0m
+  selene... [92mOK[0m
+  contract... [92mOK[0m
+  load... [92mOK[0m
+  gitleaks... [92mOK[0m
+
+--- AlifePlus ---
+  luacheck... [92mOK[0m
+  selene... [92mOK[0m
+  contract... [92mOK[0m
+  load... [92mOK[0m
+  gitleaks... [92mOK[0m
+
+--- AlifeTactics ---
+  luacheck... [92mOK[0m
+  selene... [92mOK[0m
+  contract... [92m2 pts (S+)[0m
+    [crossfile-unused-global] [96mLUA-LOW[0m (2x1=2)
+        gamedata\scripts\at_state_machine.script:189: Global function 'set_state' not used (checked at_state_machine.set_state pattern)
+        gamedata\scripts\at_state_machine.script:195: Global function 'get_state' not used (checked at_state_machine.get_state pattern)
+  load... [92mOK[0m
+  gitleaks... [92mOK[0m
+
+--- Diegetic-Audio-Control ---
+  luacheck... [92mOK[0m
+  selene... [92mOK[0m
+  contract... [92mOK[0m
+  load... [92mOK[0m
+  gitleaks... [92mOK[0m
+
+--- Hideout-Furniture-Infinite-Fuel ---
+  luacheck... [92mOK[0m
+  selene... [92mOK[0m
+  contract... [92mOK[0m
+  load... [92mOK[0m
+  gitleaks... [92mOK[0m
+
+--- Standalone-Companions ---
+  luacheck... [92mOK[0m
+  selene... [92mOK[0m
+  contract... [92mOK[0m
+  load... [92mOK[0m
+  gitleaks... [92mOK[0m
+
+--- TestZone ---
+  luacheck... [92mOK[0m
+  selene... [92mOK[0m
+  contract... [92mOK[0m
+  load... [92mOK[0m
+  gitleaks... [92mOK[0m
+
+--- xlibs ---
+  luacheck... [92mOK[0m
+  selene... [92mOK[0m
+  contract... [92mOK[0m
+  load... [92mOK[0m
+  gitleaks... [92mOK[0m
+
+========================================
+[92mGrade: S+[0m - Score: 2

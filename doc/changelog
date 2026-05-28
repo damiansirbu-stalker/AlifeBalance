@@ -1,3 +1,10 @@
+next
+
+1.0.2
+  Summary: Crash fix on xlibs 1.7.0
+  Fixed:
+    Fixed: Crash in Smart Pacing on xlibs 1.7.0 at ab_recipe.script:141. Adopt renamed xsmart.find_smarts_spawning (was xsmart.find_smarts_with_recipe pre-1.7.0). Requires xlibs 1.7.0+.
+
 1.0.1
   Summary: Crash fix on malformed respawn params, third-party respawn-delay compatibility
   Fixed:
