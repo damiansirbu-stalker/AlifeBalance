@@ -256,23 +256,27 @@ Probes, MCM "trim now" buttons, TestZone probes, and console diagnostics call `t
 
 ### Policy
 
-Policy values live in `gamedata/configs/alifebalance/ab_inventory_policy.ltx` (DLTX-overridable). Single uniform block `[ab_inventory_policy]` with `<category> = <min>, <max>` rows; the scanner only consumes `max`. Shared LTX shape with `ap_trade_policy.ltx` and `ap_stash_policy.ltx`; loaded once at on_game_start via `xinventory.load_policy` and applied per-NPC via `xinventory.classify` (counts) + `xinventory.iterate_surplus` (release pass with `on_surplus = xinventory.release_item`).
+Policy values live in `gamedata/configs/alifebalance/ab_inventory_policy.ltx` (DLTX-overridable). Single uniform block `[ab_inventory_policy]` with single-value `<category> = <max>` rows. Shared LTX shape with `ap_trade_policy.ltx` and `ap_stash_policy.ltx`; loaded once at on_game_start via `xinventory.load_policy` and applied per-NPC via `xinventory.classify` (counts) + `xinventory.iterate_surplus` (release pass with `on_surplus = xinventory.release_item`).
 
 | Category | max | Effect |
 |---|---|---|
-| ammo_slot_3_t1, ammo_slot_3_t2 | 200 (rounds) | Backstop on equipped-rifle ammo hoard (~7 mags) |
-| ammo_slot_2_t1, ammo_slot_2_t2 | 64 (rounds) | Backstop on equipped-pistol ammo hoard (~4 mags) |
+| ammo_slot_3_t1, ammo_slot_3_t2 | 120 (rounds) | NPC keeps 4 mags of rifle ammo per tier |
+| ammo_slot_2_t1, ammo_slot_2_t2 | 48 (rounds) | NPC keeps 3 mags of pistol ammo per tier |
 | ammo_not_equipped | 0 | Always release mismatched ammo |
-| grenade | 3 | Backstop on hand grenades |
-| grenade_ammo | 10 | Launcher rounds (vog-25, og-7b, m209) |
-| medkit, bandage | 20 | Long-life backstop for medical hoarding |
-| antirad, stim, pill, food | 10 | Backstop for niche consumables |
-| drink | 5 | Lower cap; NPCs rarely benefit |
-| weapon, outfit, helmet, artefact, device, crafting | 0 | NPCs do not use these as spares (ruck weapons; equipped is pre-filtered) |
+| grenade | 2 | Hand grenade buffer |
+| grenade_ammo | 5 | Launcher rounds (vog-25, og-7b, m209) |
+| medkit, bandage | 3 | Emergency self-heal + spare to trade |
+| food | 3 | Spare consumables |
+| antirad, stim, pill | 2 | Niche consumables |
+| drink | 2 | NPCs rarely benefit |
+| weapon | 1 | One spare for trading (equipped pre-filtered) |
+| outfit, helmet, device | 1 | One spare each (equipped pre-filtered) |
+| artefact, crafting | 3 | Harvested artefacts / tools-parts-upgrades for traders |
+| other | 3 | Fallthrough sentinel; small cap to bound unknown items |
 
-`money` (kind=i_money pickups) and `other` (fallthrough sentinel) are intentionally absent from the LTX. Cull's `on_surplus` is `release_item` which destroys; the same LTX value `0, 0` in `ap_trade_policy.ltx` only transfers items to the seller. Cull would destroy money piles and any addon items that did not match a known category. No-rule = keep is the safe default for this consumer.
+`money` (kind=i_money pickups) is intentionally absent from the LTX. Cull's `on_surplus` is `release_item` which destroys; the same LTX value `0, 0` in `ap_trade_policy.ltx` only transfers items to the seller. Cull would destroy money piles. No-rule = keep is the safe default for this consumer.
 
-Ammo categories count in ROUNDS (sum of `ammo_get_count` per stack via `xinventory.classify`); other categories count in items. Untouchables (quest / anim / blacklisted) and equipped items are pre-filtered by `xinventory.get_category` and never reach the policy. Trade (`ap_ext_trade`) does primary economic enforcement at lower ceilings; the scanner is the backstop for long-lived NPCs that never visit traders.
+Ammo categories count in ROUNDS (sum of `ammo_get_count` per stack via `xinventory.classify`); other categories count in items. Untouchables (quest / anim / blacklisted) and equipped items are pre-filtered by `xinventory.get_category`. Three runtime per-item untouchable checks also gate via xinventory: items with `get_object_story_id`, items the actor gave to a companion (`axr_companions.is_assigned_item`), and player-strapped weapons (`se_load_var "strapped_item"`). None of these reach the policy.
 
 Companions, traders, story characters, and named NPCs are filtered at the scheduler via `xcreature.is_unscriptable(obj)` and never reach `trim_npc`; the policy only sees random extras whose identities no script depends on.
 

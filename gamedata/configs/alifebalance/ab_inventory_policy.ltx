@@ -1,42 +1,35 @@
-; AlifeBalance inventory policy. Per-category {min, max} ceilings for the inventory
-; balance scanner (ab_loot_balance.script). Uniform single block; no per-rank tiers.
-; DLTX-overridable. Shape parsed by xinventory.load_policy.
-;
-; Backstop semantics: scanner releases items above max in each category. Higher ceilings
-; than the AlifePlus trade policy (ap_trade_policy.ltx) because trade does the primary
-; economic enforcement (sells surplus, restocks combat load); the scanner catches what
-; trade misses -- long-lived NPCs (story NPCs, companions, gulag survivors) that never
-; visit traders.
+; AlifeBalance inventory policy. Per-category ceilings for the inventory balance scanner
+; (ab_loot_balance.script). Cull releases items above max in each category. Single-value
+; rows: "<category> = <max>". DLTX-overridable. Shape parsed by xinventory.load_policy.
 ;
 ; Ammo categories count in ROUNDS; other categories count in items. Sentinel categories
-; (untouchable, equipped, other) are pre-filtered by xinventory and never reach this
-; policy. Categories with max=0 release on sight (mismatched ammo, non-equipped weapons,
-; outfits / helmets / artefacts / crafting / devices that NPCs do not actively use).
+; (untouchable, equipped) are pre-filtered by xinventory and never reach this policy.
+; Item-level runtime protections (story_id, companion-gifted, player-strapped) also gate
+; via xinventory.get_category — never reach the cull pass.
 
 [ab_inventory_policy]
-ammo_slot_3_t1    = 0, 200    ; rifle basic ammo (rounds; ~7 mags)
-ammo_slot_3_t2    = 0, 200    ; rifle AP ammo (rounds)
-ammo_slot_2_t1    = 0, 64     ; pistol basic ammo (rounds; ~4 mags)
-ammo_slot_2_t2    = 0, 64     ; pistol AP ammo (rounds)
-ammo_not_equipped = 0, 0      ; ammo not matching any equipped weapon
-grenade           = 0, 3
-grenade_ammo      = 0, 10
-medkit            = 0, 20
-bandage           = 0, 20
-antirad           = 0, 10
-stim              = 0, 10
-pill              = 0, 10
-food              = 0, 10
-drink             = 0, 5
-weapon            = 0, 0      ; non-equipped ruck weapons
-outfit            = 0, 0
-helmet            = 0, 0
-artefact          = 0, 0
-device            = 0, 0
-crafting          = 0, 0
+medkit            = 3
+bandage           = 3
+antirad           = 2
+stim              = 2
+pill              = 2
+food              = 3
+drink             = 2
+grenade           = 2
+grenade_ammo      = 5
+ammo_slot_2_t1    = 48     ; pistol basic, 3 mags
+ammo_slot_2_t2    = 48     ; pistol AP
+ammo_slot_3_t1    = 120    ; rifle basic, 4 mags
+ammo_slot_3_t2    = 120    ; rifle AP
+ammo_not_equipped = 0
+weapon            = 1
+outfit            = 1
+helmet            = 1
+artefact          = 3
+device            = 1
+crafting          = 3
+other             = 3
 
-; "money" (kind=i_money pickups) and "other" (fallthrough sentinel) intentionally
-; absent: cull's on_surplus is release_item which destroys items. Trade's same-LTX
-; "0, 0" transfers items to seller without destruction; cull would destroy money
-; piles and any addon items that did not match a known category. No-rule = keep is
-; the safe default for this consumer.
+; "money" intentionally absent: cull's on_surplus is release_item, which would destroy
+; money pile items (kind=i_money pickups). Rare in NPC inventory but safer to leave a
+; no-rule = keep gap than risk destruction.

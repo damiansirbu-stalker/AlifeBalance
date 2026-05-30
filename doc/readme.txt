@@ -26,7 +26,7 @@ MCM (General):
   Development: log level, map markers, show status, reset counters.
 
 Loot Balance policy:
-  Per-category min/max ceilings live in configs/alifebalance/ab_inventory_policy.ltx. Anything above the max is released. Defaults cover equipped ammo (rounds), grenades, consumables (medkit / bandage / antirad / stim / pill / food / drink), and gear (weapons / outfits / helmets / artefacts / crafting / device). DLTX-overridable for modpack integrators.
+  Per-category max ceilings live in configs/alifebalance/ab_inventory_policy.ltx. Anything above the max is released. Defaults cover equipped ammo (rounds), grenades, consumables (medkit / bandage / antirad / stim / pill / food / drink), and gear (weapons / outfits / helmets / artefacts / crafting / device). Quest items, runtime-story_id items, companion-gifted items, and player-strapped weapons are protected by xinventory and never touched. DLTX-overridable for modpack integrators.
 
 Compatibility:
   Tested with vanilla Anomaly 1.5.3, GAMMA, ZCP, Redone, Warfare, AlifeGuard, AlifePlus, Night Mutants, Nocturnal Mutants, GAMMA Dynamic Despawner, Guards Spawner.
