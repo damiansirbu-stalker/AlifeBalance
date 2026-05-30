@@ -7,7 +7,7 @@
 --- State wiped only by reset_state() (called from ab_smart_balance on save load
 --- and MCM reset).
 
-local pairs, ipairs, tonumber, tostring = pairs, ipairs, tonumber, tostring
+local pairs, ipairs, tonumber, tostring, type = pairs, ipairs, tonumber, tostring, type
 local string_format, table_concat = string.format, table.concat
 local math_floor, math_random = math.floor, math.random
 local xlog, xsmart, xlevel = xlog, xsmart, xlevel
@@ -151,6 +151,66 @@ end
 
 -- ==================== PUBLIC API ====================
 
+-- Info-portion condition (cond type 1 = positive, 2 = negative). Dispatch:
+--   infop[3] truthy -> npc-side (npc_info reads has_info; nil means actor was passed as npc)
+--   else actor present -> actor-side
+--   else sim present -> sim:has_info(0, ...)
+--   else nothing to check -> pass
+local function _check_info_condition(infop, npc_info, actor, sim, is_negative)
+    local has_info
+    if infop[3] then
+        if not npc_info then return true end
+        has_info = npc_info:has_info(infop[1])
+    elseif actor then
+        has_info = actor:has_info(infop[1])
+    elseif sim then
+        has_info = sim:has_info(0, infop[1])
+    else
+        return true
+    end
+    if is_negative then return not has_info end
+    return has_info and true or false
+end
+
+-- xr_conditions functor (cond type 3 = positive, 4 = negative). Missing functors pass.
+local function _check_function_condition(infop, obj, npc, is_negative)
+    local fn = xr_conditions[infop[1]]
+    if not fn then return true end
+    local result = fn(obj, npc, infop[3])
+    if is_negative then return not result end
+    return result and true or false
+end
+
+-- Random gate (cond type 5). Fails when infop[3] < math.random(100).
+local function _check_random_condition(infop)
+    if not infop[3] then return true end
+    return infop[3] >= math_random(100)
+end
+
+-- Dispatch one condition entry by type. Unknown types pass through (engine permissive).
+-- npc_info is npc when usable for npc-side info dispatch, nil when caller passed the
+-- actor as npc (vanilla treats AC_ID-as-npc as "skip npc-side"). npc is the original
+-- value (still passed to xr_conditions functors).
+local function _check_condition_entry(infop, obj, npc, npc_info, actor, sim)
+    local ctype = infop[2]
+    if ctype == 1 then return _check_info_condition(infop, npc_info, actor, sim, false) end
+    if ctype == 2 then return _check_info_condition(infop, npc_info, actor, sim, true) end
+    if ctype == 3 then return _check_function_condition(infop, obj, npc, false) end
+    if ctype == 4 then return _check_function_condition(infop, obj, npc, true) end
+    if ctype == 5 then return _check_random_condition(infop) end
+    return true
+end
+
+-- All conditions in a cond[2] list must pass for the cond to match.
+local function _all_conditions_pass(conds, obj, npc, npc_info, actor, sim)
+    for j = 1, #conds do
+        if not _check_condition_entry(conds[j], obj, npc, npc_info, actor, sim) then
+            return false
+        end
+    end
+    return true
+end
+
 -- Side-effect-free condlist evaluator. Mirrors xr_logic.pick_section_from_condlist
 -- (xr_logic.script:365-499) condition-check semantics exactly -- npc-side / actor-side /
 -- sim-side has_info dispatch, xr_conditions functor calls, type-5 math.random draw --
@@ -167,46 +227,22 @@ end
 -- match. Callers handle all three via tonumber(picked) or 0.
 function pick_value_readonly(condlist, obj, npc)
     if not condlist then return "" end
-    local npc_id = npc and (npc.id and type(npc.id) == "function" and npc:id() or npc.id)
-    npc_id = (npc_id == AC_ID) and nil or npc_id
+    -- npc_info = npc when usable for npc-side info dispatch; nil when caller passed the
+    -- actor as npc (vanilla treats AC_ID-as-npc as "no npc-side check"). npc itself is
+    -- still passed through to xr_conditions functors.
+    local npc_info = npc
+    if npc_info then
+        local id = (npc_info.id and type(npc_info.id) == "function") and npc_info:id() or npc_info.id
+        if id == AC_ID then npc_info = nil end
+    end
     local actor = db.actor
     local sim = alife()
     for i = 1, #condlist do
         local cond = condlist[i]
-        local met = true
         local conds = cond[2]
-        if conds then
-            for j = 1, #conds do
-                local infop = conds[j]
-                local t = infop[2]
-                if t == 1 then
-                    if infop[3] then
-                        if npc_id and not npc:has_info(infop[1]) then met = false; break end
-                    elseif actor then
-                        if not actor:has_info(infop[1]) then met = false; break end
-                    elseif sim and not sim:has_info(0, infop[1]) then
-                        met = false; break
-                    end
-                elseif t == 2 then
-                    if infop[3] then
-                        if npc_id and npc:has_info(infop[1]) then met = false; break end
-                    elseif actor then
-                        if actor:has_info(infop[1]) then met = false; break end
-                    elseif sim and sim:has_info(0, infop[1]) then
-                        met = false; break
-                    end
-                elseif t == 3 then
-                    local fn = xr_conditions[infop[1]]
-                    if fn and not fn(obj, npc, infop[3]) then met = false; break end
-                elseif t == 4 then
-                    local fn = xr_conditions[infop[1]]
-                    if fn and fn(obj, npc, infop[3]) then met = false; break end
-                elseif t == 5 then
-                    if infop[3] and infop[3] < math_random(100) then met = false; break end
-                end
-            end
+        if not conds or _all_conditions_pass(conds, obj, npc, npc_info, actor, sim) then
+            return cond[1] or ""
         end
-        if met then return cond[1] or "" end
     end
     return nil
 end
@@ -233,6 +269,23 @@ function get_eligible_and_threshold(level_id, faction)
     return smarts, threshold
 end
 
+-- Evaluate one recipe slot. Returns (cur, raw_max, open, eligible_for_match).
+-- raw_max is the declared LTX capacity (unscaled) — used for the printed snapshot.
+-- Effective max applies pop_factor (engine smart_terrain.script:1686-1688): round_idp for
+-- >= 1, optimistic on fractional (>0 -> potential open) since AB cannot replicate the
+-- engine's probabilistic gate for max < 1.
+local function _eval_recipe(recipe, k, smart, faction, factor)
+    local cur = (smart.already_spawned and smart.already_spawned[k]
+                 and smart.already_spawned[k].num) or 0
+    local picked = pick_value_readonly(recipe.num, db.actor, smart)
+    local raw_max = tonumber(picked) or 0
+    local effective_max = raw_max * factor
+    local max = (effective_max >= 1) and math_floor(effective_max + 0.5) or effective_max
+    local open = max > cur
+    local eligible = open and (_recipe_max_for_faction(recipe, faction) > 0)
+    return cur, raw_max, open, eligible
+end
+
 -- Single-pass budget eval. For each recipe: compute cur (already_spawned[k].num) and max
 -- (pick_value_readonly on recipe.num); first recipe with open budget AND a
 -- faction-matching section wins. pick_value_readonly runs ONCE per recipe per call, so
@@ -245,25 +298,9 @@ function evaluate_budget_for_faction(smart, faction)
     local matched_key
     local parts, any_open = {}, false
     for k, recipe in pairs(smart.respawn_params) do
-        local cur = (smart.already_spawned and smart.already_spawned[k]
-                     and smart.already_spawned[k].num) or 0
-        -- pick_value_readonly returns nil on fall-through; capture into a local so
-        -- tonumber sees nil, not a missing argument.
-        local picked = pick_value_readonly(recipe.num, db.actor, smart)
-        local raw_max = tonumber(picked) or 0
-        -- Mirror engine's pop_factor application at smart_terrain.script:1686-1688 (round_idp
-        -- for max >= 1). Engine then has a probabilistic gate for max < 1 (1681-1694); AB
-        -- cannot replicate the dice, so it stays optimistic on fractional max (>0 -> potential
-        -- open) -- worst case is a wasted advance the engine refuses one tick and accepts the
-        -- next. raw_max stays unscaled in the printed snapshot so the DEBUG line shows the
-        -- recipe's declared capacity, not the live multiplier.
-        local effective_max = raw_max * factor
-        local max = (effective_max >= 1) and math_floor(effective_max + 0.5) or effective_max
-        local open = max > cur
+        local cur, raw_max, open, eligible = _eval_recipe(recipe, k, smart, faction, factor)
         if open then any_open = true end
-        if not matched_key and open and _recipe_max_for_faction(recipe, faction) > 0 then
-            matched_key = k
-        end
+        if not matched_key and eligible then matched_key = k end
         local mark = (matched_key == k) and "*" or ""
         parts[#parts + 1] = string_format("%s%s %d/%d", mark, tostring(k), cur, raw_max)
     end
