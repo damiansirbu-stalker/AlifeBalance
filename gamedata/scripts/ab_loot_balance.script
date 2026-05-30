@@ -21,12 +21,13 @@
 ---   - trim_npc(npc, opts)  apply inventory policy to one NPC; opts.dry_run reports
 ---                          without releasing
 ---
---- Trace + profile parity with AlifePlus: xtrace ids for cycle correlation in logs,
---- xprofiler timing per cycle and per NPC, both null-pattern when DEBUG off (zero luabind).
+--- Logging: every log.debug call gated by cached _dbg flag; xprofiler.new_if(_dbg)
+--- returns a null timer when DEBUG off — zero luabind cost off-path. Self-contained
+--- scanner, no cross-module event flow, so no xtrace correlation id needed.
 
 local table_sort, math_min = table.sort, math.min
 local os_clock = os.clock
-local xlog, xtrace, xprofiler, xslice, xcreature, xtime, xinventory = xlog, xtrace, xprofiler, xslice, xcreature, xtime, xinventory
+local xlog, xprofiler, xslice, xcreature, xtime, xinventory = xlog, xprofiler, xslice, xcreature, xtime, xinventory
 local level, IsStalker, RegisterScriptCallback = level, IsStalker, RegisterScriptCallback
 
 -- LTX policy loaded at on_game_start via xinventory.load_policy. Shape:
@@ -50,7 +51,6 @@ local _last_scan_game_sec = {}
 
 -- Cycle state. Reset per cycle in _start_cycle.
 local _cycle_id = 0
-local _cycle_tid = 0
 local _cycle_visited = 0
 local _cycle_released = 0
 local _cycle_timer
@@ -80,8 +80,6 @@ function trim_npc(npc, opts)
     opts = opts or {}
     local dry_run = opts.dry_run == true
 
-    local trace = xtrace.new_if(_dbg)
-    local seg = trace:push("trim_npc")
     local timer = xprofiler.new_if(_dbg):start()
 
     local npc_id = npc:id()
@@ -107,7 +105,6 @@ function trim_npc(npc, opts)
     timer:stop()
     result.dt_ms = timer:get_ms()
     if _dbg then log.debug("[VISIT] npc=%d released=%d dt=%.3fms", npc_id, result.released, result.dt_ms) end
-    trace:pop(seg)
 
     return result
 end
@@ -195,8 +192,8 @@ local function _on_cycle_done()
     if _cycle_timer then _cycle_timer:stop() end
     if _dbg then
         local ms = _cycle_timer and _cycle_timer:get_ms() or 0
-        log.debug("[SCAN] cycle=%d tid=%d visited=%d released=%d dt=%.2fms",
-            _cycle_id, _cycle_tid, _cycle_visited, _cycle_released, ms)
+        log.debug("[SCAN] cycle=%d visited=%d released=%d dt=%.2fms",
+            _cycle_id, _cycle_visited, _cycle_released, ms)
     end
     _cycle_timer = nil
 end
@@ -236,12 +233,11 @@ local function _start_cycle()
     _cycle_id = _cycle_id + 1
     _cycle_visited = 0
     _cycle_released = 0
-    _cycle_tid = xtrace.new_if(_dbg).id
     _cycle_timer = xprofiler.new_if(_dbg):start()
 
     if _dbg then
-        log.debug("[SCAN] cycle=%d tid=%d open batch=%d step=%d cooldown=%dh",
-            _cycle_id, _cycle_tid, #picks, _cfg_step(), _cfg_cooldown_sec() / 3600)
+        log.debug("[SCAN] cycle=%d open batch=%d step=%d cooldown=%dh",
+            _cycle_id, #picks, _cfg_step(), _cfg_cooldown_sec() / 3600)
     end
 
     xslice.start(SCAN_QUEUE, picks, {
