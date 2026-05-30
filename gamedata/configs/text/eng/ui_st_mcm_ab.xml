@@ -52,7 +52,7 @@
         <text>Enable Loot Balance</text>
     </string>
     <string id="ui_mcm_ab_general_enabled_loot_desc">
-        <text>Periodic scanner that trims online NPC inventories so long-lived NPCs (story NPCs, traders, companions, gulag survivors) never accumulate a corpse-sized hoard. Each online stalker is rescanned at most once per game-day; the scanner walks the eligible set in small batches spread across frames. Per-NPC policy keeps the equipped weapon, worn outfit and helmet, ammo matching the equipped weapon, vanilla whitelist items, vanilla [keep_one] grenades, player-gifted items, and player-strapped weapons; up to 3 of each other stackable consumable also stay. Duplicate weapons, duplicate outfits and helmets, ammo for weapons the NPC is not carrying, and surplus stacks are released. When off, vanilla trim applies and online inventories accumulate without bound.</text>
+        <text>Periodic scanner that trims online NPC inventories so long-lived NPCs (story NPCs, traders, companions, gulag survivors) never accumulate a corpse-sized hoard. Each online stalker is rescanned at most once per game-day; the scanner walks the eligible set in small batches spread across frames. Per-category cull ceilings from xinventory categories (medkit, bandage, antirad, stim, pill, food, drink, ammo_not_equipped, weapon, outfit, helmet, artefact, device, crafting) — anything above the ceiling is released. Quest items, equipped gear, and untouchables are pre-filtered by xinventory and never touched. When off, vanilla trim applies and online inventories accumulate without bound.</text>
     </string>
     <string id="ui_mcm_ab_general_npcs_per_frame">
         <text>NPCs per frame</text>
@@ -72,13 +72,6 @@
     <string id="ui_mcm_ab_general_scan_cooldown_h_desc">
         <text>An NPC is not rescanned until this many game-hours have elapsed since its last scan. Default 24 (one game-day). Lower values trim more often (more aggressive against fast hoarders); higher values reduce overall work and let NPCs hold modest loot longer. Combined with NPCs-per-cycle this is the rate limit on the whole feature.</text>
     </string>
-    <string id="ui_mcm_ab_general_surplus_per_category">
-        <text>Surplus per category</text>
-    </string>
-    <string id="ui_mcm_ab_general_surplus_per_category_desc">
-        <text>How many non-equipped items per category an NPC keeps before the scanner releases extras. Categories tracked: weapons, outfits, helmets, artefacts. Equipped gear, ammo for the equipped weapon, vanilla single-copy grenades, quest items, money, companion gifts, and player-strapped weapons are always kept regardless. Default 2 leaves an NPC with their equipped loadout plus 2 backup weapons, 2 spare outfits, 2 spare helmets, and 2 spare artefacts (lootable / sellable to the player). Lower for stricter trimming; 0 keeps only the equipped + ammo + protected categories. Stackable consumables (medkits, food, drugs, bandages) use a separate hard cap of 3 of each section.</text>
-    </string>
-
     <string id="ui_mcm_ab_development_show_markers">
         <text>Show map markers</text>
     </string>

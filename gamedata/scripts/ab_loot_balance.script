@@ -21,13 +21,11 @@
 --- Trace + profile parity with AlifePlus: xtrace ids for cycle correlation in logs,
 --- xprofiler timing per cycle and per NPC, both null-pattern when DEBUG off (zero luabind).
 
-local ipairs, pairs = ipairs, pairs
+local ipairs = ipairs
 local table_sort, math_min = table.sort, math.min
 local os_clock = os.clock
 local xlog, xtrace, xprofiler, xslice, xcreature, xtime, xinventory = xlog, xtrace, xprofiler, xslice, xcreature, xtime, xinventory
-local level = level
-local IsStalker = IsStalker
-local RegisterScriptCallback = RegisterScriptCallback
+local level, IsStalker, RegisterScriptCallback = level, IsStalker, RegisterScriptCallback
 
 -- Cull policy: per-category trim ceiling. NPC keeps up to `max` of each category; anything
 -- above is released. High ceilings; trim is the backstop for hoarders, not the primary
@@ -36,6 +34,8 @@ local RegisterScriptCallback = RegisterScriptCallback
 -- Untouchable + equipped filtered by xinventory.get_category before policy lookup.
 -- Categories without an entry are left alone (no rule -> no-op).
 -- Ammo counted in ROUNDS (per xinventory D5); other categories count in items.
+-- ammo_not_equipped + weapon entries set max=0 (always release mismatched ammo; ruck
+-- weapons since equipped is pre-filtered). crafting set max=0 since NPCs do not use tools.
 local CULL_POLICY = {
     medkit            = { max = 20 },
     bandage           = { max = 20 },
@@ -45,12 +45,12 @@ local CULL_POLICY = {
     food              = { max = 10 },
     drink             = { max = 5  },
     grenade_ammo      = { max = 10 },
-    ammo_not_equipped = { max = 0  },   -- always release mismatched ammo
-    weapon            = { max = 0  },   -- ruck weapons (equipped already filtered)
+    ammo_not_equipped = { max = 0  },
+    weapon            = { max = 0  },
     outfit            = { max = 0  },
     helmet            = { max = 0  },
     artefact          = { max = 0  },
-    crafting          = { max = 0  },   -- NPCs don't use tools; release any picked up
+    crafting          = { max = 0  },
     device            = { max = 0  },
 }
 
@@ -107,11 +107,11 @@ end
 --- the post-release count). Categories outside CULL_POLICY return "keep".
 --- @safety SAFE - nil-guarded item
 --- @cost O(1) | 1 xinventory.get_category (up to ~12 hash lookups) + 1 hash lookup CULL_POLICY
---- @param npc game_object Owner of the item (unused; kept for API parity)
+--- @param _npc game_object Owner of the item (unused; kept for API parity)
 --- @param item game_object Item to evaluate
 --- @param state table From build_state(npc), with counts populated by trim_npc's first pass
 --- @return string,string action ("keep"|"release"), category
-function evaluate_item(npc, item, state)
+function evaluate_item(_npc, item, state)
     local cat = xinventory.get_category(item, state)
     local rule = CULL_POLICY[cat]
     if not rule then return "keep", cat end

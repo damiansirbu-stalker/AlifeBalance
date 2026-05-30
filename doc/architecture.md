@@ -240,48 +240,35 @@ _on_cycle_done()
 | Function | Purpose | Returns |
 |---|---|---|
 | `trim_npc(npc, opts)` | Apply policy to one NPC. opts: `{ dry_run, policy }`. Cooldown table NOT touched. | `{ items, released, released_by_category, dt_ms }` |
-| `evaluate_item(npc, item, state)` | Per-item decision. Mutates `state.section_seen` (stackable counter) and `state.cat_count` (per-category surplus counter). | `(action, category)` where action in `{"keep","release"}` |
-| `build_state(npc)` | Per-NPC snapshot. Reusable by external callers. | `{ equipped_ids, equipped_ammo, section_seen, cat_count, surplus_cap }` |
+| `evaluate_item(npc, item, state)` | Per-item decision. Mutates `state.counts` (per-category running count); on release, decrements so the next item in the same category sees the post-release count. | `(action, category)` where action in `{"keep","release"}` |
+| `build_state(npc)` | Per-NPC snapshot wrapping `xinventory.get_category_opts(npc)` (equipped_ids + per-slot weapon sections for ammo tier resolution) and a `counts` table populated by trim_npc's initial inventory walk. | `{ equipped_ids, equipped_pistol_sec, equipped_rifle_sec, counts }` |
 | `default_policy()` | Returns evaluate_item for composition. | function |
 
 Probes call `trim_npc` directly without scheduler involvement. MCM "trim now" buttons, TestZone probes, console diagnostics, and future modules wrap the default policy or replace it entirely.
 
 ### Policy table
 
-Evaluated in order. First match wins.
+`CULL_POLICY` in `ab_loot_balance.script` is a hash of `{ [category] = { max = N } }`. `evaluate_item` resolves the item's category via `xinventory.get_category(item, state)` then looks up the category's ceiling. Categories not in the table return `"keep"` (no rule = no trim). Ammo categories count in ROUNDS (`xinventory.get_ammo_count`); other categories count in items.
 
-| Order | Predicate | Action / Category |
+| Category | max | Effect |
 |---|---|---|
-| 1 | `IsItem("quest", section)` (engine `quest_item=1` or `kind=i_quest`) | keep / quest |
-| 2 | `IsItem("money", section)` | keep / money |
-| 3 | section in vanilla `[keep_items]` | keep / whitelist |
-| 4 | item_id in `state.equipped_ids` (all main slots 1..12) | keep / equipped |
-| 5 | `IsItem("ammo", section)` and section in `state.equipped_ammo` | keep / ammo_matched |
-| 6 | `IsItem("ammo", section)` (no match) | release / ammo |
-| 7 | section in vanilla `[keep_one]` | keep / keep_one |
-| 8 | `IsWeapon(item, cls)` non-grenade, surplus count > cap | release / weapon |
-| 8b | `IsWeapon(item, cls)` non-grenade, within cap | keep / weapon_surplus |
-| 9 | `IsOutfit(nil, cls)`, surplus count > cap | release / outfit |
-| 9b | `IsOutfit(nil, cls)`, within cap | keep / outfit_surplus |
-| 10 | `IsHeadgear(nil, cls)`, surplus count > cap | release / helmet |
-| 10b | `IsHeadgear(nil, cls)`, within cap | keep / helmet_surplus |
-| 11 | `IsArtefact(item, cls)`, surplus count > cap | release / artefact |
-| 11b | `IsArtefact(item, cls)`, within cap | keep / artefact_surplus |
-| 12 | `state.section_seen[section] + 1 > 3` (stackable cap) | release / stackable |
-| - | otherwise | keep / default |
+| medkit, bandage | 20 | Long-life backstop for medical hoarding |
+| antirad, stim, pill, food | 10 | Backstop for niche consumables |
+| drink | 5 | Lower cap; NPCs rarely benefit |
+| grenade_ammo | 10 | Launcher rounds (vog-25, og-7b, m209) |
+| ammo_not_equipped | 0 | Always release mismatched ammo |
+| weapon | 0 | Ruck weapons (equipped already filtered by xinventory) |
+| outfit, helmet, artefact, device, crafting | 0 | NPCs do not use these as spares |
+
+Untouchables (quest / anim / blacklisted) and equipped items are pre-filtered by `xinventory.get_category` and return categories the policy never sees as releasable (untouchable / equipped have no rule entry). Trade (`ap_ext_trade.TRADE_POLICY`) does sell-floor enforcement at lower numbers; trim is the backstop for hoarders that never visit traders.
 
 Companions, traders, story characters, and named NPCs are filtered at the scheduler via `xcreature.is_unscriptable(obj)` and never reach `evaluate_item`; the per-item policy only sees random extras whose identities no script depends on.
-
-Rules 1-3 are hard keeps that mirror vanilla `death_manager.keep_item` plus the engine quest flag and an explicit money guard. Rule 4 (equipped-slot skip) is ours: vanilla never checks equipped because vanilla keeps all weapons and outfits regardless. Rules 5-6 (ammo gate) are ours. Rules 8-11 implement the per-category surplus cap (MCM `surplus_per_category`, default 2) for non-equipped "big" items; equipped items short-circuit before the count. Rule 12 (stackable cap N=3) bounds consumable hoarding (medkits, food, drugs, bandages, repair kits, devices).
-
-Why both `IsItem("quest", section)` and `[keep_items]`: about half the vanilla whitelist entries have `kind = i_quest` (caught by the engine flag) and become redundant; the other half (gauss rifle `kind = w_sniper`, scientific detector inheriting `detector_elite`, named PDAs sharing the regular PDA clsid) are quest-given uniques whose item class is "normal" and the engine flag misses. The whitelist patches those gaps.
 
 ### State
 
 | State | Purpose |
 |---|---|
 | `_last_scan_game_sec[npc_id]` | game-second of last visit. Persists for session only; on game load every NPC is eligible. Stale ids harmless (id allocator never recycles within a save). |
-| `_keep_items_set`, `_keep_one_set` | LTX caches from `itms_manager.ini_death`. Lazy on first scan. |
 | `_cycle_id`, `_cycle_tid`, `_cycle_visited`, `_cycle_released`, `_cycle_timer` | per-cycle counters. Reset in `_start_cycle`. |
 | `_last_update`, `_dbg` | wall-clock gate (os.clock), debug-level mirror. |
 
@@ -295,9 +282,8 @@ No persistence. The cooldown table not saved; on game load every NPC is fresh an
 | `311- NPC Stop Looting Dead Bodies - DTTheGunslinger` (or equivalent) | Defeats the source of accumulation. Disable for full benefit. |
 | Jabbers' "Weapons Drop on bodies" 134 | No conflict. They patch `death_manager.keep_item`; we no longer touch that seam. The scanner releases from online inventories; their wrap fires at death on whatever the scanner left behind. |
 | Ish's BoltBeGone in Nitpicker's Modpack 124 | Same as Jabbers'. No conflict. |
-| `[keep_items]` and `[keep_one]` LTX | Read once per session. Quest items, special weapons, and pdas in `[keep_items]` survive. Vanilla `[keep_one]` grenade rules pass through unchanged. |
 | Unscriptable NPCs (`xcreature.is_unscriptable`) | Skipped at scheduler level. Covers story characters (Strider, Magpie, Sidorovich) via engine story_id, companions via `npcx_is_companion` info-portion, named NPCs (traders, medics, mechanics, guides, guards, bodyguards, leaders, quest-givers) via `xdata.unscriptable_npcs`, and members of story squads. These NPCs have scripted identities the rest of the game depends on; trimming their inventories risks breaking quest scripts or destroying trader stock. |
-| Quest-flagged items (`IsItem("quest", section)`) | Never released regardless of category. Engine flag (`quest_item=1` or `kind=i_quest`) is checked first; the curated `[keep_items]` whitelist patches uniques whose item class is "normal". |
+| Untouchables (`xinventory.get_section_category(sec) == "untouchable"`) | Never released regardless of category. Covers quest items (`quest_item=1` or `kind=i_quest`), animation props (`anim_item=1`), and sections in `xr_corpse_detection.ltx [ignore_sections]`. Resolved once per section by xinventory and cached. |
 
 ### Performance
 
@@ -340,7 +326,6 @@ No persistence. The cooldown table not saved; on game load every NPC is fresh an
 | `npcs_per_frame`     | General     | Loot Balance  | track  | 1       | 1-10    | xslice step: NPCs trimmed per frame inside a cycle. |
 | `npcs_per_cycle`     | General     | Loot Balance  | track  | 20      | 5-50    | Per-cycle batch cap: max NPCs picked per cycle (oldest-scanned first). |
 | `scan_cooldown_h`    | General     | Loot Balance  | track  | 24      | 1-72    | Per-NPC rescan cooldown in game-hours. |
-| `surplus_per_category` | General   | Loot Balance  | track  | 2       | 0-10    | Per-category non-equipped surplus cap for weapons / outfits / helmets / artefacts. |
 | `log_level`          | Development | Logging       | list   | WARN    | -       | ERROR / WARN / INFO / DEBUG |
 | `show_markers`       | Development | Diagnostics   | check  | false   | -       | Green PDA marker on every advanced smart, 5-min linger, right-click teleport / stats |
 | `btn_show_status`    | Development | Diagnostics   | button | -       | -       | PDA tip with death / counted / vermin / tick / advance / spawn counters |
