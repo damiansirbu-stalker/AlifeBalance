@@ -1,58 +1,40 @@
---- ab_loot_balance: Periodic scanner that trims NPC inventories so long-lived NPCs never accumulate
---- a corpse-sized hoard. Walks online stalkers via xslice frame-spread; each NPC is rescanned
---- at most once per cooldown window. Per-category cull ceilings via xinventory categories.
+--- ab_loot_balance: Periodic scanner that trims NPC inventories so long-lived NPCs never
+--- accumulate a corpse-sized hoard. Walks online stalkers via xslice frame-spread; each
+--- NPC is rescanned at most once per cooldown window.
+---
+--- Policy lives in `configs/alifebalance/ab_inventory_policy.ltx` (DLTX-overridable);
+--- shared LTX shape with `ap_trade_policy.ltx` and `ap_stash_policy.ltx`. Loaded once at
+--- on_game_start via xinventory.load_policy; applied per-NPC via xinventory.classify +
+--- xinventory.iterate_surplus.
 ---
 --- Why scanner, not death-time hook:
----   1. Long-lived NPCs (story NPCs, traders, companions, gulag survivors) keep looting and
----      never die. Death-time only catches NPCs that die. The hoarding population is the
----      population that survives. Hundreds of online stalkers all carrying full hoards drive
----      save bloat, server-object inflation, and steady performance drag.
+---   1. Long-lived NPCs (story NPCs, traders, companions, gulag survivors) keep looting
+---      and never die. Death-time only catches NPCs that die. The hoarding population is
+---      the population that survives. Hundreds of online stalkers all carrying full hoards
+---      drive save bloat, server-object inflation, and steady performance drag.
 ---   2. Save bloat. Every looted item is a server object persisted in the save. Continuous
 ---      trim bounds live state; death-time only releases when (and if) the NPC dies.
----   3. Bursty performance. N deaths in a firefight = N trims in the same frame as the corpse
----      spawn. xslice spreads the cost across frames.
+---   3. Bursty performance. N deaths in a firefight = N trims in the same frame as the
+---      corpse spawn. xslice spreads the cost across frames.
 ---
---- Public API contract:
----   - trim_npc(npc, opts)        apply policy to one NPC; returns counts; opts.dry_run reports without releasing
----   - evaluate_item(npc, it, st) pure per-item decision; returns (action, category)
----   - build_state(npc)           per-NPC snapshot reusable by external callers
----   - default_policy()           returns the canonical policy closure for composition
+--- Public API:
+---   - trim_npc(npc, opts)  apply inventory policy to one NPC; opts.dry_run reports
+---                          without releasing
 ---
 --- Trace + profile parity with AlifePlus: xtrace ids for cycle correlation in logs,
 --- xprofiler timing per cycle and per NPC, both null-pattern when DEBUG off (zero luabind).
 
-local ipairs = ipairs
 local table_sort, math_min = table.sort, math.min
 local os_clock = os.clock
 local xlog, xtrace, xprofiler, xslice, xcreature, xtime, xinventory = xlog, xtrace, xprofiler, xslice, xcreature, xtime, xinventory
 local level, IsStalker, RegisterScriptCallback = level, IsStalker, RegisterScriptCallback
 
--- Cull policy: per-category trim ceiling. NPC keeps up to `max` of each category; anything
--- above is released. High ceilings; trim is the backstop for hoarders, not the primary
--- enforcement. Trade (ap_ext_trade.TRADE_POLICY) does sell-floor enforcement at lower
--- numbers; trim only catches what trade misses (NPCs that never visit traders).
--- Untouchable + equipped filtered by xinventory.get_category before policy lookup.
--- Categories without an entry are left alone (no rule -> no-op).
--- Ammo counted in ROUNDS (per xinventory D5); other categories count in items.
--- ammo_not_equipped + weapon entries set max=0 (always release mismatched ammo; ruck
--- weapons since equipped is pre-filtered). crafting set max=0 since NPCs do not use tools.
-local CULL_POLICY = {
-    medkit            = { max = 20 },
-    bandage           = { max = 20 },
-    antirad           = { max = 10 },
-    stim              = { max = 10 },
-    pill              = { max = 10 },
-    food              = { max = 10 },
-    drink             = { max = 5  },
-    grenade_ammo      = { max = 10 },
-    ammo_not_equipped = { max = 0  },
-    weapon            = { max = 0  },
-    outfit            = { max = 0  },
-    helmet            = { max = 0  },
-    artefact          = { max = 0  },
-    crafting          = { max = 0  },
-    device            = { max = 0  },
-}
+-- LTX policy loaded at on_game_start via xinventory.load_policy. Shape:
+--   { entries = ordered_list, rules = { [category] = {min, max} }, specials = {} }
+-- Backstop semantics: see ab_inventory_policy.ltx header.
+local POLICY_PATH    = "alifebalance\\ab_inventory_policy.ltx"
+local POLICY_SECTION = "ab_inventory_policy"
+local INVENTORY_POLICY = nil
 
 -- Scheduler.
 local SCAN_QUEUE = "ab_loot_balance_scan"
@@ -74,125 +56,57 @@ local _cycle_released = 0
 local _cycle_timer
 local _last_update = 0
 
--- ==================== STATE + POLICY ====================
+-- ==================== POLICY LOAD ====================
 
---- Per-NPC snapshot. Reusable by external callers for evaluate_item.
---- Wraps xinventory.get_category_opts (equipped_ids + per-slot weapon sections for ammo
---- tier resolution) and adds a counts table populated by trim_npc's initial inventory walk.
---- @safety SAFE - nil-guarded npc
---- @cost O(1) | 14 luabind trivial + 2 luabind heavy via get_category_opts
---- @param npc game_object Online stalker
---- @return table { equipped_ids, equipped_pistol_sec, equipped_rifle_sec, counts }
-function build_state(npc)
-    local state = xinventory.get_category_opts(npc)
-    state.counts = {}
-    return state
-end
-
--- Returns the contribution this item makes to its category count.
--- Ammo categories count in ROUNDS (sum of get_ammo_count across stacks); others count 1.
--- Matches new per-slot per-tier ammo categories: ammo_slot_2_t1, ammo_slot_2_t2,
--- ammo_slot_3_t1, ammo_slot_3_t2, ammo_not_equipped.
-local function _unit(cat, item)
-    if cat == "ammo_not_equipped"
-        or cat:sub(1, 11) == "ammo_slot_2"
-        or cat:sub(1, 11) == "ammo_slot_3" then
-        return xinventory.get_ammo_count(item) or 0
-    end
-    return 1
-end
-
---- Per-item decision. Returns (action, category) where action in {"keep","release"}.
---- Mutates state.counts on release (decrements so the next item in the same category sees
---- the post-release count). Categories outside CULL_POLICY return "keep".
---- @safety SAFE - nil-guarded item
---- @cost O(1) | 1 xinventory.get_category (up to ~12 hash lookups) + 1 hash lookup CULL_POLICY
---- @param _npc game_object Owner of the item (unused; kept for API parity)
---- @param item game_object Item to evaluate
---- @param state table From build_state(npc), with counts populated by trim_npc's first pass
---- @return string,string action ("keep"|"release"), category
-function evaluate_item(_npc, item, state)
-    local cat = xinventory.get_category(item, state)
-    local rule = CULL_POLICY[cat]
-    if not rule then return "keep", cat end
-    local unit = _unit(cat, item)
-    local current = state.counts[cat] or 0
-    if current - unit < rule.max then return "keep", cat end
-    state.counts[cat] = current - unit
-    return "release", cat
-end
-
---- Returns the canonical policy as a callable for composition.
---- @return function evaluate_item
-function default_policy()
-    return evaluate_item
+-- Load policy at on_game_start. Defensive: missing file / section yields empty rules so
+-- trim_npc no-ops cleanly.
+local function _load_policy()
+    local block = xinventory.load_policy(POLICY_PATH, { POLICY_SECTION })[POLICY_SECTION]
+    INVENTORY_POLICY = { entries = block.entries, rules = block.rules }
 end
 
 -- ==================== PER-NPC TRIM (PUBLIC) ====================
 
--- Apply a collected release list, update counters, emit per-release log lines.
-local function _apply_releases(releases, result, do_release, npc_id)
-    for _, rel in ipairs(releases) do
-        if do_release then xinventory.release_item(rel.item) end
-        result.released = result.released + 1
-        result.released_by_category[rel.category] = (result.released_by_category[rel.category] or 0) + 1
-        if _dbg then log.debug("[RELEASE] npc=%d section=%s category=%s", npc_id, rel.section, rel.category) end
-    end
-end
-
---- Apply cull policy to one NPC. Public; the scheduler calls this for each NPC in its batch
---- but callers (probes, MCM buttons, other modules) may call it directly. The cooldown table
---- is the scheduler's concern: trim_npc never touches it.
---- @safety SAFE - returns nil on nil npc; iterate tolerates nil items
---- @cost O(items) | build_state + 2 iterate_inventory walks + 0-N xinventory.release_item per release
+--- Apply inventory policy to one NPC. Public; the scheduler calls this for each NPC in
+--- its batch but callers (probes, MCM buttons, other modules) may call it directly. The
+--- cooldown table is the scheduler's concern: trim_npc never touches it.
+--- @safety SAFE - returns nil on nil npc / nil policy; iterate tolerates nil items
+--- @cost O(items) | xinventory.classify (1 iterate) + xinventory.iterate_surplus (1 iterate) + 0-N xinventory.release_item per surplus
 --- @param npc game_object Online stalker
---- @param opts table|nil { dry_run = false, policy = nil }
---- @return table|nil { items, released, released_by_category = {[cat]=n}, dt_ms }
+--- @param opts table|nil { dry_run = false }
+--- @return table|nil { released, released_by_category = {[cat]=n}, dt_ms }
 function trim_npc(npc, opts)
-    if not npc then return nil end
+    if not npc or not INVENTORY_POLICY then return nil end
     opts = opts or {}
     local dry_run = opts.dry_run == true
-    local policy = opts.policy or evaluate_item
 
     local trace = xtrace.new_if(_dbg)
     local seg = trace:push("trim_npc")
     local timer = xprofiler.new_if(_dbg):start()
 
-    local state = build_state(npc)
+    local npc_id = npc:id()
+    local cat_opts = xinventory.get_category_opts(npc)
+    local counts = xinventory.classify(npc, cat_opts)
+
     local result = {
-        items = 0,
         released = 0,
         released_by_category = {},
         dt_ms = 0,
     }
-    local npc_id = npc:id()
 
-    -- Pass 1: count per category (with ammo in rounds)
-    xinventory.iterate_inventory(npc_id, function(_, item)
-        if not item then return end
-        local cat = xinventory.get_category(item, state)
-        state.counts[cat] = (state.counts[cat] or 0) + _unit(cat, item)
-    end)
-
-    -- Pass 2: evaluate + collect releases (mutation during iterate is unsafe)
-    local releases = {}
-    xinventory.iterate_inventory(npc_id, function(_, item)
-        if not item then return end
-        result.items = result.items + 1
-        local action, category = policy(npc, item, state)
-        if action ~= "release" then return end
-        releases[#releases + 1] = { item = item, category = category, section = xinventory.get_section(item) }
-    end)
-
-    _apply_releases(releases, result, not dry_run, npc_id)
+    result.released = xinventory.iterate_surplus(npc, cat_opts, {
+        rules = INVENTORY_POLICY.rules,
+        counts = counts,
+        on_surplus = function(item, cat, sec, _unit)
+            if not dry_run then xinventory.release_item(item) end
+            result.released_by_category[cat] = (result.released_by_category[cat] or 0) + 1
+            if _dbg then log.debug("[RELEASE] npc=%d section=%s category=%s", npc_id, sec, cat) end
+        end,
+    })
 
     timer:stop()
     result.dt_ms = timer:get_ms()
-
-    if _dbg then
-        log.debug("[VISIT] npc=%d items=%d released=%d dt=%.3fms",
-            npc_id, result.items, result.released, result.dt_ms)
-    end
+    if _dbg then log.debug("[VISIT] npc=%d released=%d dt=%.3fms", npc_id, result.released, result.dt_ms) end
     trace:pop(seg)
 
     return result
@@ -364,6 +278,7 @@ end
 function on_game_start()
     _last_update = 0
     _last_scan_game_sec = {}
+    _load_policy()
     log.info("[INSTALL] ab_loot_balance scanner armed (batch=%d)", DEFAULT_NPCS_PER_CYCLE)
     RegisterScriptCallback("actor_on_first_update", _sync_log_level)
     RegisterScriptCallback("on_option_change", _sync_log_level)

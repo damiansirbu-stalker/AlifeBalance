@@ -22,8 +22,11 @@ Loot Balance:
 
 MCM (General):
   Smart Balance: включение, продвижения до минимума, минимальные минуты.
-  Loot Balance: включение, NPC за кадр, NPC за цикл, кулдаун повторного скана, излишек на категорию.
+  Loot Balance: включение, NPC за кадр, NPC за цикл, кулдаун повторного скана.
   Development: уровень логов, маркеры на карте, статус, сброс счётчиков.
+
+Политика Loot Balance:
+  Лимиты min/max по категориям лежат в configs/alifebalance/ab_inventory_policy.ltx. Всё, что выше max, выбрасывается. По умолчанию покрываются патроны в слотах оружия (в патронах), гранаты, расходники (medkit / bandage / antirad / stim / pill / food / drink) и снаряжение (weapons / outfits / helmets / artefacts / crafting / device). Поддерживает переопределение через DLTX для интеграторов модпаков.
 
 Совместимость:
   Тестировалось с ванильным Anomaly 1.5.3, GAMMA, ZCP, Redone, Warfare, AlifeGuard, AlifePlus, Night Mutants, Nocturnal Mutants, GAMMA Dynamic Despawner, Guards Spawner.

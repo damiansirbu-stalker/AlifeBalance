@@ -250,30 +250,29 @@ _on_cycle_done()
 
 | Function | Purpose | Returns |
 |---|---|---|
-| `trim_npc(npc, opts)` | Apply policy to one NPC. opts: `{ dry_run, policy }`. Cooldown table NOT touched. | `{ items, released, released_by_category, dt_ms }` |
-| `evaluate_item(npc, item, state)` | Per-item decision. Mutates `state.counts` (per-category running count); on release, decrements so the next item in the same category sees the post-release count. | `(action, category)` where action in `{"keep","release"}` |
-| `build_state(npc)` | Per-NPC snapshot wrapping `xinventory.get_category_opts(npc)` (equipped_ids + per-slot weapon sections for ammo tier resolution) and a `counts` table populated by trim_npc's initial inventory walk. | `{ equipped_ids, equipped_pistol_sec, equipped_rifle_sec, counts }` |
-| `default_policy()` | Returns evaluate_item for composition. | function |
+| `trim_npc(npc, opts)` | Apply inventory policy to one NPC. opts: `{ dry_run }`. Cooldown table NOT touched. | `{ released, released_by_category, dt_ms }` |
 
-Probes call `trim_npc` directly without scheduler involvement. MCM "trim now" buttons, TestZone probes, console diagnostics, and future modules wrap the default policy or replace it entirely.
+Probes, MCM "trim now" buttons, TestZone probes, and console diagnostics call `trim_npc` directly without scheduler involvement.
 
-### Policy table
+### Policy
 
-`CULL_POLICY` in `ab_loot_balance.script` is a hash of `{ [category] = { max = N } }`. `evaluate_item` resolves the item's category via `xinventory.get_category(item, state)` then looks up the category's ceiling. Categories not in the table return `"keep"` (no rule = no trim). Ammo categories count in ROUNDS (`xinventory.get_ammo_count`); other categories count in items.
+Policy values live in `gamedata/configs/alifebalance/ab_inventory_policy.ltx` (DLTX-overridable). Single uniform block `[ab_inventory_policy]` with `<category> = <min>, <max>` rows; the scanner only consumes `max`. Shared LTX shape with `ap_trade_policy.ltx` and `ap_stash_policy.ltx`; loaded once at on_game_start via `xinventory.load_policy` and applied per-NPC via `xinventory.classify` (counts) + `xinventory.iterate_surplus` (release pass with `on_surplus = xinventory.release_item`).
 
 | Category | max | Effect |
 |---|---|---|
+| ammo_slot_3_t1, ammo_slot_3_t2 | 200 (rounds) | Backstop on equipped-rifle ammo hoard (~7 mags) |
+| ammo_slot_2_t1, ammo_slot_2_t2 | 64 (rounds) | Backstop on equipped-pistol ammo hoard (~4 mags) |
+| ammo_not_equipped | 0 | Always release mismatched ammo |
+| grenade | 3 | Backstop on hand grenades |
+| grenade_ammo | 10 | Launcher rounds (vog-25, og-7b, m209) |
 | medkit, bandage | 20 | Long-life backstop for medical hoarding |
 | antirad, stim, pill, food | 10 | Backstop for niche consumables |
 | drink | 5 | Lower cap; NPCs rarely benefit |
-| grenade_ammo | 10 | Launcher rounds (vog-25, og-7b, m209) |
-| ammo_not_equipped | 0 | Always release mismatched ammo |
-| weapon | 0 | Ruck weapons (equipped already filtered by xinventory) |
-| outfit, helmet, artefact, device, crafting | 0 | NPCs do not use these as spares |
+| weapon, outfit, helmet, artefact, device, money, crafting, other | 0 | NPCs do not use these as spares (ruck weapons; equipped is pre-filtered) |
 
-Untouchables (quest / anim / blacklisted) and equipped items are pre-filtered by `xinventory.get_category` and return categories the policy never sees as releasable (untouchable / equipped have no rule entry). Trade (`ap_ext_trade.TRADE_POLICY`) does sell-floor enforcement at lower numbers; trim is the backstop for hoarders that never visit traders.
+Ammo categories count in ROUNDS (sum of `ammo_get_count` per stack via `xinventory.classify`); other categories count in items. Untouchables (quest / anim / blacklisted) and equipped items are pre-filtered by `xinventory.get_category` and never reach the policy. Trade (`ap_ext_trade`) does primary economic enforcement at lower ceilings; the scanner is the backstop for long-lived NPCs that never visit traders.
 
-Companions, traders, story characters, and named NPCs are filtered at the scheduler via `xcreature.is_unscriptable(obj)` and never reach `evaluate_item`; the per-item policy only sees random extras whose identities no script depends on.
+Companions, traders, story characters, and named NPCs are filtered at the scheduler via `xcreature.is_unscriptable(obj)` and never reach `trim_npc`; the policy only sees random extras whose identities no script depends on.
 
 ### State
 
@@ -318,7 +317,8 @@ No persistence. The cooldown table not saved; on game load every NPC is fresh an
 | `gamedata/scripts/ab_smart_balance.script` | Death handler, periodic tick burst-advance loop, per-smart CTime delta cache, `_advance_smart` cooldown subtract, public `marker_label` + `show_smart_stats` for ab_smart_map |
 | `gamedata/scripts/ab_smart_recipe.script` | Per-(level, faction) eligibility + threshold cache, single-pass budget evaluation. Two entry points called by ab_smart_balance: `get_eligible_and_threshold` and `evaluate_budget_for_faction`. Delegates smart discovery and squad-size lookup to xsmart. |
 | `gamedata/scripts/ab_smart_map.script` | PDA marker render-state, right-click menu (teleport, show stats). Calls back into ab_smart_balance for label + stats formatting. |
-| `gamedata/scripts/ab_loot_balance.script` | Online inventory scanner. Public API (`trim_npc`, `evaluate_item`, `build_state`, `default_policy`), xslice scheduler with per-NPC game-day cooldown. |
+| `gamedata/scripts/ab_loot_balance.script` | Online inventory scanner. Public API `trim_npc`, xslice scheduler with per-NPC game-day cooldown. Policy loaded from `ab_inventory_policy.ltx` via `xinventory.load_policy`. |
+| `gamedata/configs/alifebalance/ab_inventory_policy.ltx` | Per-category `{min, max}` ceilings (DLTX-overridable). Single block `[ab_inventory_policy]`; shared LTX shape with `ap_trade_policy.ltx` and `ap_stash_policy.ltx`. |
 | `gamedata/scripts/ab_test.script` | Console-driven test harness. Fires fake NPC deaths every 3s, alternating on-level / off-level pools. Same vermin filter as ab_smart_balance. |
 | `gamedata/configs/text/eng/ui_st_mcm_ab.xml` | MCM strings (English) |
 | `gamedata/configs/text/rus/ui_st_mcm_ab.xml` | MCM strings (Russian) |

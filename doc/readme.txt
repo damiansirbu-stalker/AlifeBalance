@@ -22,8 +22,11 @@ Loot Balance:
 
 MCM (General):
   Smart Balance: enabled, advances to floor, min minutes.
-  Loot Balance: enabled, NPCs per frame, NPCs per cycle, rescan cooldown, surplus per category.
+  Loot Balance: enabled, NPCs per frame, NPCs per cycle, rescan cooldown.
   Development: log level, map markers, show status, reset counters.
+
+Loot Balance policy:
+  Per-category min/max ceilings live in configs/alifebalance/ab_inventory_policy.ltx. Anything above the max is released. Defaults cover equipped ammo (rounds), grenades, consumables (medkit / bandage / antirad / stim / pill / food / drink), and gear (weapons / outfits / helmets / artefacts / crafting / device). DLTX-overridable for modpack integrators.
 
 Compatibility:
   Tested with vanilla Anomaly 1.5.3, GAMMA, ZCP, Redone, Warfare, AlifeGuard, AlifePlus, Night Mutants, Nocturnal Mutants, GAMMA Dynamic Despawner, Guards Spawner.

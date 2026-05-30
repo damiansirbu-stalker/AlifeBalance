@@ -1,0 +1,38 @@
+; AlifeBalance inventory policy. Per-category {min, max} ceilings for the inventory
+; balance scanner (ab_loot_balance.script). Uniform single block; no per-rank tiers.
+; DLTX-overridable. Shape parsed by xinventory.load_policy.
+;
+; Backstop semantics: scanner releases items above max in each category. Higher ceilings
+; than the AlifePlus trade policy (ap_trade_policy.ltx) because trade does the primary
+; economic enforcement (sells surplus, restocks combat load); the scanner catches what
+; trade misses -- long-lived NPCs (story NPCs, companions, gulag survivors) that never
+; visit traders.
+;
+; Ammo categories count in ROUNDS; other categories count in items. Sentinel categories
+; (untouchable, equipped, other) are pre-filtered by xinventory and never reach this
+; policy. Categories with max=0 release on sight (mismatched ammo, non-equipped weapons,
+; outfits / helmets / artefacts / crafting / devices that NPCs do not actively use).
+
+[ab_inventory_policy]
+ammo_slot_3_t1    = 0, 200    ; rifle basic ammo (rounds; ~7 mags)
+ammo_slot_3_t2    = 0, 200    ; rifle AP ammo (rounds)
+ammo_slot_2_t1    = 0, 64     ; pistol basic ammo (rounds; ~4 mags)
+ammo_slot_2_t2    = 0, 64     ; pistol AP ammo (rounds)
+ammo_not_equipped = 0, 0      ; ammo not matching any equipped weapon
+grenade           = 0, 3
+grenade_ammo      = 0, 10
+medkit            = 0, 20
+bandage           = 0, 20
+antirad           = 0, 10
+stim              = 0, 10
+pill              = 0, 10
+food              = 0, 10
+drink             = 0, 5
+weapon            = 0, 0      ; non-equipped ruck weapons
+outfit            = 0, 0
+helmet            = 0, 0
+artefact          = 0, 0
+device            = 0, 0
+money             = 0, 0
+crafting          = 0, 0
+other             = 0, 0
