@@ -33,6 +33,10 @@ outfit            = 0, 0
 helmet            = 0, 0
 artefact          = 0, 0
 device            = 0, 0
-money             = 0, 0
 crafting          = 0, 0
-other             = 0, 0
+
+; "money" (kind=i_money pickups) and "other" (fallthrough sentinel) intentionally
+; absent: cull's on_surplus is release_item which destroys items. Trade's same-LTX
+; "0, 0" transfers items to seller without destruction; cull would destroy money
+; piles and any addon items that did not match a known category. No-rule = keep is
+; the safe default for this consumer.

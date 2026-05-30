@@ -268,7 +268,9 @@ Policy values live in `gamedata/configs/alifebalance/ab_inventory_policy.ltx` (D
 | medkit, bandage | 20 | Long-life backstop for medical hoarding |
 | antirad, stim, pill, food | 10 | Backstop for niche consumables |
 | drink | 5 | Lower cap; NPCs rarely benefit |
-| weapon, outfit, helmet, artefact, device, money, crafting, other | 0 | NPCs do not use these as spares (ruck weapons; equipped is pre-filtered) |
+| weapon, outfit, helmet, artefact, device, crafting | 0 | NPCs do not use these as spares (ruck weapons; equipped is pre-filtered) |
+
+`money` (kind=i_money pickups) and `other` (fallthrough sentinel) are intentionally absent from the LTX. Cull's `on_surplus` is `release_item` which destroys; the same LTX value `0, 0` in `ap_trade_policy.ltx` only transfers items to the seller. Cull would destroy money piles and any addon items that did not match a known category. No-rule = keep is the safe default for this consumer.
 
 Ammo categories count in ROUNDS (sum of `ammo_get_count` per stack via `xinventory.classify`); other categories count in items. Untouchables (quest / anim / blacklisted) and equipped items are pre-filtered by `xinventory.get_category` and never reach the policy. Trade (`ap_ext_trade`) does primary economic enforcement at lower ceilings; the scanner is the backstop for long-lived NPCs that never visit traders.
 
