@@ -45,12 +45,14 @@ advances to floor    = 4
 floor remaining      =  7200 s   =  2.0 game-hours      (engine ages this naturally)
 ```
 
-Per-advance subtract scales with `respawn_idle`, so on shorter-cooldown modpacks each advance is a smaller game-time move while the kill cost stays the same:
+Per-advance subtract scales with the resolved cycle length, so on shorter-cooldown modpacks each advance is a smaller game-time move while the kill cost stays the same:
 
-| Scenario     | respawn_idle | usable | per-advance | floor |
-|--------------|-------------:|-------:|------------:|------:|
-| Vanilla LTX  |          24h |    22h |        5.5h |    2h |
-| ZCP @ GAMMA  |           6h |     4h |          1h |    2h |
+| Scenario     | resolved idle | usable | per-advance | floor |
+|--------------|--------------:|-------:|------------:|------:|
+| Vanilla LTX  |           24h |    22h |        5.5h |    2h |
+| ZCP @ GAMMA  |            6h |     4h |          1h |    2h |
+
+`_resolve_idle` (`ab_smart_balance.script`) reads `smr_amain_mcm.get_config("respawn_idle")` when ZCP is loaded and enabled; falls through to `smart.respawn_idle` otherwise. ZCP at `smr_pop.script:362-363` gates against the same cvar, so AB and ZCP measure against the same baseline.
 
 The picker's skip conditions in `_can_advance` (called per eligible smart per tick):
 
@@ -119,7 +121,9 @@ ENGINE (its own alife tick at the advanced smart)
 
 **Eligible smart**: a smart on the target level with at least one section in its `respawn_params` recipes whose `squad_descr faction` equals the target faction. Routing props are not checked; they govern where squads can move, not what recipes spawn.
 
-**Open budget**: at least one matching recipe has `max > already_spawned[k].num` right now, where `max = xr_logic.pick_section_from_condlist(actor, smart, recipe.num)`.
+**Open budget**: at least one matching recipe has `max > already_spawned[k].num` right now, where `max = ab_smart_recipe.pick_value_readonly(recipe.num, actor, smart)`.
+
+*Why a side-effect-free walker*: `xr_logic.pick_section_from_condlist` (the engine's reader) runs `cond[3]` effects (info grants, `xr_effects` functors) when the matched branch carries them. AB calls this once per recipe per eligible smart per 60s tick; the engine calls it once per smart per resolved cycle (orders of magnitude rarer). Any side effect a modpack ever writes into a `spawn_num` condlist would fire at AB's pacing, not the engine's. `ab_smart_recipe.pick_value_readonly` mirrors the engine's condition-check semantics exactly (including the type-5 `math.random` draw) but skips the effects block, so AB cannot amplify side effects regardless of what future modpacks write into `spawn_num`.
 
 ---
 
@@ -142,11 +146,17 @@ ENGINE (its own alife tick at the advanced smart)
 
 ## Population invariant
 
-For any (level, faction) pair, between consecutive engine spawns at any eligible smart for that pair, the engine refills no more NPCs of that faction than have died on that level.
+*Scope*: vanilla `try_respawn`. Under ZCP `smr_handle_spawn` the per-faction form degrades; the system-wide form holds. Both are stated below.
+
+**Per-faction form (vanilla):** for any (level, faction) pair, between consecutive engine spawns at any eligible smart for that pair, the engine refills no more NPCs of that faction than have died on that level.
 
 *Proof*: each advance fires only after the counter reaches `threshold = MAX npc_in_squad` across matching sections, and the picker rejects smarts already at the floor. Total deaths between consecutive spawns at a smart `>= applied_advances * threshold`. The spawn creates at most one squad; if the engine picks a matching section, that squad contains at most `MAX npc_in_squad` NPCs of the target faction; if it picks a non-matching section in a mixed pool, zero. Either way `deaths >= MAX >= refill`. ∎
 
-The vanilla cooldown ages from game-time alone. If the player ignores a level, no deaths fire, no advances apply, and the engine spawns at vanilla pace after `respawn_idle` of game-time. AlifeBalance accelerates the cooldown; it never delays vanilla.
+**System-wide form (vanilla + ZCP):** between consecutive engine spawns at any eligible smart, the engine refills no more NPCs than have died on that level (across all factions).
+
+*Proof*: identical bound on advances per `threshold` deaths; ZCP substitution at `smr_pop.script:288-339` swaps the squad section, but produces at most one squad per spawn with bounded `npc_in_squad`. Refill across all factions on that level ≤ deaths across all factions on that level. ∎
+
+The vanilla cooldown ages from game-time alone. If the player ignores a level, no deaths fire, no advances apply, and the engine spawns at vanilla pace after the resolved cycle of game-time. AlifeBalance accelerates the cooldown; it never delays vanilla.
 
 ---
 
@@ -170,7 +180,8 @@ Owned state, all in-memory, reset on game load:
 | ab_smart_recipe  | `_eligible[level_id][faction]`       | cached eligible smarts, recipe-content derived, static for the session |
 | ab_smart_recipe  | `_thresholds[level_id][faction]`     | cached MAX `npc_in_squad` across matching sections |
 | ab_smart_balance  | `_delta_cache[smart_id]`             | cached `{ delta, advance, max_age }`, invalidated on MCM change or reset |
-| ab_smart_balance  | `_smart_stats[smart_id]`             | per-smart advance bookkeeping for the right-click "Show stats" tip |
+| ab_smart_balance  | `_smart_stats[smart_id]`             | per-smart advance bookkeeping for the right-click "Show stats" tip (lifetime scope) |
+| ab_smart_balance  | `_advance_pending[smart_id]`         | set on advance, consumed on next spawn at the smart; drives `from_us` correlation in `[SPAWN]` log + `spawns_from_us` counter |
 | ab_smart_balance  | `_seen_squads[squad.id]`             | dedup set for spawn tracing (DEBUG only) |
 | ab_smart_map     | `_markers[smart_id]`                 | linger expiry per marked smart |
 | ab_smart_balance  | `_stats`                             | 10 diagnostic counters (deaths, counted, vermin, ticks, advances, spawns, etc.) |
@@ -355,9 +366,9 @@ Threshold has no knob — it is engine-grounded, read from `squad_descr` LTX per
 
 | Mod | Interaction |
 |-----|-------------|
-| Vanilla `try_respawn` | Reads `last_respawn_update` at `smart_terrain.script:1651`. The advance moves the same field. |
-| ZCP (forked `try_respawn`) | Reads the same field at `smr_pop.script:342-368`, applies its own MCM cooldown. The advance applies identically; the per-advance subtract is sized at `smart.respawn_idle / advances`, so under shorter ZCP cooldowns each advance covers a smaller fraction of the gate. The `Min Minutes` floor still holds. |
-| ZCP `smr_handle_spawn` | Substitutes the squad section in flight. Replacement still gets `respawn_point_id` and `respawn_point_prop_section` set, so engine budget accounting stays intact. AlifeBalance has no opinion on the substitution. |
+| Vanilla `try_respawn` | Reads `last_respawn_update` at `smart_terrain.script:1651`. The advance moves the same field. Budget eval applies `ui_options.get("alife/general/alife_stalker_pop" / "..._mutant_pop")` to match the engine's pop_factor multiplier at `smart_terrain.script:1681-1688`. |
+| ZCP (forked `try_respawn`) | Gates against `smr_amain_mcm.get_config("respawn_idle")`, not `smart.respawn_idle`. AB's `_resolve_idle` reads the same cvar so the per-advance subtract sizes against ZCP's actual gate. Budget eval applies `smr_amain_mcm.get_config("stalker_pop_factor" / "monster_pop_factor")` to match `smr_pop.get_*_pop_factor` at `smr_pop.script:372-389`. The `Min Minutes` floor holds against the resolved cycle. |
+| ZCP `smr_handle_spawn` | Substitutes the squad section in flight (zombie 90% under Survival; random mutant for monster squads; faction reshuffle for stalkers per `smr_pop.script:288-339`). Replacement still gets `respawn_point_id` and `respawn_point_prop_section` set, so engine budget accounting stays intact. The (level, faction) population invariant degrades to "deaths bound system-wide refill, not per-faction refill" under ZCP: AB credits faction A's kills, ZCP may produce faction B's squad. Total spawn-rate cap holds; per-faction accounting does not. |
 | Redone Collection | Pure LTX configuration. AlifeBalance writes runtime state. No conflict. |
 | GAMMA NPC Spawns | Pure LTX. No conflict. |
 | Night Mutants | Parallel `SIMBOARD:create_squad` path. Spawned squads still get `respawn_point_id` set. No conflict. |

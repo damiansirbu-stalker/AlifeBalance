@@ -7,9 +7,14 @@
 --- Logs to alifebalance.log.
 ---
 --- Run from the X-Ray debug console (requires `-dbg` or `-dbgdev` in launch args):
+---   run_string db.actor:give_info_portion("ab_test_authorized")  -- one-time per save
 ---   run_string ab_test.start()
 ---   run_string ab_test.stop()
 ---   run_string ab_test.toggle()
+---
+--- The authorize info portion is a deliberate two-step gate. start() refuses without it.
+--- This prevents accidental console runs (typos, copy-pasted commands) from killing real
+--- NPCs across the actor's whole world. Revoke with disable_info_portion when done.
 
 local pairs, math_random, string_format, alife_object = pairs, math.random, string.format, alife_object
 local xlog, xsquad, xlevel, xcreature = xlog, xsquad, xlevel, xcreature
@@ -19,9 +24,10 @@ local xlog, xsquad, xlevel, xcreature = xlog, xsquad, xlevel, xcreature
 
 local log = xlog.get_logger("AB.TEST", { outfile = "alifebalance.log" })
 
-local TIMER_EV      = "ab_test"
-local TIMER_TICK    = "kill"
-local KILL_INTERVAL = 3
+local TIMER_EV       = "ab_test"
+local TIMER_TICK     = "kill"
+local KILL_INTERVAL  = 3
+local AUTHORIZE_INFO = "ab_test_authorized"
 
 -- _tick_count is monotonic and used for strict on/off-level alternation in _pick_pool.
 local _running    = false
@@ -164,16 +170,29 @@ end
 --- @export console
 function start()
     if _running then return end
+    -- Authorize gate: refuses unless the actor has the AUTHORIZE_INFO info portion.
+    -- Two-step unlock (give info portion, then start) prevents accidental console runs
+    -- from killing real NPCs across the actor's whole world.
+    if not db or not db.actor then
+        log.info("[TEST] refused: no actor")
+        return
+    end
+    if not db.actor:has_info(AUTHORIZE_INFO) then
+        log.info("[TEST] refused: actor lacks info '%s'. Run: run_string db.actor:give_info_portion(\"%s\")",
+            AUTHORIZE_INFO, AUTHORIZE_INFO)
+        news_manager.send_tip(db.actor,
+            "AlifeBalance test: REFUSED. First run: db.actor:give_info_portion(\"" .. AUTHORIZE_INFO .. "\")",
+            nil, nil, 6000)
+        return
+    end
     _running = true
     _kills, _skips, _tick_count = 0, 0, 0
     RemoveTimeEvent(TIMER_EV, TIMER_TICK)
     CreateTimeEvent(TIMER_EV, TIMER_TICK, KILL_INTERVAL, _tick)
     log.info("[TEST] kill loop started (interval=%ds, 1:1 on-level / off-level alternation)", KILL_INTERVAL)
-    if db and db.actor then
-        news_manager.send_tip(db.actor,
-            "AlifeBalance test: kill loop ON (" .. KILL_INTERVAL .. "s, 1:1 on/off-level)",
-            nil, nil, 4000)
-    end
+    news_manager.send_tip(db.actor,
+        "AlifeBalance test: kill loop ON (" .. KILL_INTERVAL .. "s, 1:1 on/off-level)",
+        nil, nil, 4000)
 end
 
 --- @export console
