@@ -1,4 +1,4 @@
---- ab_mcm: MCM configuration for AlifeBalance (Smart Balance + Loot Balance)
+--- ab_mcm: MCM configuration for AlifeBalance (Smart Balance + Inventory Balance)
 
 -- ==================== DEFAULTS ====================
 
@@ -6,7 +6,7 @@ defaults = {
     enabled = true,
     advances = 4,
     min_minutes = 120,
-    enabled_loot = true,
+    enabled_inventory = true,
     npcs_per_frame = 1,
     npcs_per_cycle = 20,
     scan_cooldown_h = 24,
@@ -66,10 +66,10 @@ function on_mcm_load()
                     { id = "advances", type = "track", val = 2, min = 1, max = 8, step = 1, def = 4 },
                     { id = "min_minutes", type = "track", val = 2, min = 10, max = 360, step = 5, def = 120 },
 
-                    -- Loot Balance
-                    { id = "div_loot", type = "line" },
-                    { id = "hdr_loot", type = "desc", text = "ui_mcm_ab_hdr_loot", clr = {255, 200, 200, 200} },
-                    { id = "enabled_loot", type = "check", val = 1, def = true },
+                    -- Inventory Balance
+                    { id = "div_inventory", type = "line" },
+                    { id = "hdr_inventory", type = "desc", text = "ui_mcm_ab_hdr_inventory", clr = {255, 200, 200, 200} },
+                    { id = "enabled_inventory", type = "check", val = 1, def = true },
                     { id = "npcs_per_frame", type = "track", val = 2, min = 1, max = 10, step = 1, def = 1 },
                     { id = "npcs_per_cycle", type = "track", val = 2, min = 5, max = 50, step = 5, def = 20 },
                     { id = "scan_cooldown_h", type = "track", val = 2, min = 1, max = 72, step = 1, def = 24 },

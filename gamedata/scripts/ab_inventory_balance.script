@@ -1,4 +1,4 @@
---- ab_loot_balance: Periodic scanner that trims NPC inventories so long-lived NPCs never
+--- ab_inventory_balance: Periodic scanner that trims NPC inventories so long-lived NPCs never
 --- accumulate a corpse-sized hoard. Walks online stalkers via xslice frame-spread; each
 --- NPC is rescanned at most once per cooldown window.
 ---
@@ -38,12 +38,12 @@ local POLICY_SECTION = "ab_inventory_policy"
 local INVENTORY_POLICY = nil
 
 -- Scheduler.
-local SCAN_QUEUE = "ab_loot_balance_scan"
+local SCAN_QUEUE = "ab_inventory_balance_scan"
 local DEFAULT_NPCS_PER_CYCLE = 20
 local DEFAULT_NPCS_PER_FRAME = 1
 local UPDATE_INTERVAL_SEC = 30
 
-local log = xlog.get_logger("AB.LBAL", { outfile = "alifebalance.log" })
+local log = xlog.get_logger("AB.INV", { outfile = "alifebalance.log" })
 local _dbg = false
 
 -- Per-NPC last-scan timestamp, game-seconds. Session only.
@@ -117,7 +117,7 @@ end
 
 local function _enabled()
     local mcm = _cfg()
-    return mcm and mcm.enabled_loot ~= false
+    return mcm and mcm.enabled_inventory ~= false
 end
 
 local function _cfg_step()
@@ -275,7 +275,7 @@ function on_game_start()
     _last_update = 0
     _last_scan_game_sec = {}
     _load_policy()
-    log.info("[INSTALL] ab_loot_balance scanner armed (batch=%d)", DEFAULT_NPCS_PER_CYCLE)
+    log.info("[INSTALL] ab_inventory_balance scanner armed (batch=%d)", DEFAULT_NPCS_PER_CYCLE)
     RegisterScriptCallback("actor_on_first_update", _sync_log_level)
     RegisterScriptCallback("on_option_change", _sync_log_level)
     RegisterScriptCallback("actor_on_update", actor_on_update)

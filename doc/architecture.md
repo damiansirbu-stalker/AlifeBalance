@@ -194,7 +194,7 @@ Not owned by AlifeBalance: which recipe the engine picks (random over open-budge
 
 ---
 
-## Loot Balance
+## Inventory Balance
 
 Periodic scanner over online stalkers. Walks the online set in small batches, trims one NPC per frame, rescans each NPC at most once per game-day. Long-lived NPCs (story NPCs, companions, gulag survivors) never accumulate a corpse-sized hoard because the trim no longer waits for death. Traders are skipped at the scheduler level (their stock IS the trader).
 
@@ -215,8 +215,8 @@ TICK (every 30 wall-seconds via actor_on_update)
   |
   v
 _start_cycle()
-  - if not enabled_loot: return
-  - if xslice.is_active("ab_loot_balance_scan"): return
+  - if not enabled_inventory: return
+  - if xslice.is_active("ab_inventory_balance_scan"): return
   - now = xtime.game_sec()
   - eligible = [ npc_id for npc in xcreature.online_iter()
                  if IsStalker(npc) and npc:alive()
@@ -226,7 +226,7 @@ _start_cycle()
   - picks = eligible[1 .. npcs_per_cycle]
   - if #picks == 0: return
   - cycle_id += 1; open xprofiler
-  - xslice.start("ab_loot_balance_scan", picks, { step = npcs_per_frame, func = _visit, on_done = _on_cycle_done })
+  - xslice.start("ab_inventory_balance_scan", picks, { step = npcs_per_frame, func = _visit, on_done = _on_cycle_done })
 
 FRAME (each frame while queue active)
   |
@@ -323,7 +323,7 @@ No persistence. The cooldown table not saved; on game load every NPC is fresh an
 | `gamedata/scripts/ab_smart_balance.script` | Death handler, periodic tick burst-advance loop, per-smart CTime delta cache, `_advance_smart` cooldown subtract, public `marker_label` + `show_smart_stats` for ab_smart_map |
 | `gamedata/scripts/ab_smart_recipe.script` | Per-(level, faction) eligibility + threshold cache, single-pass budget evaluation. Two entry points called by ab_smart_balance: `get_eligible_and_threshold` and `evaluate_budget_for_faction`. Delegates smart discovery and squad-size lookup to xsmart. |
 | `gamedata/scripts/ab_smart_map.script` | PDA marker render-state, right-click menu (teleport, show stats). Calls back into ab_smart_balance for label + stats formatting. |
-| `gamedata/scripts/ab_loot_balance.script` | Online inventory scanner. Public API `trim_npc`, xslice scheduler with per-NPC game-day cooldown. Policy loaded from `ab_inventory_policy.ltx` via `xinventory.load_policy`. |
+| `gamedata/scripts/ab_inventory_balance.script` | Online inventory scanner. Public API `trim_npc`, xslice scheduler with per-NPC game-day cooldown. Policy loaded from `ab_inventory_policy.ltx` via `xinventory.load_policy`. |
 | `gamedata/configs/alifebalance/ab_inventory_policy.ltx` | Per-category `{min, max}` ceilings (DLTX-overridable). Single block `[ab_inventory_policy]`; shared LTX shape with `ap_trade_policy.ltx` and `ap_stash_policy.ltx`. |
 | `gamedata/scripts/ab_test.script` | Console-driven test harness. Fires fake NPC deaths every 3s, alternating on-level / off-level pools. Same vermin filter as ab_smart_balance. |
 | `gamedata/configs/text/eng/ui_st_mcm_ab.xml` | MCM strings (English) |
@@ -339,10 +339,10 @@ No persistence. The cooldown table not saved; on game load every NPC is fresh an
 | `enabled`            | General     | Smart Balance | check  | true    | -       | Master toggle |
 | `advances`           | General     | Smart Balance | track  | 4       | 1-8     | Per-advance subtract is `(respawn_idle - Min Minutes*60) / advances` |
 | `Min Minutes`        | General     | Smart Balance | track  | 120     | 10-360  | Minimum cooldown remaining after every advance, in game minutes |
-| `enabled_loot`       | General     | Loot Balance  | check  | true    | -       | Scanner enable. When off, no scheduler, no trims. |
-| `npcs_per_frame`     | General     | Loot Balance  | track  | 1       | 1-10    | xslice step: NPCs trimmed per frame inside a cycle. |
-| `npcs_per_cycle`     | General     | Loot Balance  | track  | 20      | 5-50    | Per-cycle batch cap: max NPCs picked per cycle (oldest-scanned first). |
-| `scan_cooldown_h`    | General     | Loot Balance  | track  | 24      | 1-72    | Per-NPC rescan cooldown in game-hours. |
+| `enabled_inventory`  | General     | Inventory Balance | check  | true    | -       | Scanner enable. When off, no scheduler, no trims. |
+| `npcs_per_frame`     | General     | Inventory Balance | track  | 1       | 1-10    | xslice step: NPCs trimmed per frame inside a cycle. |
+| `npcs_per_cycle`     | General     | Inventory Balance | track  | 20      | 5-50    | Per-cycle batch cap: max NPCs picked per cycle (oldest-scanned first). |
+| `scan_cooldown_h`    | General     | Inventory Balance | track  | 24      | 1-72    | Per-NPC rescan cooldown in game-hours. |
 | `log_level`          | Development | Logging       | list   | WARN    | -       | ERROR / WARN / INFO / DEBUG |
 | `show_markers`       | Development | Diagnostics   | check  | false   | -       | Green PDA marker on every advanced smart, 5-min linger, right-click teleport / stats |
 | `btn_show_status`    | Development | Diagnostics   | button | -       | -       | PDA tip with death / counted / vermin / tick / advance / spawn counters |

@@ -44,14 +44,14 @@
         <text>Minimum cooldown that must remain on a smart after an advance applies, in game minutes. AlifeBalance never pushes the cooldown below this floor; the engine's own clock ages out the last leg naturally and fires the spawn from there. A smart already at or below this floor is skipped on the next advance (counter holds for next tick). Default 120 minutes (two game hours). Raise to leave more natural cooldown after every advance.</text>
     </string>
 
-    <!-- General - Loot Balance -->
-    <string id="ui_mcm_ab_hdr_loot">
-        <text>Loot Balance</text>
+    <!-- General - Inventory Balance -->
+    <string id="ui_mcm_ab_hdr_inventory">
+        <text>Inventory Balance</text>
     </string>
-    <string id="ui_mcm_ab_general_enabled_loot">
-        <text>Enable Loot Balance</text>
+    <string id="ui_mcm_ab_general_enabled_inventory">
+        <text>Enable Inventory Balance</text>
     </string>
-    <string id="ui_mcm_ab_general_enabled_loot_desc">
+    <string id="ui_mcm_ab_general_enabled_inventory_desc">
         <text>Periodic scanner that trims online NPC inventories so long-lived NPCs (story NPCs, traders, companions, gulag survivors) never accumulate a corpse-sized hoard. Each online stalker is rescanned at most once per game-day; the scanner walks the eligible set in small batches spread across frames. Per-category max ceilings loaded from configs/alifebalance/ab_inventory_policy.ltx — anything above the max is released. Covers equipped-slot ammo (in rounds), grenades, consumables (medkit / bandage / antirad / stim / pill / food / drink), and gear (weapons / outfits / helmets / artefacts / crafting / device); DLTX-overridable. Quest items, equipped gear, runtime-story_id items, companion-gifted items, and player-strapped weapons are pre-filtered by xinventory and never touched. When off, vanilla trim applies and online inventories accumulate without bound.</text>
     </string>
     <string id="ui_mcm_ab_general_npcs_per_frame">
