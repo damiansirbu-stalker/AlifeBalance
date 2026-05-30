@@ -1,17 +1,17 @@
---- ab_recipe: smart-terrain recipe analysis for AlifeBalance Smart Balance.
+--- ab_smart_recipe: smart-terrain recipe analysis for AlifeBalance Smart Balance.
 --- Delegates eligibility (find_smarts_spawning) and squad-size lookup
 --- (get_section_npc_max) to xsmart; the threshold compute (MAX npc_in_squad
 --- upper across matching sections of eligible smarts) and the per-tick budget
 --- eval (evaluate_budget_for_faction) live here as AlifeBalance-specific.
 --- Caches the (smarts, threshold) tuple per (level, faction) for the session.
---- State wiped only by reset_state() (called from ab_pacing on save load
+--- State wiped only by reset_state() (called from ab_smart_balance on save load
 --- and MCM reset).
 
 local pairs, ipairs, tonumber, tostring = pairs, ipairs, tonumber, tostring
 local string_format, table_concat = string.format, table.concat
 local xlog, xsmart, xlevel = xlog, xsmart, xlevel
 
-local log = xlog.get_logger("AB.RECIPE", { outfile = "alifebalance.log" })
+local log = xlog.get_logger("AB.SREC", { outfile = "alifebalance.log" })
 
 local _dbg = false
 

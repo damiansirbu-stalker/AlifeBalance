@@ -85,10 +85,10 @@
     <string id="ui_mcm_ab_development_show_markers_desc">
         <text>Place a green PDA map marker on every smart terrain that receives an advance. The marker lingers for 5 real-time minutes, then clears. Right-click any marker to teleport to that smart or show its stats. Independent of log level.</text>
     </string>
-    <string id="st_ab_map_teleport_to">
+    <string id="st_ab_smart_map_teleport_to">
         <text>Teleport to</text>
     </string>
-    <string id="st_ab_map_show_stats">
+    <string id="st_ab_smart_map_show_stats">
         <text>Show stats for</text>
     </string>
     <!-- ==================== DEVELOPMENT TAB ==================== -->

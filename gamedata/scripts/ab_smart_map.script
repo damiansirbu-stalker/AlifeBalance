@@ -1,6 +1,6 @@
---- ab_map: PDA map markers + right-click menu for smart terrains advanced by ab_pacing.
---- Marker render-state (_markers) owned here. Pacing-side bookkeeping lives in ab_pacing
---- and is read via ab_pacing.marker_label / ab_pacing.show_smart_stats.
+--- ab_smart_map: PDA map markers + right-click menu for smart terrains advanced by ab_smart_balance.
+--- Marker render-state (_markers) owned here. Pacing-side bookkeeping lives in ab_smart_balance
+--- and is read via ab_smart_balance.marker_label / ab_smart_balance.show_smart_stats.
 
 local pairs, os_clock = pairs, os.clock
 local RegisterScriptCallback, alife_object = RegisterScriptCallback, alife_object
@@ -14,8 +14,8 @@ local CALLBACK = {
 
 local MARKER_TYPE       = "green_location"
 local MARKER_LINGER_SEC = 300
-local TELEPORT_KEY      = "st_ab_map_teleport_to"
-local STATS_KEY         = "st_ab_map_show_stats"
+local TELEPORT_KEY      = "st_ab_smart_map_teleport_to"
+local STATS_KEY         = "st_ab_smart_map_show_stats"
 
 -- _markers[smart_id] = real-time os.clock when marker should be removed.
 local _markers = {}
@@ -27,7 +27,7 @@ end
 
 function mark_smart_with_linger(smart)
     if not smart then return end
-    local label = ab_pacing.marker_label(smart)
+    local label = ab_smart_balance.marker_label(smart)
     xpda.mark_entity(smart.id, { marker_type = MARKER_TYPE, label = label })
     _markers[smart.id] = os_clock() + MARKER_LINGER_SEC
 end
@@ -86,7 +86,7 @@ local function _on_map_spot_menu_clicked(_property_ui, id, _level_name, prop)
         return
     end
     if prop == _stats_menu_label(name) then
-        ab_pacing.show_smart_stats(se_obj)
+        ab_smart_balance.show_smart_stats(se_obj)
         return
     end
 end

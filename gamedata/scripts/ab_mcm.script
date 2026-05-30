@@ -10,7 +10,6 @@ defaults = {
     npcs_per_frame = 1,
     npcs_per_cycle = 20,
     scan_cooldown_h = 24,
-    surplus_per_category = 2,
     show_markers = false,
     log_level = "WARN",
 }
@@ -34,14 +33,14 @@ cfg, get_config, load_config = xmcm.create_config("ab", defaults, path_builder)
 -- ==================== BUTTON HANDLERS ====================
 
 function btn_show_status()
-    if ab_pacing and ab_pacing.show_status then
-        ab_pacing.show_status()
+    if ab_smart_balance and ab_smart_balance.show_status then
+        ab_smart_balance.show_status()
     end
 end
 
 function btn_reset_counters()
-    if ab_pacing and ab_pacing.reset_counters then
-        ab_pacing.reset_counters()
+    if ab_smart_balance and ab_smart_balance.reset_counters then
+        ab_smart_balance.reset_counters()
     end
 end
 
@@ -74,7 +73,6 @@ function on_mcm_load()
                     { id = "npcs_per_frame", type = "track", val = 2, min = 1, max = 10, step = 1, def = 1 },
                     { id = "npcs_per_cycle", type = "track", val = 2, min = 5, max = 50, step = 5, def = 20 },
                     { id = "scan_cooldown_h", type = "track", val = 2, min = 1, max = 72, step = 1, def = 24 },
-                    { id = "surplus_per_category", type = "track", val = 2, min = 0, max = 10, step = 1, def = 2 },
 
                     -- Version footer
                     { id = "div_version", type = "line" },

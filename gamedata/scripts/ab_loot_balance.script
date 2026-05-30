@@ -1,0 +1,372 @@
+--- ab_loot_balance: Periodic scanner that trims NPC inventories so long-lived NPCs never accumulate
+--- a corpse-sized hoard. Walks online stalkers via xslice frame-spread; each NPC is rescanned
+--- at most once per cooldown window. Per-category cull ceilings via xinventory categories.
+---
+--- Why scanner, not death-time hook:
+---   1. Long-lived NPCs (story NPCs, traders, companions, gulag survivors) keep looting and
+---      never die. Death-time only catches NPCs that die. The hoarding population is the
+---      population that survives. Hundreds of online stalkers all carrying full hoards drive
+---      save bloat, server-object inflation, and steady performance drag.
+---   2. Save bloat. Every looted item is a server object persisted in the save. Continuous
+---      trim bounds live state; death-time only releases when (and if) the NPC dies.
+---   3. Bursty performance. N deaths in a firefight = N trims in the same frame as the corpse
+---      spawn. xslice spreads the cost across frames.
+---
+--- Public API contract:
+---   - trim_npc(npc, opts)        apply policy to one NPC; returns counts; opts.dry_run reports without releasing
+---   - evaluate_item(npc, it, st) pure per-item decision; returns (action, category)
+---   - build_state(npc)           per-NPC snapshot reusable by external callers
+---   - default_policy()           returns the canonical policy closure for composition
+---
+--- Trace + profile parity with AlifePlus: xtrace ids for cycle correlation in logs,
+--- xprofiler timing per cycle and per NPC, both null-pattern when DEBUG off (zero luabind).
+
+local ipairs, pairs = ipairs, pairs
+local table_sort, math_min = table.sort, math.min
+local os_clock = os.clock
+local xlog, xtrace, xprofiler, xslice, xcreature, xtime, xinventory = xlog, xtrace, xprofiler, xslice, xcreature, xtime, xinventory
+local level = level
+local IsStalker = IsStalker
+local RegisterScriptCallback = RegisterScriptCallback
+
+-- Cull policy: per-category trim ceiling. NPC keeps up to `max` of each category; anything
+-- above is released. High ceilings; trim is the backstop for hoarders, not the primary
+-- enforcement. Trade (ap_ext_trade.TRADE_POLICY) does sell-floor enforcement at lower
+-- numbers; trim only catches what trade misses (NPCs that never visit traders).
+-- Untouchable + equipped filtered by xinventory.get_category before policy lookup.
+-- Categories without an entry are left alone (no rule -> no-op).
+-- Ammo counted in ROUNDS (per xinventory D5); other categories count in items.
+local CULL_POLICY = {
+    medkit            = { max = 20 },
+    bandage           = { max = 20 },
+    antirad           = { max = 10 },
+    stim              = { max = 10 },
+    pill              = { max = 10 },
+    food              = { max = 10 },
+    drink             = { max = 5  },
+    grenade_ammo      = { max = 10 },
+    ammo_not_equipped = { max = 0  },   -- always release mismatched ammo
+    weapon            = { max = 0  },   -- ruck weapons (equipped already filtered)
+    outfit            = { max = 0  },
+    helmet            = { max = 0  },
+    artefact          = { max = 0  },
+    crafting          = { max = 0  },   -- NPCs don't use tools; release any picked up
+    device            = { max = 0  },
+}
+
+-- Scheduler.
+local SCAN_QUEUE = "ab_loot_balance_scan"
+local DEFAULT_NPCS_PER_CYCLE = 20
+local DEFAULT_NPCS_PER_FRAME = 1
+local UPDATE_INTERVAL_SEC = 30
+
+local log = xlog.get_logger("AB.LBAL", { outfile = "alifebalance.log" })
+local _dbg = false
+
+-- Per-NPC last-scan timestamp, game-seconds. Session only.
+local _last_scan_game_sec = {}
+
+-- Cycle state. Reset per cycle in _start_cycle.
+local _cycle_id = 0
+local _cycle_tid = 0
+local _cycle_visited = 0
+local _cycle_released = 0
+local _cycle_timer
+local _last_update = 0
+
+-- ==================== STATE + POLICY ====================
+
+--- Per-NPC snapshot. Reusable by external callers for evaluate_item.
+--- Wraps xinventory.get_category_opts (equipped_ids + per-slot weapon sections for ammo
+--- tier resolution) and adds a counts table populated by trim_npc's initial inventory walk.
+--- @safety SAFE - nil-guarded npc
+--- @cost O(1) | 14 luabind trivial + 2 luabind heavy via get_category_opts
+--- @param npc game_object Online stalker
+--- @return table { equipped_ids, equipped_pistol_sec, equipped_rifle_sec, counts }
+function build_state(npc)
+    local state = xinventory.get_category_opts(npc)
+    state.counts = {}
+    return state
+end
+
+-- Returns the contribution this item makes to its category count.
+-- Ammo categories count in ROUNDS (sum of get_ammo_count across stacks); others count 1.
+-- Matches new per-slot per-tier ammo categories: ammo_slot_2_t1, ammo_slot_2_t2,
+-- ammo_slot_3_t1, ammo_slot_3_t2, ammo_not_equipped.
+local function _unit(cat, item)
+    if cat == "ammo_not_equipped"
+        or cat:sub(1, 11) == "ammo_slot_2"
+        or cat:sub(1, 11) == "ammo_slot_3" then
+        return xinventory.get_ammo_count(item) or 0
+    end
+    return 1
+end
+
+--- Per-item decision. Returns (action, category) where action in {"keep","release"}.
+--- Mutates state.counts on release (decrements so the next item in the same category sees
+--- the post-release count). Categories outside CULL_POLICY return "keep".
+--- @safety SAFE - nil-guarded item
+--- @cost O(1) | 1 xinventory.get_category (up to ~12 hash lookups) + 1 hash lookup CULL_POLICY
+--- @param npc game_object Owner of the item (unused; kept for API parity)
+--- @param item game_object Item to evaluate
+--- @param state table From build_state(npc), with counts populated by trim_npc's first pass
+--- @return string,string action ("keep"|"release"), category
+function evaluate_item(npc, item, state)
+    local cat = xinventory.get_category(item, state)
+    local rule = CULL_POLICY[cat]
+    if not rule then return "keep", cat end
+    local unit = _unit(cat, item)
+    local current = state.counts[cat] or 0
+    if current - unit < rule.max then return "keep", cat end
+    state.counts[cat] = current - unit
+    return "release", cat
+end
+
+--- Returns the canonical policy as a callable for composition.
+--- @return function evaluate_item
+function default_policy()
+    return evaluate_item
+end
+
+-- ==================== PER-NPC TRIM (PUBLIC) ====================
+
+-- Apply a collected release list, update counters, emit per-release log lines.
+local function _apply_releases(releases, result, do_release, npc_id)
+    for _, rel in ipairs(releases) do
+        if do_release then xinventory.release_item(rel.item) end
+        result.released = result.released + 1
+        result.released_by_category[rel.category] = (result.released_by_category[rel.category] or 0) + 1
+        if _dbg then log.debug("[RELEASE] npc=%d section=%s category=%s", npc_id, rel.section, rel.category) end
+    end
+end
+
+--- Apply cull policy to one NPC. Public; the scheduler calls this for each NPC in its batch
+--- but callers (probes, MCM buttons, other modules) may call it directly. The cooldown table
+--- is the scheduler's concern: trim_npc never touches it.
+--- @safety SAFE - returns nil on nil npc; iterate tolerates nil items
+--- @cost O(items) | build_state + 2 iterate_inventory walks + 0-N xinventory.release_item per release
+--- @param npc game_object Online stalker
+--- @param opts table|nil { dry_run = false, policy = nil }
+--- @return table|nil { items, released, released_by_category = {[cat]=n}, dt_ms }
+function trim_npc(npc, opts)
+    if not npc then return nil end
+    opts = opts or {}
+    local dry_run = opts.dry_run == true
+    local policy = opts.policy or evaluate_item
+
+    local trace = xtrace.new_if(_dbg)
+    local seg = trace:push("trim_npc")
+    local timer = xprofiler.new_if(_dbg):start()
+
+    local state = build_state(npc)
+    local result = {
+        items = 0,
+        released = 0,
+        released_by_category = {},
+        dt_ms = 0,
+    }
+    local npc_id = npc:id()
+
+    -- Pass 1: count per category (with ammo in rounds)
+    xinventory.iterate_inventory(npc_id, function(_, item)
+        if not item then return end
+        local cat = xinventory.get_category(item, state)
+        state.counts[cat] = (state.counts[cat] or 0) + _unit(cat, item)
+    end)
+
+    -- Pass 2: evaluate + collect releases (mutation during iterate is unsafe)
+    local releases = {}
+    xinventory.iterate_inventory(npc_id, function(_, item)
+        if not item then return end
+        result.items = result.items + 1
+        local action, category = policy(npc, item, state)
+        if action ~= "release" then return end
+        releases[#releases + 1] = { item = item, category = category, section = xinventory.get_section(item) }
+    end)
+
+    _apply_releases(releases, result, not dry_run, npc_id)
+
+    timer:stop()
+    result.dt_ms = timer:get_ms()
+
+    if _dbg then
+        log.debug("[VISIT] npc=%d items=%d released=%d dt=%.3fms",
+            npc_id, result.items, result.released, result.dt_ms)
+    end
+    trace:pop(seg)
+
+    return result
+end
+
+-- ==================== SCHEDULER ====================
+
+local function _cfg()
+    return ab_mcm and ab_mcm.cfg or nil
+end
+
+local function _enabled()
+    local mcm = _cfg()
+    return mcm and mcm.enabled_loot ~= false
+end
+
+local function _cfg_step()
+    local mcm = _cfg()
+    return (mcm and mcm.npcs_per_frame) or DEFAULT_NPCS_PER_FRAME
+end
+
+local function _cfg_batch()
+    local mcm = _cfg()
+    return (mcm and mcm.npcs_per_cycle) or DEFAULT_NPCS_PER_CYCLE
+end
+
+local function _cfg_cooldown_sec()
+    local mcm = _cfg()
+    local hours = mcm and mcm.scan_cooldown_h or 24
+    return hours * 3600
+end
+
+-- Single-NPC eligibility predicate.
+local function _is_eligible(obj, actor_id, now, cooldown_sec)
+    local id = obj:id()
+    if id == actor_id then return nil, "actor" end
+    if not IsStalker(obj) then return nil, "nonstalker" end
+    if not obj:alive() then return nil, "dead" end
+    if xcreature.is_unscriptable(obj) then return nil, "unscriptable" end
+    local last = _last_scan_game_sec[id] or 0
+    if now - last < cooldown_sec then return nil, "cooldown" end
+    return id, last
+end
+
+-- Walk online stalkers, pick the batch_cap NPCs whose last_scan is older than cooldown,
+-- oldest-scanned first.
+-- @cost O(N online + K log K) where K = eligible count; sort dominated by table.sort
+local function _pick_eligible(batch_cap, cooldown_sec)
+    local timer = xprofiler.new_if(_dbg):start()
+    local stats = {
+        total = 0, eligible = 0, dt_ms = 0,
+        actor = 0, nonstalker = 0, dead = 0, unscriptable = 0, cooldown = 0,
+    }
+    if not (db and db.actor) then
+        timer:stop(); stats.dt_ms = timer:get_ms()
+        return {}, stats
+    end
+
+    local actor_id = db.actor:id()
+    local now = xtime.game_sec()
+    local eligible = {}
+
+    for obj in xcreature.online_iter() do
+        stats.total = stats.total + 1
+        local id, last_or_reason = _is_eligible(obj, actor_id, now, cooldown_sec)
+        if id then
+            eligible[#eligible + 1] = { id = id, last = last_or_reason }
+        else
+            stats[last_or_reason] = stats[last_or_reason] + 1
+        end
+    end
+
+    table_sort(eligible, function(a, b) return a.last < b.last end)
+
+    local take = math_min(#eligible, batch_cap)
+    local picks = {}
+    for i = 1, take do picks[i] = eligible[i].id end
+
+    stats.eligible = #eligible
+    timer:stop()
+    stats.dt_ms = timer:get_ms()
+    return picks, stats
+end
+
+local function _on_cycle_done()
+    if _cycle_timer then _cycle_timer:stop() end
+    if _dbg then
+        local ms = _cycle_timer and _cycle_timer:get_ms() or 0
+        log.debug("[SCAN] cycle=%d tid=%d visited=%d released=%d dt=%.2fms",
+            _cycle_id, _cycle_tid, _cycle_visited, _cycle_released, ms)
+    end
+    _cycle_timer = nil
+end
+
+local function _visit(npc_id)
+    local npc = level.object_by_id(npc_id)
+    if not npc then
+        if _dbg then log.debug("[SKIP] reason=offline npc=%d", npc_id) end
+        return true
+    end
+    if not npc:alive() then
+        if _dbg then log.debug("[SKIP] reason=dead npc=%d", npc_id) end
+        return true
+    end
+
+    local result = trim_npc(npc)
+    _last_scan_game_sec[npc_id] = xtime.game_sec()
+    _cycle_visited = _cycle_visited + 1
+    if result then _cycle_released = _cycle_released + result.released end
+    return true
+end
+
+local function _start_cycle()
+    if not _enabled() then return end
+    if xslice.is_active(SCAN_QUEUE) then return end
+
+    local picks, ps = _pick_eligible(_cfg_batch(), _cfg_cooldown_sec())
+
+    if _dbg then
+        log.debug("[PICK] online=%d eligible=%d picked=%d (skip: actor=%d nonstalker=%d dead=%d unscriptable=%d cooldown=%d) dt=%.2fms",
+            ps.total, ps.eligible, #picks,
+            ps.actor, ps.nonstalker, ps.dead, ps.unscriptable, ps.cooldown, ps.dt_ms)
+    end
+
+    if #picks == 0 then return end
+
+    _cycle_id = _cycle_id + 1
+    _cycle_visited = 0
+    _cycle_released = 0
+    _cycle_tid = xtrace.new_if(_dbg).id
+    _cycle_timer = xprofiler.new_if(_dbg):start()
+
+    if _dbg then
+        log.debug("[SCAN] cycle=%d tid=%d open batch=%d step=%d cooldown=%dh",
+            _cycle_id, _cycle_tid, #picks, _cfg_step(), _cfg_cooldown_sec() / 3600)
+    end
+
+    xslice.start(SCAN_QUEUE, picks, {
+        step = _cfg_step(),
+        func = _visit,
+        on_done = _on_cycle_done,
+    })
+end
+
+local function actor_on_update()
+    if not _enabled() then return end
+    if xslice.is_active(SCAN_QUEUE) then return end
+    local now = os_clock()
+    if now - _last_update < UPDATE_INTERVAL_SEC then return end
+    _last_update = now
+    _start_cycle()
+end
+
+-- ==================== INSTALL ====================
+
+local function _sync_log_level()
+    local mcm = _cfg()
+    if not mcm then return end
+    log.set_level(mcm.log_level or "WARN")
+    _dbg = log.get_level() >= 5
+end
+
+-- Prune the per-NPC cooldown row when an NPC despawns. Cheap: one hash erase.
+local function npc_on_net_destroy(npc)
+    if not npc then return end
+    _last_scan_game_sec[npc:id()] = nil
+end
+
+function on_game_start()
+    _last_update = 0
+    _last_scan_game_sec = {}
+    log.info("[INSTALL] ab_loot_balance scanner armed (batch=%d)", DEFAULT_NPCS_PER_CYCLE)
+    RegisterScriptCallback("actor_on_first_update", _sync_log_level)
+    RegisterScriptCallback("on_option_change", _sync_log_level)
+    RegisterScriptCallback("actor_on_update", actor_on_update)
+    RegisterScriptCallback("npc_on_net_destroy", npc_on_net_destroy)
+end

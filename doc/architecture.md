@@ -17,7 +17,7 @@ Part of a three-mod alife family: **AlifePlus** extends A-Life with new behavior
 Every smart terrain holds two engine fields that together define when it can spawn next:
 
 - `respawn_idle` — cooldown duration in game-seconds. Set once from LTX (`smart_terrain.script:231`), per-smart. Vanilla LTX default 86400 (24 game hours); the engine code fallback for unset entries is 43200 (12h); ZCP under GAMMA is 21600 (6h); Redone varies. AlifeBalance only reads this field.
-- `last_respawn_update` — timestamp of the smart's last spawn. The engine resets it to `curr_time` after every `SIMBOARD:create_squad`. AlifeBalance writes this field; one subtract per advance, in `_advance_smart` at `ab_pacing.script:267-281`.
+- `last_respawn_update` — timestamp of the smart's last spawn. The engine resets it to `curr_time` after every `SIMBOARD:create_squad`. AlifeBalance writes this field; one subtract per advance, in `_advance_smart` at `ab_smart_balance.script:267-281`.
 
 The engine's cooldown gate at `smart_terrain.script:1651`:
 
@@ -85,11 +85,11 @@ TICK (every 60 wall-seconds via CreateTimeEvent)
   v
 _periodic_tick()
   - for each (level_id, faction) in _deaths:
-      smarts, threshold = ab_recipe.get_eligible_and_threshold(level_id, faction)
+      smarts, threshold = ab_smart_recipe.get_eligible_and_threshold(level_id, faction)
       if #smarts == 0:                              [NOELIG], no action
       else if count < threshold:                    [BELOW],  no action
       else:
-        with_budget = filter smarts by _can_advance AND ab_recipe.evaluate_budget_for_faction
+        with_budget = filter smarts by _can_advance AND ab_smart_recipe.evaluate_budget_for_faction
         if #with_budget == 0:                       [DEFER],  counter holds
         else:
           sort with_budget by actor->smart distance descending
@@ -166,14 +166,14 @@ Owned state, all in-memory, reset on game load:
 
 | Owner      | State                                | Purpose |
 |------------|--------------------------------------|---------|
-| ab_pacing  | `_deaths[level_id][faction]`         | death counter per pair, decremented by threshold per advance |
-| ab_recipe  | `_eligible[level_id][faction]`       | cached eligible smarts, recipe-content derived, static for the session |
-| ab_recipe  | `_thresholds[level_id][faction]`     | cached MAX `npc_in_squad` across matching sections |
-| ab_pacing  | `_delta_cache[smart_id]`             | cached `{ delta, advance, max_age }`, invalidated on MCM change or reset |
-| ab_pacing  | `_smart_stats[smart_id]`             | per-smart advance bookkeeping for the right-click "Show stats" tip |
-| ab_pacing  | `_seen_squads[squad.id]`             | dedup set for spawn tracing (DEBUG only) |
-| ab_map     | `_markers[smart_id]`                 | linger expiry per marked smart |
-| ab_pacing  | `_stats`                             | 10 diagnostic counters (deaths, counted, vermin, ticks, advances, spawns, etc.) |
+| ab_smart_balance  | `_deaths[level_id][faction]`         | death counter per pair, decremented by threshold per advance |
+| ab_smart_recipe  | `_eligible[level_id][faction]`       | cached eligible smarts, recipe-content derived, static for the session |
+| ab_smart_recipe  | `_thresholds[level_id][faction]`     | cached MAX `npc_in_squad` across matching sections |
+| ab_smart_balance  | `_delta_cache[smart_id]`             | cached `{ delta, advance, max_age }`, invalidated on MCM change or reset |
+| ab_smart_balance  | `_smart_stats[smart_id]`             | per-smart advance bookkeeping for the right-click "Show stats" tip |
+| ab_smart_balance  | `_seen_squads[squad.id]`             | dedup set for spawn tracing (DEBUG only) |
+| ab_smart_map     | `_markers[smart_id]`                 | linger expiry per marked smart |
+| ab_smart_balance  | `_stats`                             | 10 diagnostic counters (deaths, counted, vermin, ticks, advances, spawns, etc.) |
 
 Callbacks: `squad_on_npc_death`, `squad_on_npc_creation`, `on_option_change`, `load_state`, `actor_on_first_update`, `map_spot_menu_add_property`, `map_spot_menu_property_clicked`. One `CreateTimeEvent` timer at 60-second wall interval.
 
@@ -205,17 +205,17 @@ TICK (every 30 wall-seconds via actor_on_update)
   v
 _start_cycle()
   - if not enabled_loot: return
-  - if xslice.is_active("ab_loot_scan"): return
+  - if xslice.is_active("ab_loot_balance_scan"): return
   - now = xtime.game_sec()
   - eligible = [ npc_id for npc in xcreature.online_iter()
                  if IsStalker(npc) and npc:alive()
-                    and not utils_obj.is_trader(npc)
+                    and not xcreature.is_unscriptable(npc)
                     and now - _last_scan_game_sec[npc_id] >= scan_cooldown_h * 3600 ]
   - sort eligible by oldest scan first
   - picks = eligible[1 .. npcs_per_cycle]
   - if #picks == 0: return
   - cycle_id += 1; open xprofiler
-  - xslice.start("ab_loot_scan", picks, { step = npcs_per_frame, func = _visit, on_done = _on_cycle_done })
+  - xslice.start("ab_loot_balance_scan", picks, { step = npcs_per_frame, func = _visit, on_done = _on_cycle_done })
 
 FRAME (each frame while queue active)
   |
@@ -255,24 +255,24 @@ Evaluated in order. First match wins.
 | 1 | `IsItem("quest", section)` (engine `quest_item=1` or `kind=i_quest`) | keep / quest |
 | 2 | `IsItem("money", section)` | keep / money |
 | 3 | section in vanilla `[keep_items]` | keep / whitelist |
-| 4 | `axr_companions.is_assigned_item(npc_id, item_id)` | keep / companion |
-| 5 | `se_load_var(item_id, "ab_loot", "strapped_item")` (player-strapped) | keep / strapped |
-| 6 | item_id in `state.equipped_ids` (all main slots 1..12) | keep / equipped |
-| 7 | `IsItem("ammo", section)` and section in `state.equipped_ammo` | keep / ammo_matched |
-| 8 | `IsItem("ammo", section)` (no match) | release / ammo |
-| 9 | section in vanilla `[keep_one]` | keep / keep_one |
-| 10 | `IsWeapon(item, cls)` non-grenade, surplus count > cap | release / weapon |
-| 10b | `IsWeapon(item, cls)` non-grenade, within cap | keep / weapon_surplus |
-| 11 | `IsOutfit(nil, cls)`, surplus count > cap | release / outfit |
-| 11b | `IsOutfit(nil, cls)`, within cap | keep / outfit_surplus |
-| 12 | `IsHeadgear(nil, cls)`, surplus count > cap | release / helmet |
-| 12b | `IsHeadgear(nil, cls)`, within cap | keep / helmet_surplus |
-| 13 | `IsArtefact(item, cls)`, surplus count > cap | release / artefact |
-| 13b | `IsArtefact(item, cls)`, within cap | keep / artefact_surplus |
-| 14 | `state.section_seen[section] + 1 > 3` (stackable cap) | release / stackable |
+| 4 | item_id in `state.equipped_ids` (all main slots 1..12) | keep / equipped |
+| 5 | `IsItem("ammo", section)` and section in `state.equipped_ammo` | keep / ammo_matched |
+| 6 | `IsItem("ammo", section)` (no match) | release / ammo |
+| 7 | section in vanilla `[keep_one]` | keep / keep_one |
+| 8 | `IsWeapon(item, cls)` non-grenade, surplus count > cap | release / weapon |
+| 8b | `IsWeapon(item, cls)` non-grenade, within cap | keep / weapon_surplus |
+| 9 | `IsOutfit(nil, cls)`, surplus count > cap | release / outfit |
+| 9b | `IsOutfit(nil, cls)`, within cap | keep / outfit_surplus |
+| 10 | `IsHeadgear(nil, cls)`, surplus count > cap | release / helmet |
+| 10b | `IsHeadgear(nil, cls)`, within cap | keep / helmet_surplus |
+| 11 | `IsArtefact(item, cls)`, surplus count > cap | release / artefact |
+| 11b | `IsArtefact(item, cls)`, within cap | keep / artefact_surplus |
+| 12 | `state.section_seen[section] + 1 > 3` (stackable cap) | release / stackable |
 | - | otherwise | keep / default |
 
-Rules 1-6 are hard keeps that mirror vanilla `death_manager.keep_item` plus the engine quest flag and an explicit money guard. Rule 6 (equipped-slot skip) is ours: vanilla never checks equipped because vanilla keeps all weapons and outfits regardless. Rule 7-8 (ammo gate) is ours. Rules 10-13 implement the per-category surplus cap (MCM `surplus_per_category`, default 2) for non-equipped "big" items; equipped items short-circuit before the count. Rule 14 (stackable cap N=3) bounds consumable hoarding (medkits, food, drugs, bandages, repair kits, devices).
+Companions, traders, story characters, and named NPCs are filtered at the scheduler via `xcreature.is_unscriptable(obj)` and never reach `evaluate_item`; the per-item policy only sees random extras whose identities no script depends on.
+
+Rules 1-3 are hard keeps that mirror vanilla `death_manager.keep_item` plus the engine quest flag and an explicit money guard. Rule 4 (equipped-slot skip) is ours: vanilla never checks equipped because vanilla keeps all weapons and outfits regardless. Rules 5-6 (ammo gate) are ours. Rules 8-11 implement the per-category surplus cap (MCM `surplus_per_category`, default 2) for non-equipped "big" items; equipped items short-circuit before the count. Rule 12 (stackable cap N=3) bounds consumable hoarding (medkits, food, drugs, bandages, repair kits, devices).
 
 Why both `IsItem("quest", section)` and `[keep_items]`: about half the vanilla whitelist entries have `kind = i_quest` (caught by the engine flag) and become redundant; the other half (gauss rifle `kind = w_sniper`, scientific detector inheriting `detector_elite`, named PDAs sharing the regular PDA clsid) are quest-given uniques whose item class is "normal" and the engine flag misses. The whitelist patches those gaps.
 
@@ -296,16 +296,14 @@ No persistence. The cooldown table not saved; on game load every NPC is fresh an
 | Jabbers' "Weapons Drop on bodies" 134 | No conflict. They patch `death_manager.keep_item`; we no longer touch that seam. The scanner releases from online inventories; their wrap fires at death on whatever the scanner left behind. |
 | Ish's BoltBeGone in Nitpicker's Modpack 124 | Same as Jabbers'. No conflict. |
 | `[keep_items]` and `[keep_one]` LTX | Read once per session. Quest items, special weapons, and pdas in `[keep_items]` survive. Vanilla `[keep_one]` grenade rules pass through unchanged. |
-| Traders (`utils_obj.is_trader`) | Skipped at scheduler level. Trader stock IS the trader; trimming would destroy the economy. Detection covers community=trader, clsid `script_trader`/`trader`, section name containing "trader", or storage logic with a `trade` line. |
+| Unscriptable NPCs (`xcreature.is_unscriptable`) | Skipped at scheduler level. Covers story characters (Strider, Magpie, Sidorovich) via engine story_id, companions via `npcx_is_companion` info-portion, named NPCs (traders, medics, mechanics, guides, guards, bodyguards, leaders, quest-givers) via `xdata.unscriptable_npcs`, and members of story squads. These NPCs have scripted identities the rest of the game depends on; trimming their inventories risks breaking quest scripts or destroying trader stock. |
 | Quest-flagged items (`IsItem("quest", section)`) | Never released regardless of category. Engine flag (`quest_item=1` or `kind=i_quest`) is checked first; the curated `[keep_items]` whitelist patches uniques whose item class is "normal". |
-| Companion-assigned items | `axr_companions.is_assigned_item` consulted per item; player gifts always survive. |
-| Strapped weapons | `se_load_var(item_id, _, "strapped_item")` consulted per item; player-strapped weapons always survive. |
 
 ### Performance
 
 | Operation | Cost |
 |---|---|
-| `_start_cycle`, eligible-set walk | O(N online) with N ~ 200 typical. 1 `xtime.game_sec()` + per-NPC `IsStalker` + `alive()` + hash read. |
+| `_start_cycle`, eligible-set walk | O(N online) with N ~ 200 typical. 1 `xtime.game_sec()` + per-NPC `IsStalker` + `alive()` + `xcreature.is_unscriptable` (weak-keyed cache, 0 luabind on hit) + hash read. |
 | `_pick_eligible` sort | O(K log K) where K = eligible count. `table.sort` over an array of tables. |
 | Per NPC visit | O(items) inventory walk. 12 `item_in_slot` (one per main slot) + ~2 `parse_list` (ammo_class for slots 2 and 3) for state, plus per-item policy (hashes + clsid + IsItem/IsWeapon/IsOutfit/IsHeadgear/IsArtefact bridges). |
 | Per release | 1 `alife_object` + 1 `alife_release`. |
@@ -320,11 +318,11 @@ No persistence. The cooldown table not saved; on game load every NPC is fresh an
 |------|---------|
 | `gamedata/scripts/_ab_deps.script` | Version string, xlibs dependency gate |
 | `gamedata/scripts/ab_mcm.script` | MCM defaults, UI definition, button handlers |
-| `gamedata/scripts/ab_pacing.script` | Death handler, periodic tick burst-advance loop, per-smart CTime delta cache, `_advance_smart` cooldown subtract, public `marker_label` + `show_smart_stats` for ab_map |
-| `gamedata/scripts/ab_recipe.script` | Per-(level, faction) eligibility + threshold cache, single-pass budget evaluation. Two entry points called by ab_pacing: `get_eligible_and_threshold` and `evaluate_budget_for_faction`. Delegates smart discovery and squad-size lookup to xsmart. |
-| `gamedata/scripts/ab_map.script` | PDA marker render-state, right-click menu (teleport, show stats). Calls back into ab_pacing for label + stats formatting. |
-| `gamedata/scripts/ab_loot.script` | Online inventory scanner. Public API (`trim_npc`, `evaluate_item`, `build_state`, `default_policy`), xslice scheduler with per-NPC game-day cooldown. |
-| `gamedata/scripts/ab_test.script` | Console-driven test harness. Fires fake NPC deaths every 3s, alternating on-level / off-level pools. Same vermin filter as ab_pacing. |
+| `gamedata/scripts/ab_smart_balance.script` | Death handler, periodic tick burst-advance loop, per-smart CTime delta cache, `_advance_smart` cooldown subtract, public `marker_label` + `show_smart_stats` for ab_smart_map |
+| `gamedata/scripts/ab_smart_recipe.script` | Per-(level, faction) eligibility + threshold cache, single-pass budget evaluation. Two entry points called by ab_smart_balance: `get_eligible_and_threshold` and `evaluate_budget_for_faction`. Delegates smart discovery and squad-size lookup to xsmart. |
+| `gamedata/scripts/ab_smart_map.script` | PDA marker render-state, right-click menu (teleport, show stats). Calls back into ab_smart_balance for label + stats formatting. |
+| `gamedata/scripts/ab_loot_balance.script` | Online inventory scanner. Public API (`trim_npc`, `evaluate_item`, `build_state`, `default_policy`), xslice scheduler with per-NPC game-day cooldown. |
+| `gamedata/scripts/ab_test.script` | Console-driven test harness. Fires fake NPC deaths every 3s, alternating on-level / off-level pools. Same vermin filter as ab_smart_balance. |
 | `gamedata/configs/text/eng/ui_st_mcm_ab.xml` | MCM strings (English) |
 | `gamedata/configs/text/rus/ui_st_mcm_ab.xml` | MCM strings (Russian) |
 | `gamedata/textures/ab_mcm_banner.dds` | MCM banner (512x50) |
@@ -346,7 +344,7 @@ No persistence. The cooldown table not saved; on game load every NPC is fresh an
 | `log_level`          | Development | Logging       | list   | WARN    | -       | ERROR / WARN / INFO / DEBUG |
 | `show_markers`       | Development | Diagnostics   | check  | false   | -       | Green PDA marker on every advanced smart, 5-min linger, right-click teleport / stats |
 | `btn_show_status`    | Development | Diagnostics   | button | -       | -       | PDA tip with death / counted / vermin / tick / advance / spawn counters |
-| `btn_reset_counters` | Development | Diagnostics   | button | -       | -       | Clears `_deaths`, `_delta_cache`, `_smart_stats`, `_seen_squads`, `_stats`, ab_recipe caches, and all markers |
+| `btn_reset_counters` | Development | Diagnostics   | button | -       | -       | Clears `_deaths`, `_delta_cache`, `_smart_stats`, `_seen_squads`, `_stats`, ab_smart_recipe caches, and all markers |
 
 Threshold has no knob — it is engine-grounded, read from `squad_descr` LTX per (level, faction) and cached.
 
@@ -357,9 +355,9 @@ Threshold has no knob — it is engine-grounded, read from `squad_descr` LTX per
 | Operation | Cost |
 |-----------|------|
 | Per death | O(1). Protection check, vermin species lookup (cached), faction read, level lookup, counter increment. |
-| `ab_recipe.get_eligible_and_threshold`, first call per pair | O(S * R * Q) over smarts on level * recipes per smart * sections per recipe. 2 luabind `ini_sys:r_string_ex` per section. Cached. |
-| `ab_recipe.get_eligible_and_threshold`, cache hit | O(1) |
-| `ab_recipe.evaluate_budget_for_faction`, per tick per eligible smart | O(R * Q) over recipes * sections. 1 `pick_section_from_condlist` per recipe + 1 `ini_sys:r_string_ex` per section until first faction match. |
+| `ab_smart_recipe.get_eligible_and_threshold`, first call per pair | O(S * R * Q) over smarts on level * recipes per smart * sections per recipe. 2 luabind `ini_sys:r_string_ex` per section. Cached. |
+| `ab_smart_recipe.get_eligible_and_threshold`, cache hit | O(1) |
+| `ab_smart_recipe.evaluate_budget_for_faction`, per tick per eligible smart | O(R * Q) over recipes * sections. 1 `pick_section_from_condlist` per recipe + 1 `ini_sys:r_string_ex` per section until first faction match. |
 | `_get_advance_params`, first call per smart | 2 CTime constructions + 2 `setHMSms` + 1 operator-. ~5 luabind. Cached. |
 | `_get_advance_params`, cache hit | O(1) |
 | `_can_advance`, per tick per eligible smart | 1 luabind: `xtime.game_time():diffSec(lru)`. |

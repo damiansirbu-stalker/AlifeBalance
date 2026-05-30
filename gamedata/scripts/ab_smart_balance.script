@@ -1,4 +1,4 @@
---- ab_pacing: Smart Balance - per-(level, faction) death pressure advances smart cooldowns by 1/advances per advance
+--- ab_smart_balance: Smart Balance - per-(level, faction) death pressure advances smart cooldowns by 1/advances per advance
 
 local pairs, ipairs, tonumber, tostring = pairs, ipairs, tonumber, tostring
 local math_floor, string_format = math.floor, string.format
@@ -9,9 +9,9 @@ local xsmart, xlevel, xtime, xcreature = xsmart, xlevel, xtime, xcreature
 -- NOTE: never cache CreateTimeEvent/ResetTimeEvent/RemoveTimeEvent as locals (doc/library/xray/internals/globals.md:208-219).
 -- demonized_time_events.script replaces the globals at load time; cached locals point at a dead queue.
 
-local log = xlog.get_logger("AB.PACE", { outfile = "alifebalance.log" })
+local log = xlog.get_logger("AB.SBAL", { outfile = "alifebalance.log" })
 
-local TIMER_EV = "ab_pacing"
+local TIMER_EV = "ab_smart_balance"
 local TIMER_TICK = "tick"
 local TICK_INTERVAL_SEC = 60
 local SEC_PER_MIN = 60
@@ -54,7 +54,7 @@ local _dbg = false
 --                                   since last advance for this (level, faction) pair.
 -- _delta_cache[smart_id]          = CTime of respawn_idle/advances seconds for this smart. Lazy
 --                                   cached; reset on advances change in MCM and on _reset_state.
--- (Eligibility + threshold caches live in ab_recipe; see ab_recipe.script.)
+-- (Eligibility + threshold caches live in ab_smart_recipe; see ab_smart_recipe.script.)
 -- _seen_squads[squad.id]          = true. Dedup for spawn tracing (DEBUG only).
 -- _smart_stats[smart_id]          = per-smart bookkeeping for advances we've issued:
 --     {
@@ -278,12 +278,12 @@ local function _advance_smart(smart)
     return push_sec
 end
 
--- ==================== MARKER LABEL (public, called by ab_map) ====================
+-- ==================== MARKER LABEL (public, called by ab_smart_map) ====================
 
--- Hover hint for ab_map markers: mod / feature name + translated smart name +
+-- Hover hint for ab_smart_map markers: mod / feature name + translated smart name +
 -- recipe-derived factions + advance snapshot (count of advances applied, cooldown
 -- remaining the engine still ages out before firing).
--- Exposed for ab_map.mark_smart_with_linger; reads pacing-side _smart_stats directly.
+-- Exposed for ab_smart_map.mark_smart_with_linger; reads pacing-side _smart_stats directly.
 function marker_label(smart)
     local name       = smart:name() or "?"
     local translated = game.translate_string(name)
@@ -330,12 +330,12 @@ local function _load_config()
     _dbg = log.get_level() >= 5
     -- advances or min-hours change invalidates the per-smart cached CTime advance.
     if was_advances ~= cfg.advances or was_min_minutes ~= cfg.min_minutes then _delta_cache = {} end
-    -- sync DEBUG flag to ab_recipe so its [INVENTORY] / [ELIGIBLE] log lines respect it,
+    -- sync DEBUG flag to ab_smart_recipe so its [INVENTORY] / [ELIGIBLE] log lines respect it,
     -- and clear its inventory gate so DEBUG re-dumps when re-enabled.
-    ab_recipe.set_debug(_dbg)
+    ab_smart_recipe.set_debug(_dbg)
     log.info("[CONFIG] enabled=%s advances=%d min_minutes=%d show_markers=%s log=%s",
         tostring(cfg.enabled), cfg.advances, cfg.min_minutes, tostring(cfg.show_markers), cfg.log_level)
-    if was_show_markers and not cfg.show_markers then ab_map.clear_all_markers() end
+    if was_show_markers and not cfg.show_markers then ab_smart_map.clear_all_markers() end
 end
 
 -- ==================== DEATH HANDLER ====================
@@ -438,7 +438,7 @@ end
 -- Try to qualify one smart for the with_budget array; nil-skip + can-advance + budget check.
 local function _try_collect_smart(smart, faction, with_budget)
     if not smart or not _can_advance(smart) then return end
-    local matched, budget_str = ab_recipe.evaluate_budget_for_faction(smart, faction)
+    local matched, budget_str = ab_smart_recipe.evaluate_budget_for_faction(smart, faction)
     if not matched then return end
     with_budget[#with_budget + 1] = { smart = smart, budget_str = budget_str }
 end
@@ -469,7 +469,7 @@ local function _fire_advance(level_id, faction, pick, triggering_count, threshol
     _stats.advances = _stats.advances + 1
     _record_advance(smart, level_id, faction, triggering_count, threshold,
                  before_cooldown, pick.budget_str)
-    if cfg.show_markers then ab_map.mark_smart_with_linger(smart) end
+    if cfg.show_markers then ab_smart_map.mark_smart_with_linger(smart) end
     tmr:stop()
     if _dbg then
         local params    = _get_advance_params(smart)
@@ -513,7 +513,7 @@ end
 -- [BELOW] count below threshold; [DEFER] threshold met but every eligible is at
 -- budget cap or floor (counter holds); [BURST] >1 advance fired this tick.
 local function _try_advance_for_faction(level_id, by_faction, faction, count)
-    local eligibles, threshold = ab_recipe.get_eligible_and_threshold(level_id, faction)
+    local eligibles, threshold = ab_smart_recipe.get_eligible_and_threshold(level_id, faction)
     if #eligibles == 0 then
         if _dbg then
             log.debug("[NOELIG] level=%d faction=%s count=%d threshold=%d",
@@ -566,7 +566,7 @@ local function _periodic_tick()
             _try_advance_for_faction(level_id, by_faction, faction, count)
         end
     end
-    ab_map.prune_markers()
+    ab_smart_map.prune_markers()
     tmr:stop()
     if _dbg then
         log.debug("[SUMMARY] deaths=%d counted=%d vermin=%d no_squad=%d no_faction=%d no_level=%d ticks=%d advances=%d spawns=%d from_advance=%d [%.2fms]",
@@ -576,7 +576,7 @@ local function _periodic_tick()
     end
 end
 
--- ==================== STATS DISPLAY (public, called by ab_map menu) ====================
+-- ==================== STATS DISPLAY (public, called by ab_smart_map menu) ====================
 
 -- Show tracked stats for a smart that received advances, via stacked PDA tips. Pulls from
 -- _smart_stats and reads live engine state for current cooldown / budget / capacity, so
@@ -618,8 +618,8 @@ end
 -- ==================== LIFECYCLE ====================
 
 local function _reset_state()
-    ab_map.clear_all_markers()
-    ab_recipe.reset_state()
+    ab_smart_map.clear_all_markers()
+    ab_smart_recipe.reset_state()
     _deaths       = {}
     _delta_cache  = {}
     _seen_squads  = {}

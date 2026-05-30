@@ -2,7 +2,7 @@
 --- KILL_INTERVAL wall seconds. Pool spans the entire world (every smart on
 --- every level), partitioned into on-actor-level and off-actor-level sets.
 --- Ticks alternate strict 1:1 between the two pools, so every other death
---- is from a remote level. Same filter as ab_pacing (rat/tushkano exclusion)
+--- is from a remote level. Same filter as ab_smart_balance (rat/tushkano exclusion)
 --- so the test exercises the same code path.
 --- Logs to alifebalance.log.
 ---
@@ -35,7 +35,7 @@ local _tick_count = 0
 local function _is_valid_squad(squad)
     if not squad then return false end
     if squad:npc_count() == 0 then return false end
-    if ab_pacing.is_vermin_squad(squad) then return false end
+    if ab_smart_balance.is_vermin_squad(squad) then return false end
     return true
 end
 
@@ -93,7 +93,7 @@ end
 -- scripts/xr_effects.script:3472-3478). Online: game_object:kill fires
 -- npc_on_death -> squad:on_npc_death -> SendScriptCallback("squad_on_npc_death").
 -- Offline: server_entity:kill fires the equivalent server-side path. Both end
--- at the same callback ab_pacing listens to.
+-- at the same callback ab_smart_balance listens to.
 local function _kill_one(npc_id)
     local cl_obj = db.storage[npc_id] and db.storage[npc_id].object
     if cl_obj then
