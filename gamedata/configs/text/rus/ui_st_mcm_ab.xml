@@ -5,9 +5,7 @@
     <text>AlifeBalance</text>
   </string>
   <!-- ==================== TAB NAMES ==================== -->
-  <string id="ui_mcm_menu_general">
-    <text>Общие</text>
-  </string>
+  
   <string id="ui_mcm_menu_development">
     <text>Разработка</text>
   </string>
@@ -15,56 +13,52 @@
   <string id="ui_mcm_ab_title">
     <text>AlifeBalance</text>
   </string>
-  <string id="ui_mcm_ab_general_info">
+  <string id="ui_mcm_ab_smart_balance_desc">
     <text>Бой опустошает Зону быстрее, чем движок её пополняет. AlifeBalance отслеживает смерти по парам (уровень, фракция) и продвигает кулдаун респавна подходящей умной территории на этом уровне на долю её кулдауна за каждое продвижение. После заданного числа продвижений кулдаун истекает, и движок спавнит один отряд из собственного настроенного пула территории на следующем такте alife. Сам ничего не спавнит. Работает вместе с ваниллой, ZCP, Redone и любым другим модом-спавнером.</text>
   </string>
   <!-- General - Smart Balance -->
-  <string id="ui_mcm_ab_hdr_pacing">
-    <text>Smart Balance</text>
-  </string>
-  <string id="ui_mcm_ab_general_enabled">
+  
+  <string id="ui_mcm_ab_smart_balance_enabled">
     <text>Включить Smart Balance</text>
   </string>
-  <string id="ui_mcm_ab_general_enabled_desc">
+  <string id="ui_mcm_ab_smart_balance_enabled_desc">
     <text>Главный переключатель Smart Balance. Когда выключено, нет отслеживания смертей и продвижений кулдауна.</text>
   </string>
-  <string id="ui_mcm_ab_general_advances">
+  <string id="ui_mcm_ab_smart_balance_advances">
     <text>Продвижений до минимума</text>
   </string>
-  <string id="ui_mcm_ab_general_advances_desc">
+  <string id="ui_mcm_ab_smart_balance_advances_desc">
     <text>Сколько продвижений нужно, чтобы довести одну территорию с полного кулдауна до минимума (min_minutes). Одно продвижение срабатывает, когда для пары (уровень, фракция) накопилось убийств на один отряд (порог), и вычитает 1/advances кулдауна территории. AlifeBalance ничего не спавнит; как только кулдаун территории достигает минимума, естественные часы движка состаривают остаток и собственный try_respawn движка запускает свой обычный спавн. При 1 один порог доводит территорию до минимума за одно продвижение. При 4 (по умолчанию) четыре порога проводят территорию, 25% на продвижение. При 8 восемь порогов, 12.5% на продвижение. Большие значения растягивают ускорение на более длительный бой.</text>
   </string>
-  <string id="ui_mcm_ab_general_min_minutes">
+  <string id="ui_mcm_ab_smart_balance_min_minutes">
     <text>Минимальный остаток кулдауна (игровых минут)</text>
   </string>
-  <string id="ui_mcm_ab_general_min_minutes_desc">
+  <string id="ui_mcm_ab_smart_balance_min_minutes_desc">
     <text>Минимум кулдауна, который должен оставаться у территории после применения продвижения, в игровых минутах. AlifeBalance никогда не сдвигает кулдаун ниже этого минимума; собственные часы движка естественно состаривают последний отрезок и запускают спавн оттуда. Территория, уже на минимуме или ниже, пропускается на следующем продвижении (счётчик удерживается до следующего тика). По умолчанию 120 минут (два игровых часа). Поднимите, чтобы оставлять больше естественного кулдауна после каждого продвижения.</text>
   </string>
-  <string id="ui_mcm_ab_hdr_inventory">
-    <text>Inventory Balance</text>
-  </string>
-  <string id="ui_mcm_ab_general_enabled_inventory">
+  
+  <string id="ui_mcm_ab_inventory_balance_enabled_inventory">
     <text>Включить Inventory Balance</text>
   </string>
-  <string id="ui_mcm_ab_general_enabled_inventory_desc">
+  <string id="ui_mcm_ab_inventory_balance_enabled_inventory_desc">
     <text>Периодический сканер обходит инвентари онлайн-NPC, чтобы долгоживущие NPC (сюжетные NPC, торговцы, компаньоны, выжившие гулаги) не накапливали груды награбленного, как с трупов. Каждый онлайн-сталкер сканируется не чаще одного раза в игровые сутки; сканер обходит подходящих NPC небольшими партиями с распределением по кадрам. Лимиты по категориям загружаются из configs/alifebalance/ab_inventory_policy.ltx — всё, что выше max, выбрасывается. Охватывает патроны в слотах оружия (в патронах), гранаты, расходники (medkit / bandage / antirad / stim / pill / food / drink) и снаряжение (weapons / outfits / helmets / artefacts / crafting / device); поддерживает переопределение через DLTX. Квестовые предметы, экипированное снаряжение, предметы с runtime-story_id, предметы, отданные компаньону, и оружие, привязанное игроком, фильтруются xinventory и не подлежат сбросу. Когда выключено, действует штатная очистка, и онлайн-инвентари растут без ограничений.</text>
   </string>
-  <string id="ui_mcm_ab_general_npcs_per_frame">
+  <string id="ui_mcm_ab_inventory_balance_npcs_per_frame">
     <text>NPC за кадр</text>
   </string>
-  <string id="ui_mcm_ab_general_npcs_per_frame_desc">
+  <string id="ui_mcm_ab_inventory_balance_npcs_per_frame_desc">
     <text>Сколько NPC сканер обрабатывает за один кадр. 1 удерживает каждый кадр дешёвым (один проход по инвентарю за кадр). Повышайте, только если сканер не успевает по подходящему набору на очень больших сохранениях; кулдаун на NPC и так распределяет работу на длинные интервалы игрового времени.</text>
   </string>
-  <string id="ui_mcm_ab_general_npcs_per_cycle">
+  <string id="ui_mcm_ab_inventory_balance_npcs_per_cycle">
     <text>NPC за цикл</text>
   </string>
-  <string id="ui_mcm_ab_general_npcs_per_cycle_desc">
+  <string id="ui_mcm_ab_inventory_balance_npcs_per_cycle_desc">
     <text>Максимум NPC, выбираемых на один цикл сканера. Сканер обходит онлайн-сталкеров, берёт N с самым старым последним сканом и обрабатывает их по кадрам со скоростью NPC-за-кадр. Меньшие значения уменьшают каждый цикл (меньше работы скучивается); большие охватывают больше онлайн-набора за цикл.</text>
   </string>
-  <string id="ui_mcm_ab_general_scan_cooldown_h">
+  <string id="ui_mcm_ab_inventory_balance_scan_cooldown_h">
     <text>Кулдаун повторного скана на NPC (игровые часы)</text>
   </string>
-  <string id="ui_mcm_ab_general_scan_cooldown_h_desc">
+  <string id="ui_mcm_ab_inventory_balance_scan_cooldown_h_desc">
     <text>NPC не пересканируется, пока не прошло столько игровых часов с момента его последнего скана. По умолчанию 24 (одни игровые сутки). Меньшие значения чистят чаще (агрессивнее против быстрых хабарщиков); большие снижают общую нагрузку и позволяют NPC дольше держать умеренный груз. В сочетании с NPC-за-цикл это и есть лимит скорости для всей функции.</text>
   </string>
   <string id="ui_mcm_ab_development_show_markers">
@@ -121,4 +115,4 @@
   <string id="ui_mcm_ab_development_btn_reset_counters_desc">
     <text>Очищает все счётчики смертей, кэши подходящих и порогов, статистику продвижений по территориям и диагностические счётчики. Уже записанные продвижения кулдауна в метках времени умных территорий сохраняются; движок разрешит их на следующем try_respawn.</text>
   </string>
-</string_table>
+<string id="ui_mcm_menu_smart_balance"><text>Smart Balance</text></string><string id="ui_mcm_menu_inventory_balance"><text>Inventory Balance</text></string><string id="ui_mcm_ab_inventory_balance_desc"><text>Долгоживущие NPC (сюжетные NPC, торговцы, спутники, выжившие гулагов) копят предметы за сотни игровых дней. Inventory Balance обходит онлайн-сталкеров небольшими партиями и сбрасывает всё, что превышает потолок по категории, из configs/alifebalance/ab_inventory_policy.ltx. Каждый NPC пересканируется не чаще раза в игровые сутки. Потолки переопределяются через DLTX.</text></string></string_table>

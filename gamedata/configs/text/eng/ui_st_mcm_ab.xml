@@ -6,84 +6,73 @@
     </string>
 
     <!-- ==================== TAB NAMES ==================== -->
-    <string id="ui_mcm_menu_general">
-        <text>General</text>
+    <string id="ui_mcm_menu_smart_balance">
+        <text>Smart Balance</text>
+    </string>
+    <string id="ui_mcm_menu_inventory_balance">
+        <text>Inventory Balance</text>
     </string>
     <string id="ui_mcm_menu_development">
         <text>Development</text>
     </string>
 
-    <!-- ==================== GENERAL TAB ==================== -->
+    <!-- ==================== SHARED ==================== -->
     <string id="ui_mcm_ab_title">
         <text>AlifeBalance</text>
     </string>
-    <string id="ui_mcm_ab_general_info">
+
+    <!-- ==================== SMART BALANCE TAB ==================== -->
+    <string id="ui_mcm_ab_smart_balance_desc">
         <text>Combat thins the Zone faster than the engine refills it. AlifeBalance tracks deaths per (level, faction) and advances the respawn cooldown of an eligible smart on that level by a fraction of its cooldown each advance. After the configured number of advances the cooldown expires and the engine spawns one squad from the smart's own configured pool on its next alife tick. It does not spawn anything itself. Works alongside vanilla, ZCP, Redone, and any other spawner mod.</text>
     </string>
-
-    <!-- General - Smart Balance -->
-    <string id="ui_mcm_ab_hdr_pacing">
-        <text>Smart Balance</text>
-    </string>
-    <string id="ui_mcm_ab_general_enabled">
+    <string id="ui_mcm_ab_smart_balance_enabled">
         <text>Enable Smart Balance</text>
     </string>
-    <string id="ui_mcm_ab_general_enabled_desc">
+    <string id="ui_mcm_ab_smart_balance_enabled_desc">
         <text>Master toggle for Smart Balance. When off, no death tracking and no cooldown advances.</text>
     </string>
-    <string id="ui_mcm_ab_general_advances">
+    <string id="ui_mcm_ab_smart_balance_advances">
         <text>Advances to floor</text>
     </string>
-    <string id="ui_mcm_ab_general_advances_desc">
+    <string id="ui_mcm_ab_smart_balance_advances_desc">
         <text>How many advances it takes to drive one smart from full cooldown to the min_minutes floor. One advance fires when a squad's worth of deaths (the threshold) has accumulated for a (level, faction) pair, and subtracts 1/advances of the smart's cooldown. AlifeBalance does not spawn anything; once the smart's cooldown is at the floor, the engine's own clock ages out the rest and the engine's try_respawn fires its normal spawn. At 1, one threshold puts a smart at the floor in one advance. At 4 (default), four thresholds drive a smart through, 25% per advance. At 8, eight thresholds, 12.5% per advance. Higher values pace the acceleration across more sustained combat.</text>
     </string>
-    <string id="ui_mcm_ab_general_min_minutes">
+    <string id="ui_mcm_ab_smart_balance_min_minutes">
         <text>Minimum cooldown remaining (game minutes)</text>
     </string>
-    <string id="ui_mcm_ab_general_min_minutes_desc">
+    <string id="ui_mcm_ab_smart_balance_min_minutes_desc">
         <text>Minimum cooldown that must remain on a smart after an advance applies, in game minutes. AlifeBalance never pushes the cooldown below this floor; the engine's own clock ages out the last leg naturally and fires the spawn from there. A smart already at or below this floor is skipped on the next advance (counter holds for next tick). Default 120 minutes (two game hours). Raise to leave more natural cooldown after every advance.</text>
     </string>
 
-    <!-- General - Inventory Balance -->
-    <string id="ui_mcm_ab_hdr_inventory">
-        <text>Inventory Balance</text>
+    <!-- ==================== INVENTORY BALANCE TAB ==================== -->
+    <string id="ui_mcm_ab_inventory_balance_desc">
+        <text>Long-lived NPCs (story NPCs, traders, companions, gulag survivors) accumulate items across hundreds of game-days. Inventory Balance walks online stalkers in small batches and releases anything above the per-category ceiling from configs/alifebalance/ab_inventory_policy.ltx. Each NPC is rescanned at most once per game-day. Ceilings are DLTX-overridable.</text>
     </string>
-    <string id="ui_mcm_ab_general_enabled_inventory">
+    <string id="ui_mcm_ab_inventory_balance_enabled_inventory">
         <text>Enable Inventory Balance</text>
     </string>
-    <string id="ui_mcm_ab_general_enabled_inventory_desc">
-        <text>Periodic scanner that trims online NPC inventories so long-lived NPCs (story NPCs, traders, companions, gulag survivors) never accumulate a corpse-sized hoard. Each online stalker is rescanned at most once per game-day; the scanner walks the eligible set in small batches spread across frames. Per-category max ceilings loaded from configs/alifebalance/ab_inventory_policy.ltx — anything above the max is released. Covers equipped-slot ammo (in rounds), grenades, consumables (medkit / bandage / antirad / stim / pill / food / drink), and gear (weapons / outfits / helmets / artefacts / crafting / device); DLTX-overridable. Quest items, equipped gear, runtime-story_id items, companion-gifted items, and player-strapped weapons are pre-filtered by xinventory and never touched. When off, vanilla trim applies and online inventories accumulate without bound.</text>
+    <string id="ui_mcm_ab_inventory_balance_enabled_inventory_desc">
+        <text>Periodic scanner that trims online NPC inventories so long-lived NPCs (story NPCs, traders, companions, gulag survivors) never accumulate a corpse-sized hoard. Each online stalker is rescanned at most once per game-day. The scanner walks the eligible set in small batches spread across frames. Per-category max ceilings loaded from configs/alifebalance/ab_inventory_policy.ltx. Anything above the max is released. Covers equipped-slot ammo (in rounds), grenades, consumables (medkit / bandage / antirad / stim / pill / food / drink), and gear (weapons / outfits / helmets / artefacts / crafting / device). DLTX-overridable. Quest items, equipped gear, runtime-story_id items, companion-gifted items, and player-strapped weapons are pre-filtered by xinventory and never touched. When off, vanilla trim applies and online inventories accumulate without bound.</text>
     </string>
-    <string id="ui_mcm_ab_general_npcs_per_frame">
+    <string id="ui_mcm_ab_inventory_balance_npcs_per_frame">
         <text>NPCs per frame</text>
     </string>
-    <string id="ui_mcm_ab_general_npcs_per_frame_desc">
-        <text>How many NPCs the scanner trims in a single frame. 1 keeps every frame cheap (one inventory walk per frame). Raise only if the scanner cannot keep up with the eligible set on very large saves; the per-NPC cooldown already paces work across long stretches of game-time.</text>
+    <string id="ui_mcm_ab_inventory_balance_npcs_per_frame_desc">
+        <text>How many NPCs the scanner trims in a single frame. 1 keeps every frame cheap (one inventory walk per frame). Raise only if the scanner cannot keep up with the eligible set on very large saves. The per-NPC cooldown already paces work across long stretches of game-time.</text>
     </string>
-    <string id="ui_mcm_ab_general_npcs_per_cycle">
+    <string id="ui_mcm_ab_inventory_balance_npcs_per_cycle">
         <text>NPCs per cycle</text>
     </string>
-    <string id="ui_mcm_ab_general_npcs_per_cycle_desc">
-        <text>Maximum NPCs picked per scanner cycle. The scanner walks online stalkers, takes the N whose last scan is oldest, and trims them across frames at NPCs-per-frame pace. Lower values keep each cycle smaller (less work bunched together); higher values cover more of the online set per cycle.</text>
+    <string id="ui_mcm_ab_inventory_balance_npcs_per_cycle_desc">
+        <text>Maximum NPCs picked per scanner cycle. The scanner walks online stalkers, takes the N whose last scan is oldest, and trims them across frames at NPCs-per-frame pace. Lower values keep each cycle smaller (less work bunched together). Higher values cover more of the online set per cycle.</text>
     </string>
-    <string id="ui_mcm_ab_general_scan_cooldown_h">
+    <string id="ui_mcm_ab_inventory_balance_scan_cooldown_h">
         <text>Per-NPC rescan cooldown (game hours)</text>
     </string>
-    <string id="ui_mcm_ab_general_scan_cooldown_h_desc">
-        <text>An NPC is not rescanned until this many game-hours have elapsed since its last scan. Default 24 (one game-day). Lower values trim more often (more aggressive against fast hoarders); higher values reduce overall work and let NPCs hold modest loot longer. Combined with NPCs-per-cycle this is the rate limit on the whole feature.</text>
+    <string id="ui_mcm_ab_inventory_balance_scan_cooldown_h_desc">
+        <text>An NPC is not rescanned until this many game-hours have elapsed since its last scan. Default 24 (one game-day). Lower values trim more often (more aggressive against fast hoarders). Higher values reduce overall work and let NPCs hold modest loot longer. Combined with NPCs-per-cycle this is the rate limit on the whole feature.</text>
     </string>
-    <string id="ui_mcm_ab_development_show_markers">
-        <text>Show map markers</text>
-    </string>
-    <string id="ui_mcm_ab_development_show_markers_desc">
-        <text>Place a green PDA map marker on every smart terrain that receives an advance. The marker lingers for 5 real-time minutes, then clears. Right-click any marker to teleport to that smart or show its stats. Independent of log level.</text>
-    </string>
-    <string id="st_ab_smart_map_teleport_to">
-        <text>Teleport to</text>
-    </string>
-    <string id="st_ab_smart_map_show_stats">
-        <text>Show stats for</text>
-    </string>
+
     <!-- ==================== DEVELOPMENT TAB ==================== -->
     <string id="ui_mcm_ab_development_desc">
         <text>Debug and development tools. DEBUG level enables structured tracing of every advance to alifebalance.log. Has performance cost.</text>
@@ -116,6 +105,12 @@
     <string id="ui_mcm_ab_hdr_diagnostics">
         <text>Diagnostics</text>
     </string>
+    <string id="ui_mcm_ab_development_show_markers">
+        <text>Show map markers</text>
+    </string>
+    <string id="ui_mcm_ab_development_show_markers_desc">
+        <text>Place a green PDA map marker on every smart terrain that receives an advance. The marker lingers for 5 real-time minutes, then clears. Right-click any marker to teleport to that smart or show its stats. Independent of log level.</text>
+    </string>
     <string id="ui_mcm_ab_development_btn_show_status">
         <text>Show status</text>
     </string>
@@ -126,6 +121,14 @@
         <text>Reset counters</text>
     </string>
     <string id="ui_mcm_ab_development_btn_reset_counters_desc">
-        <text>Clear all death counters, eligibility and threshold caches, per-smart advance stats, and diagnostic counters. Existing cooldown advances already written to smart-terrain timestamps persist; the engine resolves them on its next try_respawn.</text>
+        <text>Clear all death counters, eligibility and threshold caches, per-smart advance stats, and diagnostic counters. Existing cooldown advances already written to smart-terrain timestamps persist. The engine resolves them on its next try_respawn.</text>
+    </string>
+
+    <!-- Map menu actions -->
+    <string id="st_ab_smart_map_teleport_to">
+        <text>Teleport to</text>
+    </string>
+    <string id="st_ab_smart_map_show_stats">
+        <text>Show stats for</text>
     </string>
 </string_table>

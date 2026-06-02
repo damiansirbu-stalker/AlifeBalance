@@ -19,12 +19,19 @@ defaults = {
 local RegisterScriptCallback = RegisterScriptCallback
 
 local _key_to_tab = {
-    show_markers = "development",
-    log_level    = "development",
+    enabled           = "smart_balance",
+    advances          = "smart_balance",
+    min_minutes       = "smart_balance",
+    enabled_inventory = "inventory_balance",
+    npcs_per_frame    = "inventory_balance",
+    npcs_per_cycle    = "inventory_balance",
+    scan_cooldown_h   = "inventory_balance",
+    show_markers      = "development",
+    log_level         = "development",
 }
 
 local function path_builder(key)
-    local tab = _key_to_tab[key] or "general"
+    local tab = _key_to_tab[key] or "smart_balance"
     return "ab/" .. tab .. "/" .. key
 end
 
@@ -50,34 +57,38 @@ function on_mcm_load()
     return {
         id = "ab",
         gr = {
-            -- ============ GENERAL TAB ============
+            -- ============ SMART BALANCE TAB ============
             {
-                id = "general",
+                id = "smart_balance",
                 sh = true,
                 gr = {
                     { id = "title", type = "slide", link = "ab_mcm_banner",
                         text = "ui_mcm_ab_title", size = {512, 50}, spacing = 20 },
-                    { id = "desc", type = "desc", text = "ui_mcm_ab_general_info" },
-
-                    -- Smart Balance
+                    { id = "desc", type = "desc", text = "ui_mcm_ab_smart_balance_desc" },
                     { id = "div_pacing", type = "line" },
-                    { id = "hdr_pacing", type = "desc", text = "ui_mcm_ab_hdr_pacing", clr = {255, 200, 200, 200} },
                     { id = "enabled", type = "check", val = 1, def = true },
                     { id = "advances", type = "track", val = 2, min = 1, max = 8, step = 1, def = 4 },
                     { id = "min_minutes", type = "track", val = 2, min = 10, max = 360, step = 5, def = 120 },
-
-                    -- Inventory Balance
-                    { id = "div_inventory", type = "line" },
-                    { id = "hdr_inventory", type = "desc", text = "ui_mcm_ab_hdr_inventory", clr = {255, 200, 200, 200} },
-                    { id = "enabled_inventory", type = "check", val = 1, def = true },
-                    { id = "npcs_per_frame", type = "track", val = 2, min = 1, max = 10, step = 1, def = 1 },
-                    { id = "npcs_per_cycle", type = "track", val = 2, min = 5, max = 50, step = 5, def = 20 },
-                    { id = "scan_cooldown_h", type = "track", val = 2, min = 1, max = 72, step = 1, def = 24 },
 
                     -- Version footer
                     { id = "div_version", type = "line" },
                     { id = "version", type = "desc", text = "ui_mcm_ab_title",
                         ui_hook_functor = { set_version_text }, clr = {255, 212, 201, 168} },
+                },
+            },
+            -- ============ INVENTORY BALANCE TAB ============
+            {
+                id = "inventory_balance",
+                sh = true,
+                gr = {
+                    { id = "title", type = "slide", link = "ab_mcm_banner",
+                        text = "ui_mcm_ab_title", size = {512, 50}, spacing = 20 },
+                    { id = "desc", type = "desc", text = "ui_mcm_ab_inventory_balance_desc" },
+                    { id = "div_inventory", type = "line" },
+                    { id = "enabled_inventory", type = "check", val = 1, def = true },
+                    { id = "npcs_per_frame", type = "track", val = 2, min = 1, max = 10, step = 1, def = 1 },
+                    { id = "npcs_per_cycle", type = "track", val = 2, min = 5, max = 50, step = 5, def = 20 },
+                    { id = "scan_cooldown_h", type = "track", val = 2, min = 1, max = 72, step = 1, def = 24 },
                 },
             },
             -- ============ DEVELOPMENT TAB ============
