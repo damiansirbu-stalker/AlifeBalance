@@ -185,7 +185,8 @@ function ab_test_inventory_sanitization()
             _log_info("[ACTION]   released %s = %d", cat, count)
         end
 
-        local MEDKIT_MAX = 3
+        local policy = xinventory.load_policy("alifebalance\\ab_inventory_policy.ltx", { "ab_inventory_policy" })
+        local MEDKIT_MAX = policy.ab_inventory_policy.rules.medkit.max
         local expected_medkit_released = math_max(mid_medkit - MEDKIT_MAX, 0)
         local actual_medkit_released = (result.released_by_category.medkit) or 0
         local actual_ammo_released = (result.released_by_category.ammo_not_equipped) or 0
