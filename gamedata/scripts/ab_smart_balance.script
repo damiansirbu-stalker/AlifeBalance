@@ -60,7 +60,7 @@ end
 local cfg = {
     enabled = true,
     advances = 4,
-    min_minutes = 60,
+    min_minutes = 120,
     show_markers = false,
     log_level = "WARN",
 }
@@ -346,7 +346,7 @@ local function _load_config()
     local was_show_markers = cfg.show_markers
     cfg.enabled      = mcm.enabled
     cfg.advances     = mcm.advances or 4
-    cfg.min_minutes    = mcm.min_minutes or 60
+    cfg.min_minutes    = mcm.min_minutes or 120
     cfg.show_markers = mcm.show_markers
     cfg.log_level    = mcm.log_level
     log.set_level(cfg.log_level)
