@@ -17,9 +17,9 @@ Part of a three-mod alife family: **AlifePlus** extends A-Life with new behavior
 Every smart terrain holds two engine fields that together define when it can spawn next:
 
 - `respawn_idle` — cooldown duration in game-seconds. Set once from LTX (`smart_terrain.script:231`), per-smart. Vanilla LTX default 86400 (24 game hours); the engine code fallback for unset entries is 43200 (12h); ZCP under GAMMA is 21600 (6h); Redone varies. AlifeBalance only reads this field.
-- `last_respawn_update` — timestamp of the smart's last spawn. The engine resets it to `curr_time` after every `SIMBOARD:create_squad`. AlifeBalance writes this field; one subtract per advance, in `_advance_smart` at `ab_smart_balance.script:267-281`.
+- `last_respawn_update` — timestamp of the smart's last spawn. The engine resets it to `curr_time` after every `SIMBOARD:create_squad`. AlifeBalance writes this field; one subtract per advance, in `_advance_smart` at `ab_smart_balance.script:291-305`.
 
-The engine's cooldown gate at `smart_terrain.script:1651`:
+The engine's cooldown gate at `smart_terrain.script:1657`:
 
 ```
 elapsed         = curr_time - last_respawn_update
@@ -59,9 +59,9 @@ The picker's skip conditions in `_can_advance` (called per eligible smart per ti
 - **Degenerate config**: `usable <= 0` (when `Min Minutes * 60 >= respawn_idle`). Vanilla pace owns this smart.
 - **Fresh smart**: `last_respawn_update == nil`. Engine cooldown gate is already open; no acceleration needed.
 - **`advances >= 2`**: skip if a full advance push would overshoot the floor (`max_push < advance_seconds`). No clamping; the next tick can push again after natural ageing.
-- **`advances == 1`**: skip if the smart is within 60 game-seconds of the floor. Precision-drift guard.
+- **`advances == 1`**: skip if `max_push < Min Minutes * 60` (smart is within one `Min Minutes` of the floor, default 7200 game-seconds). Precision-drift guard, and avoids wasting a kill on a smart already close to firing naturally.
 
-The picker sorts eligible smarts by actor-to-smart distance descending. Advances pile on the farthest qualifying smart until it hits the floor, then move to the next-farthest. This is a soft preference: if only near-actor smarts are eligible, they still receive advances, and the engine's own `respawn_radius` gate at `smart_terrain.script:1619` will defer the spawn until the actor moves out.
+The picker sorts eligible smarts by actor-to-smart distance descending. Advances pile on the farthest qualifying smart until it hits the floor, then move to the next-farthest. This is a soft preference: if only near-actor smarts are eligible, they still receive advances, and the engine's own `respawn_radius` gate at `smart_terrain.script:1625` will defer the spawn until the actor moves out.
 
 ---
 
@@ -107,8 +107,8 @@ _periodic_tick()
 
 ENGINE (its own alife tick at the advanced smart)
   - se_smart_terrain:update -> try_respawn
-  - cooldown gate (smart_terrain.script:1651): diff > respawn_idle ? proceed : skip
-  - per-recipe budget gate (smart_terrain.script:1696)
+  - cooldown gate (smart_terrain.script:1657): diff > respawn_idle ? proceed : skip
+  - per-recipe budget gate (smart_terrain.script:1702)
   - picks recipe at random from open ones
   - picks squad section at random from recipe.squads
   - SIMBOARD:create_squad(smart, section)
@@ -129,18 +129,18 @@ ENGINE (its own alife tick at the advanced smart)
 
 ## Engine gates inside try_respawn
 
-`smart_terrain.script:1597-1762` has eight gates. AlifeBalance affects one.
+`smart_terrain.script:1602-1768` has eight gates. AlifeBalance affects one.
 
 | Gate                                          | Source line | Our effect |
 |-----------------------------------------------|-------------|------------|
-| Disabled / on_try_respawn callback            | 1603        | Untouched |
-| Peace info                                    | 1607        | Untouched |
-| Level filter (`respawn_only_level`)           | 1611        | Untouched |
-| Actor distance (`respawn_radius`)             | 1619        | Untouched |
-| `respawn_params and already_spawned` exist    | 1625        | Untouched |
-| Simulation availability                       | 1630        | Untouched |
-| Cooldown timer                                | 1651        | Subtract `(respawn_idle - Min Minutes*60) / advances` from `last_respawn_update` per advance |
-| Per-recipe budget                             | 1696        | Untouched |
+| Disabled / on_try_respawn callback            | 1607        | Untouched |
+| Peace info                                    | 1613        | Untouched |
+| Level filter (`respawn_only_level`)           | 1618        | Untouched |
+| Actor distance (`respawn_radius`)             | 1625        | Untouched |
+| `respawn_params and already_spawned` exist    | 1631        | Untouched |
+| Simulation availability                       | 1636        | Untouched |
+| Cooldown timer                                | 1657        | Subtract `(respawn_idle - Min Minutes*60) / advances` from `last_respawn_update` per advance |
+| Per-recipe budget                             | 1702        | Untouched |
 
 ---
 
@@ -263,12 +263,12 @@ Policy values live in `gamedata/configs/alifebalance/ab_inventory_policy.ltx` (D
 | ammo_slot_3_t1, ammo_slot_3_t2 | 120 (rounds) | NPC keeps 4 mags of rifle ammo per tier |
 | ammo_slot_2_t1, ammo_slot_2_t2 | 48 (rounds) | NPC keeps 3 mags of pistol ammo per tier |
 | ammo_not_equipped | 0 | Always release mismatched ammo |
-| grenade | 2 | Hand grenade buffer |
-| grenade_ammo | 5 | Launcher rounds (vog-25, og-7b, m209) |
-| medkit, bandage | 3 | Emergency self-heal + spare to trade |
-| food | 3 | Spare consumables |
-| antirad, stim, pill | 2 | Niche consumables |
-| drink | 2 | NPCs rarely benefit |
+| grenade | 3 | Hand grenade buffer |
+| grenade_ammo | 6 | Launcher rounds (vog-25, og-7b, m209) |
+| medkit, bandage | 5 | Self-heal supply; matches trade veteran max so trade-acquired bandages survive between visits |
+| food | 5 | Spare consumables |
+| antirad, stim, pill | 3 | Niche consumables |
+| drink | 3 | NPCs rarely benefit |
 | weapon | 1 | One spare for trading (equipped pre-filtered) |
 | outfit, helmet, device | 1 | One spare each (equipped pre-filtered) |
 | artefact, crafting | 3 | Harvested artefacts / tools-parts-upgrades for traders |
@@ -334,19 +334,19 @@ No persistence. The cooldown table not saved; on game load every NPC is fresh an
 
 ## MCM
 
-| Setting              | Tab         | Section       | Type   | Default | Range   | Effect |
-|----------------------|-------------|---------------|--------|---------|---------|--------|
-| `enabled`            | General     | Smart Balance | check  | true    | -       | Master toggle |
-| `advances`           | General     | Smart Balance | track  | 4       | 1-8     | Per-advance subtract is `(respawn_idle - Min Minutes*60) / advances` |
-| `Min Minutes`        | General     | Smart Balance | track  | 120     | 10-360  | Minimum cooldown remaining after every advance, in game minutes |
-| `enabled_inventory`  | General     | Inventory Balance | check  | true    | -       | Scanner enable. When off, no scheduler, no trims. |
-| `npcs_per_frame`     | General     | Inventory Balance | track  | 1       | 1-10    | xslice step: NPCs trimmed per frame inside a cycle. |
-| `npcs_per_cycle`     | General     | Inventory Balance | track  | 20      | 5-50    | Per-cycle batch cap: max NPCs picked per cycle (oldest-scanned first). |
-| `scan_cooldown_h`    | General     | Inventory Balance | track  | 24      | 1-72    | Per-NPC rescan cooldown in game-hours. |
-| `log_level`          | Development | Logging       | list   | WARN    | -       | ERROR / WARN / INFO / DEBUG |
-| `show_markers`       | Development | Diagnostics   | check  | false   | -       | Green PDA marker on every advanced smart, 5-min linger, right-click teleport / stats |
-| `btn_show_status`    | Development | Diagnostics   | button | -       | -       | PDA tip with death / counted / vermin / tick / advance / spawn counters |
-| `btn_reset_counters` | Development | Diagnostics   | button | -       | -       | Clears `_deaths`, `_delta_cache`, `_smart_stats`, `_seen_squads`, `_stats`, ab_smart_recipe caches, and all markers |
+| Setting              | Tab               | Type   | Default | Range   | Effect |
+|----------------------|-------------------|--------|---------|---------|--------|
+| `enabled`            | Smart Balance     | check  | true    | -       | Master toggle |
+| `advances`           | Smart Balance     | track  | 4       | 1-8     | Per-advance subtract is `(respawn_idle - Min Minutes*60) / advances` |
+| `Min Minutes`        | Smart Balance     | track  | 120     | 10-360  | Minimum cooldown remaining after every advance, in game minutes |
+| `enabled_inventory`  | Inventory Balance | check  | true    | -       | Scanner enable. When off, no scheduler, no trims. |
+| `npcs_per_frame`     | Inventory Balance | track  | 1       | 1-10    | xslice step: NPCs trimmed per frame inside a cycle. |
+| `npcs_per_cycle`     | Inventory Balance | track  | 20      | 5-50    | Per-cycle batch cap: max NPCs picked per cycle (oldest-scanned first). |
+| `scan_cooldown_h`    | Inventory Balance | track  | 24      | 1-72    | Per-NPC rescan cooldown in game-hours. |
+| `log_level`          | Development       | list   | WARN    | -       | ERROR / WARN / INFO / DEBUG |
+| `show_markers`       | Development       | check  | false   | -       | Green PDA marker on every advanced smart, 5-min linger, right-click teleport / stats |
+| `btn_show_status`    | Development       | button | -       | -       | PDA tip with death / counted / vermin / tick / advance / spawn counters |
+| `btn_reset_counters` | Development       | button | -       | -       | Clears `_deaths`, `_delta_cache`, `_smart_stats`, `_seen_squads`, `_stats`, ab_smart_recipe caches, and all markers |
 
 Threshold has no knob — it is engine-grounded, read from `squad_descr` LTX per (level, faction) and cached.
 
@@ -372,7 +372,7 @@ Threshold has no knob — it is engine-grounded, read from `squad_descr` LTX per
 
 | Mod | Interaction |
 |-----|-------------|
-| Vanilla `try_respawn` | Reads `last_respawn_update` at `smart_terrain.script:1651`. The advance moves the same field. Budget eval applies `ui_options.get("alife/general/alife_stalker_pop" / "..._mutant_pop")` to match the engine's pop_factor multiplier at `smart_terrain.script:1681-1688`. |
+| Vanilla `try_respawn` | Reads `last_respawn_update` at `smart_terrain.script:1657`. The advance moves the same field. Budget eval applies `ui_options.get("alife/general/alife_stalker_pop" / "..._mutant_pop")` to match the engine's pop_factor multiplier at `smart_terrain.script:1669-1690`. |
 | ZCP (forked `try_respawn`) | Gates against `smr_amain_mcm.get_config("respawn_idle")`, not `smart.respawn_idle`. AB's `_resolve_idle` reads the same cvar so the per-advance subtract sizes against ZCP's actual gate. Budget eval applies `smr_amain_mcm.get_config("stalker_pop_factor" / "monster_pop_factor")` to match `smr_pop.get_*_pop_factor` at `smr_pop.script:372-389`. The `Min Minutes` floor holds against the resolved cycle. |
 | ZCP `smr_handle_spawn` | Substitutes the squad section in flight (zombie 90% under Survival; random mutant for monster squads; faction reshuffle for stalkers per `smr_pop.script:288-339`). Replacement still gets `respawn_point_id` and `respawn_point_prop_section` set, so engine budget accounting stays intact. The (level, faction) population invariant degrades to "deaths bound system-wide refill, not per-faction refill" under ZCP: AB credits faction A's kills, ZCP may produce faction B's squad. Total spawn-rate cap holds; per-faction accounting does not. |
 | Redone Collection | Pure LTX configuration. AlifeBalance writes runtime state. No conflict. |
