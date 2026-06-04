@@ -26,6 +26,7 @@ local _key_to_tab = {
     scan_cooldown_h   = "inventory_balance",
     show_markers      = "development",
     log_level         = "development",
+    btn_reset_all     = "development",
 }
 
 local function path_builder(key)
@@ -36,6 +37,47 @@ end
 cfg, get_config, load_config = xmcm.create_config("ab", defaults, path_builder)
 
 -- ==================== BUTTON HANDLERS ====================
+
+-- functor_ui receives the UI_MCM instance as trailing arg (ui_mcm.script:1435).
+-- functor would receive nothing. MCM 1.7.2fix leaves the file-local GUI nil on fresh opens
+-- (only Open_to sets it, and Reset_last_opt skips Open_to when last_path is nil), so
+-- ui_mcm.get_gui() returns nil. functor_ui sidesteps that bug.
+-- MCM keeps file-local opt_temp (pending widget edits) at ui_mcm.script:175. Any widget
+-- the user touched before clicking the profile button is still there, and On_Accept at
+-- ui_mcm.script:2393 writes opt_temp AFTER our config writes, partially un-applying the
+-- profile. On_Discard flushes opt_temp and closes the dialog; same path the Cancel button
+-- takes.
+local function _apply_defaults(gui, msg)
+    local config = axr_main.config
+    for k, v in pairs(defaults) do
+        config:w_value("mcm", path_builder(k), v)
+    end
+    config:save()
+    load_config()
+    if gui then
+        if gui.owner and gui.owner.SetMsg then
+            gui.owner:SetMsg(msg, 5)
+        end
+        -- Close via On_Cancel, not On_Discard. On_Discard calls Reset_opt -> scroll_opt:Clear
+        -- at ui_mcm.script:949, which destroys the btn_reset_all button while its click
+        -- handler is still on the stack; C++ dispatcher returns into the freed control and
+        -- SEH-fires on some exe builds (e.g. modified vanilla 1.5.3). On_Cancel only calls
+        -- HideDialog + Unregister_UI -- scroll_opt children stay alive long enough for the
+        -- handler to unwind. Trade-off: opt_temp is not cleared (vanilla Cancel-without-prompt
+        -- parity). If the user touched widgets before clicking reset, those edits remain
+        -- pending and will be re-applied on the next On_Accept.
+        if gui.On_Cancel then
+            gui:On_Cancel()
+        end
+    end
+    if db.actor then
+        news_manager.send_tip(db.actor, msg, nil, nil, 5000)
+    end
+end
+
+function btn_reset_all(gui)
+    _apply_defaults(gui, "AlifeBalance: all settings restored to defaults.")
+end
 
 function btn_show_status()
     if ab_smart_balance and ab_smart_balance.show_status then
@@ -96,6 +138,11 @@ function on_mcm_load()
                     { id = "title", type = "slide", link = "ab_mcm_banner",
                         text = "ui_mcm_ab_title", size = {512, 50}, spacing = 20 },
                     { id = "desc", type = "desc", text = "ui_mcm_ab_development_desc" },
+
+                    -- Reset
+                    { id = "div_reset", type = "line" },
+                    { id = "warn_reset", type = "desc", text = "ui_mcm_ab_development_reset_warning", clr = {255, 240, 200, 80} },
+                    { id = "btn_reset_all", type = "button", functor_ui = { btn_reset_all } },
 
                     -- Logging
                     { id = "div_logging", type = "line" },
