@@ -1,17 +1,22 @@
 <h3>Version: 1.0.2 (xlibs 1.7.0)</h3>
-<h3><a href="https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/architecture.md">Architecture</a> | <a href="https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/changelog">Changelog</a> | <a href="https://github.com/damiansirbu-stalker/AlifeBalance/issues">Bugs, suggestions</a></h3>
-<p><b>! Please use the RESET button in MCM when updating to a new version !</b></p>
-<p>The Anomaly A-Life simulation runs respawn cooldowns on a fixed schedule. The schedule does not know about combat pressure or quiet periods, so heavily fought regions empty out while ignored ones drift toward overcrowding. AlifeBalance is a balance layer that corrects this gap without rewriting the engine.</p>
-<p>Built as a companion to <a href="https://www.moddb.com/mods/stalker-anomaly/addons/alifeplus-v1-0-01">AlifePlus</a>, which increases NPC activity and combat across the Zone. More activity means more deaths, and AlifeBalance scales refill to match. Both mods are independent and can be used separately.</p>
+<h3><a href="https://github.com/damiansirbu-stalker/AlifeBalance">GitHub</a> | <a href="https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/changelog">Changelog</a> | <a href="https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/architecture.md">Architecture</a> | <a href="https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/readme_ru.txt">Russian / Na russkom</a> | <a href="https://github.com/damiansirbu-stalker/AlifeBalance/issues">Bugs, suggestions</a></h3>
 
-<h2>Companion mods</h2>
-<ul>
-<li><b>AlifePlus</b> (reactive A-Life framework) &mdash; <a href="https://www.moddb.com/mods/stalker-anomaly/addons/alifeplus-v1-0-01">ModDB</a> | <a href="https://www.nexusmods.com/stalkeranomaly/mods/105">Nexus</a></li>
-<li><b>AlifeGuard</b> (entity hygiene) &mdash; <a href="https://www.moddb.com/mods/stalker-anomaly/addons/alifeguard-1001">ModDB</a> | <a href="https://www.nexusmods.com/stalkeranomaly/mods/104">Nexus</a></li>
-</ul>
-<h2>Why not just shorten the global cooldown to 1h or 2h?</h2>
-<p>The engine's <i>respawn_idle</i> is one number shared by every smart terrain in the entire Zone: every level, every faction, every empty corner. Shorten it and the world cycles faster everywhere at once. The level you are fighting in and the quiet maps you will never visit this session both refill at the new accelerated rate. The engine has no concept of where combat is happening; it accelerates uniformly. Tactically the actor-distance gate blocks the spawn only while you stand inside a smart's radius, so the moment you walk out the overdue cooldown fires immediately and the squad lands at your back. AlifeBalance applies one targeted advance per threshold of deaths, and the picker chooses the eligible smart farthest from you. Refills happen on the level where the kills happened, away from your current combat, one squad at a time.</p>
-<h2>What you'll notice</h2>
+<p><b>! Reset MCM settings to defaults after updating !</b></p>
+
+<p>AlifeBalance is a balance layer for vanilla A-Life. Smart Balance shortens respawn cooldowns where combat has actually happened, and only there. Inventory Balance bounds NPC inventory hoarding so anti-loot addons are no longer needed. Both features run alongside the engine without rewriting it, and they can be enabled or disabled independently.</p>
+
+<p>Built as a companion to <a href="https://www.moddb.com/mods/stalker-anomaly/addons/alifeplus-v1-0-01">AlifePlus</a>, which adds reactive A-Life behavior across the Zone. More activity means more deaths, and AlifeBalance scales refill to match. Both mods are independent and can be used separately.</p>
+
+<h2>Smart Balance</h2>
+
+<p>Vanilla respawn cooldowns run on a fixed schedule that ignores combat pressure. Regions you fight through empty out while quieter parts of the map drift toward overcrowding.</p>
+
+<p>Smart Balance counts deaths by level and faction. Once enough have accumulated, it shortens the cooldown at one matching smart terrain on that level. The threshold is the largest possible squad size for that faction's spawn pool. The next respawn there gets pulled closer in time, but never all the way to immediate. The picker chooses the smart terrain farthest from you so the refill lands off-screen.</p>
+
+<h3>Why not just shorten the global cooldown to 1h or 2h?</h3>
+<p>The engine's <i>respawn_idle</i> is one number shared by every smart terrain in the entire Zone. Shorten it and the world cycles faster everywhere at once, including maps you will never visit this session. The actor-distance gate blocks the spawn only while you stand inside a smart's radius. The moment you walk out, the overdue cooldown fires and the squad lands at your back. Smart Balance instead applies one targeted advance per threshold of deaths, on the level where the kills happened. The picker chooses the eligible smart farthest from you, so refills land away from your current combat, one squad at a time.</p>
+
+<h3>What you'll notice</h3>
 <ul>
 <li>Active regions recover faster after heavy firefights.</li>
 <li>Inactive regions stop drifting toward overcrowding.</li>
@@ -19,75 +24,112 @@
 <li>Refills land at the far end of the level, off-screen, one squad at a time.</li>
 <li>Vanilla A-Life still owns every spawn.</li>
 </ul>
-<h2>Important</h2>
-<p>AlifeBalance never creates NPCs. It shifts a timestamp the engine was always going to read on its next alife tick. The engine still owns spawning, recipes, squad selection, and budget caps.</p>
-<h2>Features</h2>
-<h3>Smart Pacing</h3>
-<p>The core feature. It speeds up vanilla respawns where combat has actually happened, and only there.</p>
-<p>In plain words: every smart terrain has a built-in waiting period before it can spawn again. AlifeBalance counts deaths per level and per faction. Once enough deaths have piled up for a faction (a number tied to the largest squad size for that faction's spawn pool), it shortens the wait at one matching smart terrain. The next respawn there gets pulled closer in time, but never all the way to immediate. AlifeBalance picks the smart terrain farthest from the player so the refill happens off-screen.</p>
-<p>The engine still handles the spawn itself on its own clock. AlifeBalance only nudges that clock forward, and always leaves at least 2 game-hours of natural waiting before the engine fires. That margin is intentional: combat produces a delayed wave of refills, not instant arrivals.</p>
-<p>Heavy combat moves several smart terrains forward in the same minute. Quiet zones see no movement.</p>
-<p>Two settings in MCM:</p>
+
+<h3>Important</h3>
+<p>Smart Balance never creates NPCs. It shifts a timestamp the engine was always going to read on its next alife tick. The engine still owns spawning, recipes, squad selection, and budget caps.</p>
+
+<h3>Example</h3>
+<p>A firefight kills 30 bandits on Cordon in one minute. Cordon bandit squads max out at 3, so 10 separate adjustments are available. Smart Balance picks up to 10 different bandit-spawning Cordon smart terrains and shortens each one's wait. The refills land over the next couple of game-hours as the engine reaches each smart's now-shorter wait. If every eligible smart is already at population cap or already at the floor, the adjustments are held and the kills carry over to the next check.</p>
+
+<h3>Settings (MCM, Smart Balance tab)</h3>
 <ul>
-<li><b>Advance count</b> (default 4): how aggressively each combat burst shortens the wait. Lower = each burst matters more; higher = needs sustained combat.</li>
-<li><b>Minimum waiting time</b> (default 2 game-hours): the floor AlifeBalance never pushes below. Higher leaves more delay between combat and refill.</li>
+<li><b>Advance count</b> (1-8, default 4): how many combat bursts it takes to fully accelerate one smart terrain. Lower means each burst matters more, higher paces acceleration across longer combat.</li>
+<li><b>Minimum cooldown remaining</b> (10-360 game-minutes, default 120): the floor Smart Balance never pushes below. The engine ages the final wait out on its own clock. Higher leaves more delay between combat and refill.</li>
 </ul>
-<p><b>Example:</b></p>
-<p>A firefight kills 30 bandits on Cordon in one minute. Cordon bandit squads max out at 3, so 10 separate adjustments are available. AlifeBalance picks up to 10 different bandit-spawning Cordon smart terrains and shortens each one's wait. The refills land over the next couple of game-hours as the engine reaches each smart's now-shorter wait. If every Cordon bandit smart terrain is already at population cap or already at the minimum wait, the adjustments are held and the kills carry over to the next check.</p>
-<h2>Compatibility</h2>
-<p>Compatible with vanilla Anomaly 1.5.3, GAMMA, ZCP, Redone, Warfare, AlifeGuard, AlifePlus, Night Mutants, GAMMA Dynamic Despawner, Guards Spawner, Nocturnal Mutants.</p>
+
+<h3>Presets</h3>
 <ul>
-<li>Vanilla and ZCP read the same cooldown field AlifeBalance writes.</li>
-<li>Redone and GAMMA NPC Spawns ship pure config. AlifeBalance writes runtime state on a different layer.</li>
+<li><b>Aggressive</b> (one burst = full advancement): advance count 1, minimum cooldown 60.</li>
+<li><b>Default</b> (one burst = 25% advancement): advance count 4, minimum cooldown 120.</li>
+<li><b>Conservative</b> (one burst = 12.5% advancement): advance count 8, minimum cooldown 360.</li>
+</ul>
+
+<h2>Inventory Balance</h2>
+
+<p>Vanilla NPCs loot corpses, and over a long session this builds up two costs. A long-lived stalker carries a trader run of gear, so killing them becomes a jackpot. Every looted item is also a permanent alife server object, and the engine tracks at most around 65000 of those. Long saves drift toward the cap and the game eventually slows, then crashes.</p>
+
+<h3>Why not just disable NPC looting?</h3>
+<p>Mods like NPC Stop Looting Dead Bodies, Weapons Drop on Bodies, and BoltBeGone sidestep the problem by blocking the engine's loot path. That fixes the symptom but stalkers no longer loot their kills, which is one of the things that makes A-Life feel alive. Inventory Balance keeps vanilla looting on and bounds the cause instead. A lightweight scanner walks online stalkers in small batches and releases anything above each category's limit. Killing a stalker still yields what they actually need to carry, not what they have accumulated over 50 game-days.</p>
+
+<h3>What you'll notice</h3>
+<ul>
+<li>Long-lived stalkers carry a believable loadout instead of a trader-sized hoard.</li>
+<li>Killing a random stalker yields reasonable loot, not a vendor run.</li>
+<li>Saves stay performant across long sessions.</li>
+<li>Companions, story characters, traders, and named NPCs are never touched.</li>
+<li>Vanilla looting still works. Stalkers loot their kills.</li>
+</ul>
+
+<h3>Important</h3>
+<p>Inventory Balance never spawns items. It releases what NPCs already accumulated above the per-category limits. Quest items, equipped gear, story_id items, companion gifts, and player-strapped weapons are always preserved.</p>
+
+<h3>Example</h3>
+<p>An online stalker on Cordon has been alive for 50 game-days. They have picked up 47 medkits, 23 bandages, 18 grenades, and 600 rounds of mismatched ammo. The scanner's next visit releases 42 medkits (cap 5), 18 bandages (cap 5), 15 grenades (cap 3), and the 600 mismatched rounds (cap 0). The NPC walks around with a believable load: a few medkits, a stack of bandages, three grenades, and ammo for the gun they actually carry.</p>
+
+<h3>Settings (MCM, Inventory Balance tab)</h3>
+<ul>
+<li><b>NPCs per frame</b> (1-10, default 1): how many NPCs the scanner trims in a single frame. The default keeps every frame cheap. Raise only if the scanner cannot keep up on very large saves.</li>
+<li><b>Rescan cooldown</b> (1-72 game-hours, default 24): an NPC is not rescanned until this many game-hours have passed. Lower trims more aggressively against fast hoarders. Higher reduces overall work.</li>
+</ul>
+
+<h3>Policy</h3>
+<p>Per-category limits live in <i>configs/alifebalance/ab_inventory_policy.ltx</i> (DLTX-overridable). Defaults cover equipped ammo (in rounds, per tier), grenades, and consumables: medkit, bandage, antirad, stim, pill, food, drink. Gear coverage: weapons, outfits, helmets, artefacts, crafting items, devices. Quest items, equipped gear, story_id items, companion gifts, and player-strapped weapons are protected by xlibs and never touched.</p>
+
+<h2>Compatibility</h2>
+
+<p>Tested with vanilla Anomaly 1.5.3, GAMMA, ZCP, Redone, Warfare, AlifeGuard, AlifePlus. Also tested with Night Mutants, Nocturnal Mutants, GAMMA Dynamic Despawner, Guards Spawner.</p>
+
+<h3>Smart Balance</h3>
+<ul>
+<li>Vanilla and ZCP read the same cooldown field Smart Balance writes.</li>
+<li>Redone and GAMMA NPC Spawns ship pure config. Smart Balance writes runtime state on a different layer.</li>
 <li>Night Mutants spawns through the engine's own path. Squads still register against their origin smart.</li>
 <li>Nocturnal Mutants spawns outside smart terrains. No interaction.</li>
 <li>Dynamic Despawner and AlifeGuard despawn without firing the death event. Never trigger advances.</li>
 </ul>
+
+<h3>Inventory Balance</h3>
+<p>Inventory Balance manages vanilla NPC looting at the source, so anti-loot addons are no longer needed. Disable any (NPC Stop Looting Dead Bodies, Weapons Drop on Bodies, BoltBeGone) for the full effect.</p>
+
 <h2>MCM</h2>
 <ul>
-<li><b>Smart Pacing:</b> enable, advance count, minimum cooldown remaining.</li>
-<li><b>Development:</b> log level, map markers, show status, reset counters.</li>
-<li>Map markers are green PDA spots on every smart receiving an advance. Right-click to teleport or show advance stats.</li>
+<li><b>Smart Balance tab:</b> enable, advance count, minimum cooldown remaining.</li>
+<li><b>Inventory Balance tab:</b> enable, NPCs per frame, rescan cooldown.</li>
+<li><b>Development tab:</b> log level, map markers, show status, reset counters.</li>
 </ul>
-<h2>Configuration tips</h2>
-<p>Two settings: <b>advance count</b> (1-8, default 4) and <b>minimum cooldown remaining</b> (10-360 game minutes, default 120).</p>
-<p><b>Advance count</b> is the number of advances needed to drive one smart from full cooldown to the <i>Min Minutes</i> floor. One advance subtracts 1/advances of the cooldown cycle from the picked smart. AlifeBalance does not spawn anything: once a smart's cooldown is at the floor, the engine's own clock ages out the rest and the engine's <i>try_respawn</i> fires its normal spawn. At <i>advances=4</i> (default), four thresholds of deaths drive one smart to the floor, 25% per advance. Lower advance count = larger advance per threshold = faster acceleration of one smart. Higher advance count = smaller advances = more sustained combat before any smart reaches the floor.</p>
-<p><b>Min Minutes</b> controls how long the engine ages the final cooldown leg on its own clock after AlifeBalance stops pushing. <i>Min Minutes=120</i> (default) = the engine's spawn fires about two game hours after the last advance. <i>Min Minutes=60</i> = one hour. <i>Min Minutes=360</i> stretches that to about six game hours. Higher values leave the engine more in charge of the final approach.</p>
-<p><b>Presets:</b></p>
+<p>Map markers (Development): green PDA spots appear on every smart terrain that received an advance. They linger 5 real-time minutes. Right-click any marker to teleport to that smart or display its full advance history. Independent of log level.</p>
+
+<h2>Companion mods</h2>
 <ul>
-<li><b>Aggressive (one threshold = full cooldown advancement):</b> <i>advances=1, Min Minutes=60</i></li>
-<li><b>Default (one threshold = 25% advancement):</b> <i>advances=4, Min Minutes=120</i></li>
-<li><b>Conservative (one threshold = 12.5% advancement):</b> <i>advances=8, Min Minutes=360</i></li>
+<li><b>AlifePlus</b> (reactive A-Life framework) &mdash; <a href="https://www.moddb.com/mods/stalker-anomaly/addons/alifeplus-v1-0-01">ModDB</a> | <a href="https://www.nexusmods.com/stalkeranomaly/mods/105">Nexus</a></li>
+<li><b>AlifeGuard</b> (entity hygiene) &mdash; <a href="https://www.moddb.com/mods/stalker-anomaly/addons/alifeguard-1001">ModDB</a> | <a href="https://www.nexusmods.com/stalkeranomaly/mods/104">Nexus</a></li>
 </ul>
-<h2>Technical notes (for modders)</h2>
-<p>Runtime is xlibs, a reverse-engineered API over X-Ray internals. No engine patches, no script replacement, no parallel schedulers, no entity creation.</p>
-<p><b>What gets counted:</b><br />Deaths for all standard stalker factions and all mutant faction keys. Protected squads (story, companions, task targets) and vermin (rats, tushkanos) are filtered before counting. Everything else contributes; the threshold mechanism (max squad size per faction per level) throttles big-squad species proportionally.</p>
-<p><b>Threshold:</b><br />Kills needed before one advance is applied for a (level, faction) pair. Set automatically to the largest squad size that can produce that faction at any eligible smart on the level. Cordon stalkers max at 3 NPCs per squad, so the Cordon stalker threshold is 3. Swamp boars max at 15, so the Swamp boar threshold is 15. Read from <i>squad_descr</i> LTX on first death and cached. Mutant-heavy levels land around 15 to 20, stalker-only levels around 3 to 5.</p>
-<p><b>Eligibility:</b><br />A smart is eligible when one of its respawn recipes has a squad section whose <i>squad_descr</i> faction matches. Routing props are not checked (they govern where squads can move, not what recipes spawn). The picker further filters to smarts with open per-recipe budget AND room for another advance.</p>
-<p><b>Refill &lt;= death:</b><br />Between consecutive engine spawns at any eligible smart for a (level, faction) pair, the engine refills no more NPCs of that faction on that level than have died. The threshold caps each refill against the deaths that earned it.</p>
-<p><b>Performance:</b><br />O(1) per death, O(active state) per scan, cached. DEBUG-level tracing reports per-event and per-tick timings to <i>alifebalance.log</i>. At WARN the mod is silent.</p>
+
 <h2>Requirements</h2>
 <ul>
 <li>Anomaly 1.5.3</li>
+<li><a href="https://github.com/themrdemonized/xray-monolith">themrdemonized modded exes</a> 2026.6.1+</li>
 <li><a href="https://www.moddb.com/mods/stalker-anomaly/addons/xlibs-1001">xlibs</a> 1.7.0+</li>
 <li>MCM</li>
 </ul>
+
 <h2>Install (MO2)</h2>
 <ol>
-<li>Install xlibs.</li>
-<li>Install AlifeBalance.</li>
-<li>Load order does not matter.</li>
-<li>Configure via MCM.</li>
+<li>Install xlibs</li>
+<li>Install AlifeBalance</li>
+<li>Load order does not matter</li>
+<li>Configure via MCM</li>
 </ol>
-<h2>Uninstall</h2>
+
+<h2>Uninstall (MO2)</h2>
 <p>Disable or remove in MO2.</p>
-<h2>Development</h2>
-<p>Written against X-Ray Monolith engine source, Demonized exes source code, and Anomaly 1.5.3 unpacked gamedata.</p>
-<p>Code patterns and engine usage validated against established work by reputable GAMMA modders (Demonized, Vintar0, RavenAscendant, xcvb).</p>
-<p>The code is validated in real time by a multi-stage pipeline: luacheck, selene, tree-sitter AST analysis, contract rules, cross-file dependency resolution, cyclomatic complexity analysis, crash and vulnerability pattern detection, lua54 integration testing with X-Ray engine stubs, gitleaks secret scanning.</p>
-<p>Full report in <i>doc/test-report.log</i>.</p>
+
+<h2>Architecture and validation</h2>
+<p>Runs on xlibs over the X-Ray engine, using runtime callbacks only and leaving base scripts and the engine binary untouched. See <i>doc/architecture.md</i> for the full design and the multi-stage validation pipeline (luacheck, selene, AST analysis, contract rules, integration tests).</p>
+
 <h2>Credits</h2>
-<p>Altogolik - support, ideas, source materials</p>
+<p>Altogolik &mdash; support, ideas, source materials.</p>
+
 <h2>Usage and License</h2>
 <ul>
 <li>Modpacks: allowed and encouraged. Keep the readme and license files.</li>
@@ -95,4 +137,5 @@
 <li>Reproducing the implementation in other software: not allowed, even with credit.</li>
 <li>Full license in LICENSE file and on GitHub.</li>
 </ul>
+
 <p>Keep the Zone alive while letting vanilla A-Life remain vanilla.</p>
