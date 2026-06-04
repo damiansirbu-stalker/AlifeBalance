@@ -19,7 +19,7 @@ Every smart terrain holds two engine fields that together define when it can spa
 - `respawn_idle` — cooldown duration in game-seconds. Set once from LTX (`smart_terrain.script:231`), per-smart. Vanilla LTX default 86400 (24 game hours); the engine code fallback for unset entries is 43200 (12h); ZCP under GAMMA is 21600 (6h); Redone varies. AlifeBalance only reads this field.
 - `last_respawn_update` — timestamp of the smart's last spawn. The engine resets it to `curr_time` after every `SIMBOARD:create_squad`. AlifeBalance writes this field; one subtract per advance, in `_advance_smart` at `ab_smart_balance.script:291-305`.
 
-The engine's cooldown gate at `smart_terrain.script:1657`:
+The engine's cooldown gate inside `smart_terrain.script:try_respawn` (delegated to `smr_pop.smart_can_respawn` under ZCP):
 
 ```
 elapsed         = curr_time - last_respawn_update
@@ -52,7 +52,7 @@ Per-advance subtract scales with the resolved cycle length, so on shorter-cooldo
 | Vanilla LTX  |           24h |    22h |        5.5h |    2h |
 | ZCP @ GAMMA  |            6h |     4h |          1h |    2h |
 
-`_resolve_idle` (`ab_smart_balance.script`) reads `smr_amain_mcm.get_config("respawn_idle")` when ZCP is loaded and enabled; falls through to `smart.respawn_idle` otherwise. ZCP at `smr_pop.script:362-363` gates against the same cvar, so AB and ZCP measure against the same baseline.
+`_resolve_idle` (`ab_smart_balance.script`) reads `smr_amain_mcm.get_config("respawn_idle")` when ZCP is loaded and enabled; falls through to `smart.respawn_idle` otherwise. ZCP's `smr_pop.smart_can_respawn` gates against the same cvar, so AB and ZCP measure against the same baseline.
 
 The picker's skip conditions in `_can_advance` (called per eligible smart per tick):
 
@@ -61,7 +61,7 @@ The picker's skip conditions in `_can_advance` (called per eligible smart per ti
 - **`advances >= 2`**: skip if a full advance push would overshoot the floor (`max_push < advance_seconds`). No clamping; the next tick can push again after natural ageing.
 - **`advances == 1`**: skip if `max_push < Min Minutes * 60` (smart is within one `Min Minutes` of the floor, default 7200 game-seconds). Precision-drift guard, and avoids wasting a kill on a smart already close to firing naturally.
 
-The picker sorts eligible smarts by actor-to-smart distance descending. Advances pile on the farthest qualifying smart until it hits the floor, then move to the next-farthest. This is a soft preference: if only near-actor smarts are eligible, they still receive advances, and the engine's own `respawn_radius` gate at `smart_terrain.script:1625` will defer the spawn until the actor moves out.
+The picker sorts eligible smarts by actor-to-smart distance descending. Advances pile on the farthest qualifying smart until it hits the floor, then move to the next-farthest. This is a soft preference: if only near-actor smarts are eligible, they still receive advances, and the engine's own `respawn_radius` gate inside `smart_terrain.script:try_respawn` will defer the spawn until the actor moves out.
 
 ---
 
@@ -107,8 +107,8 @@ _periodic_tick()
 
 ENGINE (its own alife tick at the advanced smart)
   - se_smart_terrain:update -> try_respawn
-  - cooldown gate (smart_terrain.script:1657): diff > respawn_idle ? proceed : skip
-  - per-recipe budget gate (smart_terrain.script:1702)
+  - cooldown gate (smart_terrain.script:try_respawn): diff > respawn_idle ? proceed : skip
+  - per-recipe budget gate (smart_terrain.script:try_respawn, max_respawn_count > already_spawned[k].num)
   - picks recipe at random from open ones
   - picks squad section at random from recipe.squads
   - SIMBOARD:create_squad(smart, section)
@@ -129,7 +129,7 @@ ENGINE (its own alife tick at the advanced smart)
 
 ## Engine gates inside try_respawn
 
-`smart_terrain.script:1602-1768` has eight gates. AlifeBalance affects one.
+`smart_terrain.script:try_respawn` has eight gates. AlifeBalance affects one.
 
 | Gate                                          | Source line | Our effect |
 |-----------------------------------------------|-------------|------------|
@@ -348,6 +348,7 @@ No persistence. The cooldown table not saved; on game load every NPC is fresh an
 | `show_markers`       | Development       | check  | false   | -       | Green PDA marker on every advanced smart, 5-min linger, right-click teleport / stats |
 | `btn_show_status`    | Development       | button | -       | -       | PDA tip with death / counted / vermin / tick / advance / spawn counters |
 | `btn_reset_counters` | Development       | button | -       | -       | Clears `_deaths`, `_delta_cache`, `_smart_stats`, `_seen_squads`, `_stats`, ab_smart_recipe caches, and all markers |
+| `btn_reset_all`      | Development       | button | -       | -       | Restore all MCM settings to factory defaults. Closes the MCM dialog via On_Cancel (not On_Discard, see ab_mcm.script comment for the SEH-on-some-exes rationale). |
 
 Threshold has no knob — it is engine-grounded, read from `squad_descr` LTX per (level, faction) and cached.
 
@@ -373,7 +374,7 @@ Threshold has no knob — it is engine-grounded, read from `squad_descr` LTX per
 
 | Mod | Interaction |
 |-----|-------------|
-| Vanilla `try_respawn` | Reads `last_respawn_update` at `smart_terrain.script:1657`. The advance moves the same field. Budget eval applies `ui_options.get("alife/general/alife_stalker_pop" / "..._mutant_pop")` to match the engine's pop_factor multiplier at `smart_terrain.script:1669-1690`. |
+| Vanilla `try_respawn` | Reads `last_respawn_update` inside `smart_terrain.script:try_respawn` (cooldown gate). The advance moves the same field. Budget eval applies `ui_options.get("alife/general/alife_stalker_pop" / "..._mutant_pop")` to match the engine's pop_factor multiplier inside the same function. |
 | ZCP (forked `try_respawn`) | Gates against `smr_amain_mcm.get_config("respawn_idle")`, not `smart.respawn_idle`. AB's `_resolve_idle` reads the same cvar so the per-advance subtract sizes against ZCP's actual gate. Budget eval applies `smr_amain_mcm.get_config("stalker_pop_factor" / "monster_pop_factor")` to match `smr_pop.get_*_pop_factor` at `smr_pop.script:372-389`. The `Min Minutes` floor holds against the resolved cycle. |
 | ZCP `smr_handle_spawn` | Substitutes the squad section in flight (zombie 90% under Survival; random mutant for monster squads; faction reshuffle for stalkers per `smr_pop.script:288-339`). Replacement still gets `respawn_point_id` and `respawn_point_prop_section` set, so engine budget accounting stays intact. The (level, faction) population invariant degrades to "deaths bound system-wide refill, not per-faction refill" under ZCP: AB credits faction A's kills, ZCP may produce faction B's squad. Total spawn-rate cap holds; per-faction accounting does not. |
 | Redone Collection | Pure LTX configuration. AlifeBalance writes runtime state. No conflict. |

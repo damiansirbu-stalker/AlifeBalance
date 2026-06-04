@@ -12,7 +12,7 @@ local string_format, table_concat = string.format, table.concat
 local math_floor, math_random = math.floor, math.random
 local xlog, xsmart, xlevel = xlog, xsmart, xlevel
 
--- ZCP-aware population factor for one faction. Engine at smart_terrain.script:1681-1691
+-- ZCP-aware population factor for one faction. Engine in smart_terrain.script:try_respawn
 -- multiplies max_respawn_count by stalker_pop_factor / monster_pop_factor before the
 -- "open" comparison; ZCP replaces those at smr_pop.script:372-389 with its own MCM cvars
 -- (GAMMA seeds both to 0.5). AB's budget eval must apply the same factor or advances
@@ -271,7 +271,7 @@ end
 
 -- Evaluate one recipe slot. Returns (cur, raw_max, open, eligible_for_match).
 -- raw_max is the declared LTX capacity (unscaled) — used for the printed snapshot.
--- Effective max applies pop_factor (engine smart_terrain.script:1686-1688): round_idp for
+-- Effective max applies pop_factor (engine smart_terrain.script:try_respawn): round_idp for
 -- >= 1, optimistic on fractional (>0 -> potential open) since AB cannot replicate the
 -- engine's probabilistic gate for max < 1.
 local function _eval_recipe(recipe, k, smart, faction, factor)

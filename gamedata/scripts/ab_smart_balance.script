@@ -17,11 +17,11 @@ local TICK_INTERVAL_SEC = 60
 local SEC_PER_MIN = 60
 local DEFAULT_RESPAWN_IDLE_SEC = 43200
 
--- ZCP at smr_pop.script:362-363 gates against smr_amain_mcm.get_config("respawn_idle"),
+-- ZCP's smr_pop.smart_can_respawn gates against smr_amain_mcm.get_config("respawn_idle"),
 -- NOT smart.respawn_idle. Under ZCP-enabled (GAMMA seeds the cvar to 21600 via
 -- axr_options.ltx), the engine's per-smart LTX field is ignored at the gate. Read ZCP's
 -- cvar when ZCP is loaded and enabled; fall through to smart.respawn_idle otherwise
--- (ZCP's own fallback path at smr_pop.script:346-348 does the same). Cvar value of -1
+-- (ZCP's own fallback path inside smr_pop.smart_can_respawn does the same). Cvar value of -1
 -- means "respawns disabled" -> idle <= 0 -> _get_advance_params yields advance == 0 ->
 -- _can_advance returns false. AB silently no-ops, matching ZCP intent.
 local function _resolve_idle(smart)
@@ -113,7 +113,7 @@ local function _fmt_real(seconds)
 end
 
 -- Format the cooldown state: "age=Xh/idle=Yh (Zh left)" if set, "fresh" if nil.
--- Reads engine cooldown semantics (smart_terrain.script:1651: nil OR diff > respawn_idle
+-- Reads engine cooldown semantics (smart_terrain.script:try_respawn: nil OR diff > respawn_idle
 -- passes the gate).
 local function _format_cooldown(smart)
     local lru = smart.last_respawn_update
@@ -129,7 +129,7 @@ end
 
 -- Per-recipe cur/max snapshot. cur = already_spawned[k].num (engine bookkeeping),
 -- max = ab_smart_recipe.pick_value_readonly(v.num, actor, smart) (read-only mirror of
--- the engine's eval at smart_terrain.script:1669; see pick_value_readonly docstring for
+-- the engine's eval inside smart_terrain.script:try_respawn; see pick_value_readonly docstring for
 -- why we route through our walker instead of xr_logic.pick_section_from_condlist).
 -- Flags ALL_FULL if no recipe has open budget.
 local function _format_budget(smart)
@@ -419,7 +419,7 @@ end
 -- Counts every NPC creation into a squad where spawn_smart is set. Deduped by squad.id
 -- so multi-NPC squads count once. Uses the callback's spawn_smart arg (sim_board.script:149)
 -- because squad.respawn_point_id is only set AFTER SIMBOARD:create_squad returns
--- (smart_terrain.script:1720-1721) and the callback fires DURING create_squad.
+-- (set inside smart_terrain.script:try_respawn after create_squad returns) and the callback fires DURING create_squad.
 -- Includes spawns the engine made without an advance from us; the ratio advances/spawns is a
 -- debug signal, not production logic.
 -- Counters always run (cheap field ops); luabind log call is _dbg-gated. Tags whether
@@ -519,7 +519,7 @@ end
 
 -- Sort with_budget descending by actor->smart distance. Refills land away from
 -- the actor's current combat zone first: pile advances onto far smarts before
--- near ones. The engine's own respawn_radius gate at smart_terrain.script:1619
+-- near ones. The engine's own respawn_radius gate inside smart_terrain.script:try_respawn
 -- would otherwise block spawns at near-actor smarts anyway; preferring far is
 -- a soft player-intuition heuristic, not a hard filter. When only near smarts
 -- are eligible (player surrounded), they still receive the advance and the
