@@ -27,8 +27,7 @@
 --- returns a null timer when DEBUG off — zero luabind cost off-path. Self-contained
 --- scanner, no cross-module event flow, so no xtrace correlation id needed.
 
-local table_sort = table.sort
-local os_clock = os.clock
+local table_sort, os_clock = table.sort, os.clock
 local xlog, xprofiler, xslice, xcreature, xtime, xinventory = xlog, xprofiler, xslice, xcreature, xtime, xinventory
 local level, IsStalker, RegisterScriptCallback = level, IsStalker, RegisterScriptCallback
 
@@ -43,6 +42,13 @@ local INVENTORY_POLICY = nil
 local SCAN_QUEUE = "ab_inventory_balance_scan"
 local DEFAULT_NPCS_PER_FRAME = 1
 local UPDATE_INTERVAL_SEC = 30
+
+local CALLBACK = {
+    ACTOR_ON_FIRST_UPDATE = "actor_on_first_update",
+    ON_OPTION_CHANGE      = "on_option_change",
+    ACTOR_ON_UPDATE       = "actor_on_update",
+    NPC_ON_NET_DESTROY    = "npc_on_net_destroy",
+}
 
 local log = xlog.get_logger("AB.INV", { outfile = "alifebalance.log" })
 local _dbg = false
@@ -242,7 +248,7 @@ local function _start_cycle()
     })
 end
 
-local function actor_on_update()
+local function _on_actor_update()
     if not _enabled() then return end
     if xslice.is_active(SCAN_QUEUE) then return end
     local now = os_clock()
@@ -261,7 +267,7 @@ local function _sync_log_level()
 end
 
 -- Prune the per-NPC cooldown row when an NPC despawns. Cheap: one hash erase.
-local function npc_on_net_destroy(npc)
+local function _on_npc_net_destroy(npc)
     if not npc then return end
     _last_scan_game_sec[npc:id()] = nil
 end
@@ -271,8 +277,8 @@ function on_game_start()
     _last_scan_game_sec = {}
     _load_policy()
     log.info("[INSTALL] ab_inventory_balance scanner armed")
-    RegisterScriptCallback("actor_on_first_update", _sync_log_level)
-    RegisterScriptCallback("on_option_change", _sync_log_level)
-    RegisterScriptCallback("actor_on_update", actor_on_update)
-    RegisterScriptCallback("npc_on_net_destroy", npc_on_net_destroy)
+    RegisterScriptCallback(CALLBACK.ACTOR_ON_FIRST_UPDATE, _sync_log_level)
+    RegisterScriptCallback(CALLBACK.ON_OPTION_CHANGE, _sync_log_level)
+    RegisterScriptCallback(CALLBACK.ACTOR_ON_UPDATE, _on_actor_update)
+    RegisterScriptCallback(CALLBACK.NPC_ON_NET_DESTROY, _on_npc_net_destroy)
 end
