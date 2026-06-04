@@ -16,9 +16,9 @@ Smart Balance:
   Heavy combat brings refills back faster, on the level where it happened, off-screen.
 
 Inventory Balance:
-  Vanilla looting works fine in isolation, but long-lived NPCs keep picking up corpse gear and never stop, so their inventories grow into hoards that affect game balance, performance, and save size.
-  A lightweight scanner walks online stalkers across frames and trims each one at most once per game-day. Traders are skipped because their inventory is their stock.
-  The result is that vanilla loot system works fully, NPCs have items to use and trade, and the risk of over accumulation is gone.
+  Vanilla NPCs loot corpses, and over hours of play this creates two problems. A long-lived stalker can carry a small shop of gear, so killing them is a jackpot. Every looted item is also a server object, and the engine only tracks 65535 of those, so long sessions push saves toward the cap and the game eventually slows down or crashes (vanilla Anomaly warns at 64000 via alife_on_limit).
+  Mods like "NPC Stop Looting Dead Bodies", "Weapons Drop on Bodies", and "BoltBeGone" handle this by blocking or rewriting the loot path. Inventory Balance fixes the cause: a scanner walks online stalkers across frames, trims each one at most once per game-day, and releases anything above the per-category limit in configs/alifebalance/ab_inventory_policy.ltx. Only random long-lived stalkers are scanned (gulag survivors, patrols). Companions, story NPCs, traders, and named characters are skipped. Quest items, equipped gear, story_id items, companion gifts, and player-strapped weapons are never released.
+  Vanilla looting stays on. Stalkers loot their kills. No jackpot bodies, saves stay clean.
 
 MCM (General):
   Smart Balance: enabled, advances to floor, min minutes.
@@ -30,7 +30,7 @@ Inventory Balance policy:
 
 Compatibility:
   Tested with vanilla Anomaly 1.5.3, GAMMA, ZCP, Redone, Warfare, AlifeGuard, AlifePlus, Night Mutants, Nocturnal Mutants, GAMMA Dynamic Despawner, Guards Spawner.
-  Inventory Balance requires vanilla NPC corpse looting to be enabled. Disable any mod that blocks looting (such as "NPC Stop Looting Dead Bodies") for the full effect.
+  Inventory Balance manages vanilla NPC looting at the source, so anti-loot addons are no longer needed. Disable any (NPC Stop Looting Dead Bodies, Weapons Drop on Bodies, BoltBeGone) for the full effect.
 
 Companion mods:
 

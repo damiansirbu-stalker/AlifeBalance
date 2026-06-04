@@ -1,20 +1,29 @@
 next
-  Summary: Inventory Balance, equipped-ammo coverage, DLTX ceilings, Smart Balance rename
-  Added:
-    Added: Inventory Balance. Long-lived stalkers (companions, story NPCs, gulag survivors) no longer hoard items across hundreds of game-days.
-    Added: Periodic scan trims online stalkers in small batches, at most once per game-day per NPC.
-    Added: configs/alifebalance/ab_inventory_policy.ltx. DLTX-overridable per-category ceilings. Replaces hardcoded CULL_POLICY table.
-    Added: Shared LTX shape with ap_trade_policy.ltx and ap_stash_policy.ltx via xinventory.load_policy.
-    Added: Explicit entries for ammo_slot_2_t1, ammo_slot_2_t2, ammo_slot_3_t1, ammo_slot_3_t2. Equipped-rifle ammo bounded.
-    Added: Untouchables filtered centrally by xinventory.get_category. Quest, equipped, story_id, companion-gifted, and player-strapped items never released.
-    Added: Traders skipped at the scheduler level via xcreature.is_unscriptable.
-    Added: MCM Inventory Balance tab. Defaults: enabled, 1 NPC per frame, 20 per cycle, 24 game-hour rescan cooldown.
-  Changed:
-    Changed: MCM reorganized into separate Smart Balance and Inventory Balance tabs (was a single General tab). Existing MCM settings reset to defaults on upgrade.
-    Changed: Smart Balance death counter credits every non-vermin death (was filtered via xsquad.is_protected to exclude protected NPCs).
-    Changed: Smart Pacing renamed to Smart Balance. Label only, no behavior change.
-  Compatibility:
-    Requires NPC corpse looting enabled. Disable "311- NPC Stop Looting Dead Bodies - DTTheGunslinger" or any equivalent.
+  Summary: Inventory Balance, equipped ammo coverage, DLTX policy, Smart Balance rename, MCM split
+
+  Inventory Balance
+    - Stops NPC hoarding so anti-loot mods are no longer needed.
+      Scanner trims online stalkers one per frame, rescans each at most once per game-day.
+      Solves what anti-loot mods avoid: jackpot bodies, and saves filling toward the 65k engine cap.
+      Scans random long-lived stalkers (gulag survivors, patrols). Companions, story NPCs, traders skipped.
+    - Quest items, equipped gear, story_id items, companion gifts, player-strapped weapons never released.
+    - Equipped rifle and pistol ammo bounded per tier.
+
+  Policy
+    - ab_inventory_policy.ltx (DLTX-overridable) holds per-category ceilings.
+      Shares LTX shape with AlifePlus ap_trade_policy.ltx and ap_stash_policy.ltx.
+
+  Smart Balance
+    - Smart Pacing renamed to Smart Balance. Label only, no behavior change.
+    - Death counter now credits every non-vermin death (was filtered to exclude protected NPCs).
+
+  MCM
+    - Split into Smart Balance and Inventory Balance tabs (was a single General tab).
+      Existing MCM settings reset to defaults on upgrade.
+
+  Compatibility
+    - Disable any NPC anti-loot addon (NPC Stop Looting Dead Bodies, Weapons Drop on Bodies, BoltBeGone).
+      Vanilla looting is the source Inventory Balance trims, without it the scanner has nothing to do.
 
 1.0.2
   Summary: Crash fix on xlibs 1.7.0

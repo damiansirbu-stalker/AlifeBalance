@@ -8,10 +8,12 @@
 --- xinventory.iterate_surplus.
 ---
 --- Why scanner, not death-time hook:
----   1. Long-lived NPCs (story NPCs, traders, companions, gulag survivors) keep looting
----      and never die. Death-time only catches NPCs that die. The hoarding population is
----      the population that survives. Hundreds of online stalkers all carrying full hoards
----      drive save bloat, server-object inflation, and steady performance drag.
+---   1. Long-lived NPCs keep looting and never die. Death-time only catches NPCs that
+---      die. The hoarding population is the population that survives. Hundreds of random
+---      online stalkers (gulag survivors, generic patrols) carrying full hoards drive
+---      save bloat, server-object inflation, and steady performance drag. (Companions,
+---      story NPCs, traders, and named characters are filtered at the scheduler via
+---      xcreature.is_unscriptable and never reach trim_npc.)
 ---   2. Save bloat. Every looted item is a server object persisted in the save. Continuous
 ---      trim bounds live state; death-time only releases when (and if) the NPC dies.
 ---   3. Bursty performance. N deaths in a firefight = N trims in the same frame as the

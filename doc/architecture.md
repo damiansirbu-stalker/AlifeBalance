@@ -196,13 +196,15 @@ Not owned by AlifeBalance: which recipe the engine picks (random over open-budge
 
 ## Inventory Balance
 
-Periodic scanner over online stalkers. Walks the online set in small batches, trims one NPC per frame, rescans each NPC at most once per game-day. Long-lived NPCs (story NPCs, companions, gulag survivors) never accumulate a corpse-sized hoard because the trim no longer waits for death. Traders are skipped at the scheduler level (their stock IS the trader).
+The goal is to let the player keep vanilla NPC corpse looting enabled. Vanilla looting pays two costs over long sessions: jackpot bodies (one stalker carrying a vendor run of gear), and creep toward the engine's 65535 alife-ID cap as every looted item consumes one ID (vanilla Anomaly warns at 64000 via `alife_on_limit`). Anti-loot addons (NPC Stop Looting Dead Bodies, Weapons Drop on Bodies, BoltBeGone) sidestep both by blocking or rewriting the loot path. Inventory Balance bounds hoarding at the source instead, so anti-loot addons are no longer needed.
+
+Periodic scanner over online stalkers. Walks the online set in small batches, trims one NPC per frame, rescans each NPC at most once per game-day. Scope is random long-lived stalkers (gulag survivors, generic patrols). Companions, story NPCs, traders, and named characters are filtered out at the scheduler via `xcreature.is_unscriptable` and never reach `trim_npc`.
 
 ### Why scanner, not death-time hook
 
 The previous shipped approach wrapped `death_manager.keep_item` and only ran when an NPC died. Three failure modes were missed:
 
-1. **Long-lived NPCs never trim**. The population that survives is the population that hoards. Hundreds of online stalkers (story NPCs, companions, gulag survivors) keep looting corpses they walk over and never die. Death-time only catches NPCs that die; the survivors drive save bloat and steady performance drag indefinitely. (Traders are skipped at the scheduler level so their stock is untouched.)
+1. **Long-lived NPCs never trim**. The population that survives is the population that hoards. Hundreds of random online stalkers (gulag survivors, generic patrols) keep looting corpses they walk over and never die. Death-time only catches NPCs that die; the survivors drive save bloat and steady performance drag indefinitely. (Companions, story NPCs, traders, and named characters are scripted-identity holders filtered at the scheduler entirely, so the hoarding problem is the random long-lived population only.)
 2. **Save bloat accumulates between deaths**. Every looted item is a server object persisted in the save. Long sessions accumulate without bound. Continuous trim bounds live state instead of waiting for the death event.
 3. **Bursty performance**. N deaths in a firefight = N trims in the same frame as the corpse spawn. xslice spreads the trim cost across frames.
 
@@ -294,8 +296,8 @@ No persistence. The cooldown table not saved; on game load every NPC is fresh an
 
 | Mod / setting | Interaction |
 |---|---|
-| Vanilla NPC corpse looting enabled | Required for the broader value. With looting disabled, NPCs do not accumulate from corpses; the scanner still runs but releases far less. |
-| `311- NPC Stop Looting Dead Bodies - DTTheGunslinger` (or equivalent) | Defeats the source of accumulation. Disable for full benefit. |
+| Vanilla NPC corpse looting enabled | Required. Inventory Balance bounds vanilla looting at the source. With looting disabled the scanner runs but finds nothing to release. |
+| Anti-loot addons (`311- NPC Stop Looting Dead Bodies`, `Weapons Drop on Bodies`, `BoltBeGone`, equivalents) | Anti-loot addons Inventory Balance replaces. Disable. They were created to work around two costs of vanilla looting (jackpot kills, 65k alife-ID cap) by blocking or rewriting the corpse-loot path. Inventory Balance bounds the cause, so the workarounds are no longer needed. |
 | Jabbers' "Weapons Drop on bodies" 134 | No conflict. They patch `death_manager.keep_item`; we no longer touch that seam. The scanner releases from online inventories; their wrap fires at death on whatever the scanner left behind. |
 | Ish's BoltBeGone in Nitpicker's Modpack 124 | Same as Jabbers'. No conflict. |
 | Unscriptable NPCs (`xcreature.is_unscriptable`) | Skipped at scheduler level. Covers story characters (Strider, Magpie, Sidorovich) via engine story_id, companions via `npcx_is_companion` info-portion, named NPCs (traders, medics, mechanics, guides, guards, bodyguards, leaders, quest-givers) via `xdata.unscriptable_npcs`, and members of story squads. These NPCs have scripted identities the rest of the game depends on; trimming their inventories risks breaking quest scripts or destroying trader stock. |
