@@ -225,7 +225,7 @@ _start_cycle()
                     and not xcreature.is_unscriptable(npc)
                     and now - _last_scan_game_sec[npc_id] >= scan_cooldown_h * 3600 ]
   - sort eligible by oldest scan first
-  - picks = eligible[1 .. npcs_per_cycle]
+  - picks = all eligible (xslice paces the actual trim at npcs_per_frame)
   - if #picks == 0: return
   - cycle_id += 1; open xprofiler
   - xslice.start("ab_inventory_balance_scan", picks, { step = npcs_per_frame, func = _visit, on_done = _on_cycle_done })
@@ -343,7 +343,6 @@ No persistence. The cooldown table not saved; on game load every NPC is fresh an
 | `Min Minutes`        | Smart Balance     | track  | 120     | 10-360  | Minimum cooldown remaining after every advance, in game minutes |
 | `enabled_inventory`  | Inventory Balance | check  | true    | -       | Scanner enable. When off, no scheduler, no trims. |
 | `npcs_per_frame`     | Inventory Balance | track  | 1       | 1-10    | xslice step: NPCs trimmed per frame inside a cycle. |
-| `npcs_per_cycle`     | Inventory Balance | track  | 20      | 5-50    | Per-cycle batch cap: max NPCs picked per cycle (oldest-scanned first). |
 | `scan_cooldown_h`    | Inventory Balance | track  | 24      | 1-72    | Per-NPC rescan cooldown in game-hours. |
 | `log_level`          | Development       | list   | WARN    | -       | ERROR / WARN / INFO / DEBUG |
 | `show_markers`       | Development       | check  | false   | -       | Green PDA marker on every advanced smart, 5-min linger, right-click teleport / stats |

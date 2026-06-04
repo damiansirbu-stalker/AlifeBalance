@@ -22,7 +22,7 @@ Inventory Balance:
 
 MCM (General):
   Smart Balance: enabled, advances to floor, min minutes.
-  Inventory Balance: enabled, NPCs per frame, NPCs per cycle, rescan cooldown.
+  Inventory Balance: enabled, NPCs per frame, rescan cooldown.
   Development: log level, map markers, show status, reset counters.
 
 Inventory Balance policy:

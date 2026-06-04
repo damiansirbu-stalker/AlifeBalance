@@ -27,7 +27,7 @@
 --- returns a null timer when DEBUG off — zero luabind cost off-path. Self-contained
 --- scanner, no cross-module event flow, so no xtrace correlation id needed.
 
-local table_sort, math_min = table.sort, math.min
+local table_sort = table.sort
 local os_clock = os.clock
 local xlog, xprofiler, xslice, xcreature, xtime, xinventory = xlog, xprofiler, xslice, xcreature, xtime, xinventory
 local level, IsStalker, RegisterScriptCallback = level, IsStalker, RegisterScriptCallback
@@ -41,7 +41,6 @@ local INVENTORY_POLICY = nil
 
 -- Scheduler.
 local SCAN_QUEUE = "ab_inventory_balance_scan"
-local DEFAULT_NPCS_PER_CYCLE = 20
 local DEFAULT_NPCS_PER_FRAME = 1
 local UPDATE_INTERVAL_SEC = 30
 
@@ -127,11 +126,6 @@ local function _cfg_step()
     return (mcm and mcm.npcs_per_frame) or DEFAULT_NPCS_PER_FRAME
 end
 
-local function _cfg_batch()
-    local mcm = _cfg()
-    return (mcm and mcm.npcs_per_cycle) or DEFAULT_NPCS_PER_CYCLE
-end
-
 local function _cfg_cooldown_sec()
     local mcm = _cfg()
     local hours = mcm and mcm.scan_cooldown_h or 24
@@ -150,10 +144,10 @@ local function _is_eligible(obj, actor_id, now, cooldown_sec)
     return id, last
 end
 
--- Walk online stalkers, pick the batch_cap NPCs whose last_scan is older than cooldown,
--- oldest-scanned first.
+-- Walk online stalkers, pick every NPC whose last_scan is older than cooldown,
+-- oldest-scanned first. xslice paces the actual trim at npcs_per_frame.
 -- @cost O(N online + K log K) where K = eligible count; sort dominated by table.sort
-local function _pick_eligible(batch_cap, cooldown_sec)
+local function _pick_eligible(cooldown_sec)
     local timer = xprofiler.new_if(_dbg):start()
     local stats = {
         total = 0, eligible = 0, dt_ms = 0,
@@ -180,9 +174,8 @@ local function _pick_eligible(batch_cap, cooldown_sec)
 
     table_sort(eligible, function(a, b) return a.last < b.last end)
 
-    local take = math_min(#eligible, batch_cap)
     local picks = {}
-    for i = 1, take do picks[i] = eligible[i].id end
+    for i = 1, #eligible do picks[i] = eligible[i].id end
 
     stats.eligible = #eligible
     timer:stop()
@@ -222,7 +215,7 @@ local function _start_cycle()
     if not _enabled() then return end
     if xslice.is_active(SCAN_QUEUE) then return end
 
-    local picks, ps = _pick_eligible(_cfg_batch(), _cfg_cooldown_sec())
+    local picks, ps = _pick_eligible(_cfg_cooldown_sec())
 
     if _dbg then
         log.debug("[PICK] online=%d eligible=%d picked=%d (skip: actor=%d nonstalker=%d dead=%d unscriptable=%d cooldown=%d) dt=%.2fms",
@@ -277,7 +270,7 @@ function on_game_start()
     _last_update = 0
     _last_scan_game_sec = {}
     _load_policy()
-    log.info("[INSTALL] ab_inventory_balance scanner armed (batch=%d)", DEFAULT_NPCS_PER_CYCLE)
+    log.info("[INSTALL] ab_inventory_balance scanner armed")
     RegisterScriptCallback("actor_on_first_update", _sync_log_level)
     RegisterScriptCallback("on_option_change", _sync_log_level)
     RegisterScriptCallback("actor_on_update", actor_on_update)

@@ -22,7 +22,7 @@ Inventory Balance:
 
 MCM (General):
   Smart Balance: включение, продвижения до минимума, минимальные минуты.
-  Inventory Balance: включение, NPC за кадр, NPC за цикл, кулдаун повторного скана.
+  Inventory Balance: включение, NPC за кадр, кулдаун повторного скана.
   Development: уровень логов, маркеры на карте, статус, сброс счётчиков.
 
 Политика Inventory Balance:

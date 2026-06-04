@@ -60,17 +60,11 @@
     <string id="ui_mcm_ab_inventory_balance_npcs_per_frame_desc">
         <text>How many NPCs the scanner trims in a single frame. 1 keeps every frame cheap (one inventory walk per frame). Raise only if the scanner cannot keep up with the eligible set on very large saves. The per-NPC cooldown already paces work across long stretches of game-time.</text>
     </string>
-    <string id="ui_mcm_ab_inventory_balance_npcs_per_cycle">
-        <text>NPCs per cycle</text>
-    </string>
-    <string id="ui_mcm_ab_inventory_balance_npcs_per_cycle_desc">
-        <text>Maximum NPCs picked per scanner cycle. The scanner walks online stalkers, takes the N whose last scan is oldest, and trims them across frames at NPCs-per-frame pace. Lower values keep each cycle smaller (less work bunched together). Higher values cover more of the online set per cycle.</text>
-    </string>
     <string id="ui_mcm_ab_inventory_balance_scan_cooldown_h">
         <text>Per-NPC rescan cooldown (game hours)</text>
     </string>
     <string id="ui_mcm_ab_inventory_balance_scan_cooldown_h_desc">
-        <text>An NPC is not rescanned until this many game-hours have elapsed since its last scan. Default 24 (one game-day). Lower values trim more often (more aggressive against fast hoarders). Higher values reduce overall work and let NPCs hold modest loot longer. Combined with NPCs-per-cycle this is the rate limit on the whole feature.</text>
+        <text>An NPC is not rescanned until this many game-hours have elapsed since its last scan. Default 24 (one game-day). Lower values trim more often (more aggressive against fast hoarders). Higher values reduce overall work and let NPCs hold modest loot longer. This cooldown is the rate limit on the whole feature.</text>
     </string>
 
     <!-- ==================== DEVELOPMENT TAB ==================== -->
