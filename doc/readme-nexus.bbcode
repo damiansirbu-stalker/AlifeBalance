@@ -67,7 +67,7 @@ A firefight kills 30 bandits on Cordon in one minute. Cordon bandit squads max o
 Vanilla NPCs loot corpses, and over a long session this builds up two costs. A long-lived stalker carries a trader run of gear, so killing them becomes a jackpot. Every looted item is also a permanent alife server object, and the engine tracks at most around 65000 of those. Long saves drift toward the cap and the game eventually slows, then crashes.
 
 [size=3][b]Why not just disable NPC looting?[/b][/size]
-Mods like NPC Stop Looting Dead Bodies, Weapons Drop on Bodies, and BoltBeGone sidestep the problem by blocking the engine's loot path. That fixes the symptom but stalkers no longer loot their kills, which is one of the things that makes A-Life feel alive. Inventory Balance keeps vanilla looting on and bounds the cause instead. A lightweight scanner walks online stalkers in small batches and releases anything above each category's limit. Killing a stalker still yields what they actually need to carry, not what they have accumulated over 50 game-days.
+Mods like NPC Stop Looting Dead Bodies and BoltBeGone sidestep the problem by blocking the engine's loot path. That fixes the symptom but stalkers no longer loot their kills, which is one of the things that makes A-Life feel alive. Inventory Balance keeps vanilla looting on and bounds the cause instead. A lightweight scanner walks online stalkers in small batches and releases anything above each category's limit. Killing a stalker still yields what they actually need to carry, not what they have accumulated over 50 game-days.
 
 [size=3][b]What you'll notice[/b][/size]
 [list]
@@ -109,7 +109,7 @@ Tested with vanilla Anomaly 1.5.3, GAMMA, ZCP, Redone, Warfare, AlifeGuard, Alif
 [/list]
 
 [size=3][b]Inventory Balance[/b][/size]
-Inventory Balance manages vanilla NPC looting at the source, so anti-loot addons are no longer needed. Disable any (NPC Stop Looting Dead Bodies, Weapons Drop on Bodies, BoltBeGone) for the full effect.
+Inventory Balance manages vanilla NPC looting at the source, so anti-loot addons are no longer needed. Disable any (NPC Stop Looting Dead Bodies, BoltBeGone) for the full effect. Weapons Drop on Bodies is unrelated and compatible. It only changes where a dying NPC's active weapon ends up (corpse inventory vs floor) and does not block NPC looting.
 
 [size=5][b]MCM[/b][/size]
 [list]

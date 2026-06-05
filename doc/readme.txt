@@ -82,7 +82,7 @@ Inventory Balance:
   Long saves drift toward the cap and the game eventually slows, then crashes.
 
   Why not just disable NPC looting?
-    Mods like NPC Stop Looting Dead Bodies, Weapons Drop on Bodies, and BoltBeGone sidestep the problem by blocking the engine's loot path.
+    Mods like NPC Stop Looting Dead Bodies and BoltBeGone sidestep the problem by blocking the engine's loot path.
     That fixes the symptom but stalkers no longer loot their kills, which is one of the things that makes A-Life feel alive.
     Inventory Balance keeps vanilla looting on and bounds the cause instead.
     A lightweight scanner walks online stalkers in small batches and releases anything above each category's limit.
@@ -132,7 +132,8 @@ Compatibility:
 
   Inventory Balance:
     Inventory Balance manages vanilla NPC looting at the source, so anti-loot addons are no longer needed.
-    Disable any (NPC Stop Looting Dead Bodies, Weapons Drop on Bodies, BoltBeGone) for the full effect.
+    Disable any (NPC Stop Looting Dead Bodies, BoltBeGone) for the full effect.
+    Weapons Drop on Bodies is unrelated and compatible. It only changes where a dying NPC's active weapon ends up (corpse inventory vs floor) and does not block NPC looting.
 
 
 MCM:
