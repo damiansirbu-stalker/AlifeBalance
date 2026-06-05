@@ -1,5 +1,5 @@
 AlifeBalance: слой балансировки A-Life для STALKER Anomaly, автор Damian
-Версия: 1.0.2 (xlibs 1.7.0)
+Версия: 1.0.2 (xlibs 1.7.0, demonized 20260601)
 GitHub: https://github.com/damiansirbu-stalker/AlifeBalance
 Список изменений: https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/changelog
 Архитектура: https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/architecture.md
@@ -32,14 +32,15 @@ MCM (General):
   Тестировалось с ванильным Anomaly 1.5.3, GAMMA, ZCP, Redone, Warfare, AlifeGuard, AlifePlus, Night Mutants, Nocturnal Mutants, GAMMA Dynamic Despawner, Guards Spawner.
   Inventory Balance управляет ванильным лутом NPC у источника, поэтому моды против лута больше не нужны. Отключите любой из них (NPC Stop Looting Dead Bodies, Weapons Drop on Bodies, BoltBeGone) для полного эффекта.
 
-Моды-компаньоны:
-
-AlifePlus (реактивный фреймворк A-Life) -- https://www.moddb.com/mods/stalker-anomaly/addons/alifeplus-v1-0-01 | https://www.nexusmods.com/stalkeranomaly/mods/105
-AlifeGuard (очистка сущностей) -- https://www.moddb.com/mods/stalker-anomaly/addons/alifeguard-1001 | https://www.nexusmods.com/stalkeranomaly/mods/104
+Коллекция Alife:
+AlifePlus: https://www.moddb.com/mods/stalker-anomaly/addons/alifeplus-v1-0-01
+AlifeBalance: https://www.moddb.com/mods/stalker-anomaly/addons/alifebalance
+AlifeGuard: https://www.moddb.com/mods/stalker-anomaly/addons/alifeguard-1001
+AlifeTactics: TBD
 
 Требования:
 Anomaly 1.5.3
-themrdemonized modded exes 2026.6.1+ (https://github.com/themrdemonized/xray-monolith)
+demonized 20260601+ (https://github.com/themrdemonized/xray-monolith)
 xlibs 1.7.0+ (https://www.moddb.com/mods/stalker-anomaly/addons/xlibs-1001)
 MCM
 
