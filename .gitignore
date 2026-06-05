@@ -1,5 +1,9 @@
-# JetBrains IDE
 .idea/
-
-# Logs
+.claude/
+.deleted/
+AGENTS.md
+meta.ini
 *.log
+*.tmp
+*.bak
+*~
