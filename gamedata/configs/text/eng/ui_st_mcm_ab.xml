@@ -23,7 +23,7 @@
 
     <!-- ==================== SMART BALANCE TAB ==================== -->
     <string id="ui_mcm_ab_smart_balance_desc">
-        <text>Vanilla respawn cooldowns run on a fixed schedule that ignores combat pressure. Regions you fight through empty out while quieter parts of the map drift toward overcrowding. Smart Balance counts deaths per region and faction. Once enough accumulate, it shortens the respawn cooldown at one matching smart terrain on that level, picking the one farthest from you so refills land off-screen. The engine still owns every spawn, the recipe, and the squad section. Smart Balance only nudges a timestamp the engine was always going to read on its next alife tick. Works alongside vanilla Anomaly, GAMMA, ZCP, Redone, Warfare, and any other spawner mod.</text>
+        <text>Smart Balance dynamically adapts respawn to where combat actually happens. It counts deaths per region and faction, then advances the cooldown at the matching smart farthest from you so refills land off-screen. The engine still owns every spawn. Smart Balance only nudges a timestamp it was going to read anyway. Without it, vanilla's global fixed cooldown leaves fight regions empty while quiet maps overcrowd.</text>
     </string>
     <string id="ui_mcm_ab_smart_balance_enabled">
         <text>Enable Smart Balance</text>
@@ -46,7 +46,7 @@
 
     <!-- ==================== INVENTORY BALANCE TAB ==================== -->
     <string id="ui_mcm_ab_inventory_balance_desc">
-        <text>Vanilla NPCs loot corpses, and over a long session this builds up two costs. A long-lived stalker carries a trader run of gear, so killing them becomes a jackpot. Every looted item is also a permanent alife server object, and the engine has a hard cap on those (around 65000); long saves drift toward the cap and the game eventually slows, then crashes. Anti-loot addons (NPC Stop Looting Dead Bodies, Weapons Drop on Bodies, BoltBeGone) sidestep both by blocking the engine's loot path entirely. Inventory Balance fixes the cause instead. A lightweight scanner walks online stalkers in small batches and releases the surplus above each category's limit. Each NPC is rescanned at most once per game-day. Only random long-lived stalkers are scanned. Companions, story characters, traders, and named NPCs are filtered out at the scheduler and never touched. Limits live in configs/alifebalance/ab_inventory_policy.ltx and are DLTX-overridable.</text>
+        <text>Inventory Balance trims excess loot from long-lived NPCs. A lightweight scanner walks online stalkers one per frame, releasing the surplus above per-category limits and rescanning each NPC at most once per game-day. Companions, story characters, traders, and named NPCs are never touched. Without it, every looted item fills one of the engine's ~65000 alife slots and saves drift toward crash.</text>
     </string>
     <string id="ui_mcm_ab_inventory_balance_enabled_inventory">
         <text>Enable Inventory Balance</text>
@@ -69,7 +69,7 @@
 
     <!-- ==================== DEVELOPMENT TAB ==================== -->
     <string id="ui_mcm_ab_development_desc">
-        <text>Diagnostic tools for tuning and troubleshooting. Raise log level for structured tracing of every death, advance, eligibility scan, and trim cycle to alifebalance.log (small performance cost at DEBUG). Use the Show Status button for an in-game summary. Reset Counters clears every accumulated counter and cache; it does not undo cooldown advances already written to smart terrains.</text>
+        <text>Diagnostic tools for tuning and troubleshooting. Raise log level for structured tracing of every death, advance, eligibility scan, and trim cycle to alifebalance.log (small performance cost at DEBUG).</text>
     </string>
     <string id="ui_mcm_ab_development_btn_reset_all">
         <text>Reset to defaults</text>
@@ -113,18 +113,6 @@
     </string>
     <string id="ui_mcm_ab_development_show_markers_desc">
         <text>Drops a green PDA map marker on every smart terrain that receives a cooldown advance. The marker lingers for five real-time minutes and then clears itself. Right-click any marker to teleport to that smart or display its full advance history. Independent of log level, so you can run with markers on and logging off for a clean session view.</text>
-    </string>
-    <string id="ui_mcm_ab_development_btn_show_status">
-        <text>Show status</text>
-    </string>
-    <string id="ui_mcm_ab_development_btn_show_status_desc">
-        <text>Shows a stacked in-game tip with total deaths observed, deaths counted toward thresholds, vermin filtered, scan ticks, advances fired, engine spawns observed, and how many of those spawns followed an advance from this mod.</text>
-    </string>
-    <string id="ui_mcm_ab_development_btn_reset_counters">
-        <text>Reset counters</text>
-    </string>
-    <string id="ui_mcm_ab_development_btn_reset_counters_desc">
-        <text>Clears all in-memory state: death counters, eligibility and threshold caches, per-smart advance history, and diagnostic counters. Map markers also clear. Cooldown advances already written to smart terrains stay where they are; the engine resolves them on its next alife tick. Useful after balance changes or when reproducing an issue from a clean state.</text>
     </string>
 
     <!-- Map menu actions -->

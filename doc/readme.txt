@@ -1,17 +1,24 @@
 AlifeBalance: A-Life balance layer for STALKER Anomaly, by Damian
-Version: 1.0.2 (xlibs 1.7.0, demonized 20260601)
+Version: 1.1.0 (xlibs 1.7.0, demonized 20260601)
 GitHub: https://github.com/damiansirbu-stalker/AlifeBalance
 Changelog: https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/changelog
 Architecture: https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/architecture.md
 Russian / Na russkom: https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/readme_ru.txt
 Bugs, suggestions: https://github.com/damiansirbu-stalker/AlifeBalance/issues
 
+Alife Collection:
+AlifePlus: https://www.moddb.com/mods/stalker-anomaly/addons/alifeplus-v1-0-01
+AlifeBalance: https://www.moddb.com/mods/stalker-anomaly/addons/alifebalance
+AlifeGuard: https://www.moddb.com/mods/stalker-anomaly/addons/alifeguard-1001
+AlifeTactics: TBD
+
 ! Reset MCM settings to defaults after updating !
 
-AlifeBalance is a balance layer for vanilla A-Life.
-Smart Balance shortens respawn cooldowns where combat has actually happened, and only there.
-Inventory Balance bounds NPC inventory hoarding so anti-loot addons are no longer needed.
-Both features run alongside the engine without rewriting it, and they can be enabled or disabled independently.
+AlifeBalance is a balance layer for vanilla A-Life. It contains multiple systems:
+  - Smart Balance: shortens respawn cooldowns only where combat actually happened.
+  - Inventory Balance: bounds NPC inventory hoarding so anti-loot addons are no longer needed.
+
+Both run alongside the engine without rewriting it. Each can be toggled independently.
 
 Built as a companion to AlifePlus, which adds reactive A-Life behavior across the Zone.
 More activity means more deaths, and AlifeBalance scales refill to match.
@@ -131,18 +138,11 @@ Compatibility:
 MCM:
   Smart Balance tab: enable, advance count, minimum cooldown remaining.
   Inventory Balance tab: enable, NPCs per frame, rescan cooldown.
-  Development tab: log level, map markers, show status, reset counters.
+  Development tab: log level, map markers.
 
   Map markers (Development): green PDA spots appear on every smart terrain that received an advance.
   They linger 5 real-time minutes. Right-click any marker to teleport to that smart or display its full advance history.
   Independent of log level.
-
-
-Alife Collection:
-AlifePlus: https://www.moddb.com/mods/stalker-anomaly/addons/alifeplus-v1-0-01
-AlifeBalance: https://www.moddb.com/mods/stalker-anomaly/addons/alifebalance
-AlifeGuard: https://www.moddb.com/mods/stalker-anomaly/addons/alifeguard-1001
-AlifeTactics: TBD
 
 
 Requirements:

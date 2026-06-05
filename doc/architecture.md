@@ -327,7 +327,7 @@ No persistence. The cooldown table not saved; on game load every NPC is fresh an
 | `gamedata/scripts/ab_smart_map.script` | PDA marker render-state, right-click menu (teleport, show stats). Calls back into ab_smart_balance for label + stats formatting. |
 | `gamedata/scripts/ab_inventory_balance.script` | Online inventory scanner. Public API `trim_npc`, xslice scheduler with per-NPC game-day cooldown. Policy loaded from `ab_inventory_policy.ltx` via `xinventory.load_policy`. |
 | `gamedata/configs/alifebalance/ab_inventory_policy.ltx` | Per-category `{min, max}` ceilings (DLTX-overridable). Single block `[ab_inventory_policy]`; shared LTX shape with `ap_trade_policy.ltx` and `ap_stash_policy.ltx`. |
-| `gamedata/scripts/ab_test.script` | Console-driven test harness. Fires fake NPC deaths every 3s, alternating on-level / off-level pools. Same vermin filter as ab_smart_balance. |
+| `gamedata/scripts/ab_test.script` | Console-driven test harness. Kill loop fires fake NPC deaths every 3s, alternating on-level / off-level pools (same vermin filter as ab_smart_balance). Flow tests (`ab_test_<flow>()`) inject inventory and assert `ab_inventory_balance.trim_npc` results against the LTX policy. |
 | `gamedata/configs/text/eng/ui_st_mcm_ab.xml` | MCM strings (English) |
 | `gamedata/configs/text/rus/ui_st_mcm_ab.xml` | MCM strings (Russian) |
 | `gamedata/textures/ab_mcm_banner.dds` | MCM banner (512x50) |
@@ -346,8 +346,6 @@ No persistence. The cooldown table not saved; on game load every NPC is fresh an
 | `scan_cooldown_h`    | Inventory Balance | track  | 24      | 1-72    | Per-NPC rescan cooldown in game-hours. |
 | `log_level`          | Development       | list   | WARN    | -       | ERROR / WARN / INFO / DEBUG |
 | `show_markers`       | Development       | check  | false   | -       | Green PDA marker on every advanced smart, 5-min linger, right-click teleport / stats |
-| `btn_show_status`    | Development       | button | -       | -       | PDA tip with death / counted / vermin / tick / advance / spawn counters |
-| `btn_reset_counters` | Development       | button | -       | -       | Clears `_deaths`, `_delta_cache`, `_smart_stats`, `_seen_squads`, `_stats`, ab_smart_recipe caches, and all markers |
 | `btn_reset_all`      | Development       | button | -       | -       | Restore all MCM settings to factory defaults. Closes the MCM dialog via On_Cancel (not On_Discard, see ab_mcm.script comment for the SEH-on-some-exes rationale). |
 
 Threshold has no knob — it is engine-grounded, read from `squad_descr` LTX per (level, faction) and cached.

@@ -1,4 +1,4 @@
-next
+1.1.0
   Summary: Inventory Balance, equipped ammo coverage, DLTX policy, Smart Balance rename, MCM split
 
   Inventory Balance
@@ -20,6 +20,7 @@ next
   MCM
     - Split into Smart Balance and Inventory Balance tabs (was a single General tab).
       Existing MCM settings reset to defaults on upgrade.
+    - Removed Show Status and Reset Counters buttons from the Development tab.
 
   Compatibility
     - Disable any NPC anti-loot addon (NPC Stop Looting Dead Bodies, Weapons Drop on Bodies, BoltBeGone).

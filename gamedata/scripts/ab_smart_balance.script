@@ -44,7 +44,6 @@ local CALLBACK = {
 }
 
 local STATUS_TIP_MS = 8000
-local RESET_TIP_MS  = 5000
 
 -- Vermin species: gameplay-trivial pest mobs whose deaths shouldn't drive respawn
 -- pressure. Their squads are big (10-15) so threshold throttling already absorbs them,
@@ -682,45 +681,6 @@ local function _on_first_update()
     RegisterScriptCallback(CALLBACK.ON_TRY_RESPAWN, _on_try_respawn)
     RemoveTimeEvent(TIMER_EV, TIMER_TICK)
     CreateTimeEvent(TIMER_EV, TIMER_TICK, TICK_INTERVAL_SEC, _periodic_tick)
-end
-
--- ==================== MCM BUTTONS ====================
-
-function show_status()
-    if not db or not db.actor then return end
-    local pairs_count = 0
-    for _, by_faction in pairs(_deaths) do
-        for _ in pairs(by_faction) do pairs_count = pairs_count + 1 end
-    end
-    local smarts_advanced = 0
-    for _ in pairs(_smart_stats) do smarts_advanced = smarts_advanced + 1 end
-    news_manager.send_tip(db.actor,
-        "AlifeBalance " .. _ab_deps.get_version() .. " (advances=" .. tostring(cfg.advances)
-        .. " min_minutes=" .. tostring(cfg.min_minutes) .. ")",
-        nil, nil, STATUS_TIP_MS)
-    news_manager.send_tip(db.actor, string_format(
-        "deaths: %d total (%d counted, %d vermin)",
-        _stats.deaths, _stats.counted, _stats.vermin),
-        nil, nil, STATUS_TIP_MS)
-    news_manager.send_tip(db.actor, string_format(
-        "skips: %d no squad, %d no faction, %d no level",
-        _stats.no_squad, _stats.no_faction, _stats.no_level),
-        nil, nil, STATUS_TIP_MS)
-    news_manager.send_tip(db.actor, string_format(
-        "scanner: %d ticks, %d advances fired, %d engine spawns (%d from our advances)",
-        _stats.ticks, _stats.advances, _stats.spawns, _stats.spawns_from_us),
-        nil, nil, STATUS_TIP_MS)
-    news_manager.send_tip(db.actor, string_format(
-        "tracking: %d (level, faction) pairs, %d smarts received advances",
-        pairs_count, smarts_advanced),
-        nil, nil, STATUS_TIP_MS)
-end
-
-function reset_counters()
-    if not db or not db.actor then return end
-    _reset_state()
-    log.info("[RESET] state cleared")
-    news_manager.send_tip(db.actor, "AlifeBalance: counters reset", nil, nil, RESET_TIP_MS)
 end
 
 -- ==================== ON GAME START ====================

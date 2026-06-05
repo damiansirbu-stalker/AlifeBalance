@@ -1,6 +1,6 @@
-# AlifeBalance: Population Pacing for STALKER Anomaly
+# AlifeBalance: A-Life balance layer for STALKER Anomaly
 
-Combat thins the Zone faster than the engine refills it. AlifeBalance watches faction-level death pressure and quietly nudges quiet smart terrains to refill sooner using their own configured spawn pools. It does not spawn anything itself. Works alongside vanilla, ZCP, Redone, and any other spawner mod because they all read and write the same engine state.
+AlifeBalance is a balance layer for vanilla A-Life with two systems. Smart Balance dynamically adapts respawn cooldowns to where combat actually happens, so fight regions recover faster while quiet maps stop drifting toward overcrowding. Inventory Balance trims excess loot from long-lived NPCs to keep saves performant and prevent jackpot bodies. Both run alongside the engine without rewriting it and can be toggled independently.
 
 [ModDB](https://www.moddb.com/mods/stalker-anomaly/addons/alifebalance) | [Nexus](https://www.nexusmods.com/stalkeranomaly/mods/110) | [Releases](https://github.com/damiansirbu-stalker/AlifeBalance/releases) | [Bugs, suggestions](https://github.com/damiansirbu-stalker/AlifeBalance/issues)
 
@@ -10,7 +10,7 @@ Alife Collection:
 - [AlifePlus](https://www.moddb.com/mods/stalker-anomaly/addons/alifeplus-v1-0-01)
 - [AlifeBalance](https://www.moddb.com/mods/stalker-anomaly/addons/alifebalance)
 - [AlifeGuard](https://www.moddb.com/mods/stalker-anomaly/addons/alifeguard-1001)
-- [AlifeTactics](TBD)
+- AlifeTactics (TBD)
 
 ## Documentation
 

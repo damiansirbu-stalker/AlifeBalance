@@ -79,18 +79,6 @@ function btn_reset_all(gui)
     _apply_defaults(gui, "AlifeBalance: all settings restored to defaults.")
 end
 
-function btn_show_status()
-    if ab_smart_balance and ab_smart_balance.show_status then
-        ab_smart_balance.show_status()
-    end
-end
-
-function btn_reset_counters()
-    if ab_smart_balance and ab_smart_balance.reset_counters then
-        ab_smart_balance.reset_counters()
-    end
-end
-
 -- ==================== MCM DEFINITION ====================
 
 function on_mcm_load()
@@ -139,11 +127,6 @@ function on_mcm_load()
                         text = "ui_mcm_ab_title", size = {512, 50}, spacing = 20 },
                     { id = "desc", type = "desc", text = "ui_mcm_ab_development_desc" },
 
-                    -- Reset
-                    { id = "div_reset", type = "line" },
-                    { id = "warn_reset", type = "desc", text = "ui_mcm_ab_development_reset_warning", clr = {255, 240, 200, 80} },
-                    { id = "btn_reset_all", type = "button", functor_ui = { btn_reset_all } },
-
                     -- Logging
                     { id = "div_logging", type = "line" },
                     { id = "hdr_logging", type = "desc", text = "ui_mcm_ab_hdr_logging", clr = {255, 200, 200, 200} },
@@ -160,8 +143,11 @@ function on_mcm_load()
                     { id = "div_diagnostics", type = "line" },
                     { id = "hdr_diagnostics", type = "desc", text = "ui_mcm_ab_hdr_diagnostics", clr = {255, 200, 200, 200} },
                     { id = "show_markers", type = "check", val = 1, def = false },
-                    { id = "btn_show_status", type = "button", functor = { btn_show_status } },
-                    { id = "btn_reset_counters", type = "button", functor = { btn_reset_counters } },
+
+                    -- Reset
+                    { id = "div_reset", type = "line" },
+                    { id = "warn_reset", type = "desc", text = "ui_mcm_ab_development_reset_warning", clr = {255, 240, 200, 80} },
+                    { id = "btn_reset_all", type = "button", functor_ui = { btn_reset_all } },
                 },
             },
         },
