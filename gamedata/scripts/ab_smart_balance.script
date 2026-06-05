@@ -675,7 +675,6 @@ end
 local function _on_first_update()
     _load_config()
     _reset_state()
-    log.info("AlifeBalance v%s (xlibs v%s)", _ab_deps.get_version(), xlibs.get_version())
     RegisterScriptCallback(CALLBACK.SQUAD_ON_NPC_DEATH, _on_npc_death)
     RegisterScriptCallback(CALLBACK.SQUAD_ON_NPC_CREATION, _on_npc_creation)
     RegisterScriptCallback(CALLBACK.ON_OPTION_CHANGE, _on_option_change)
