@@ -1,3 +1,8 @@
+next
+  Summary: AOEngine compatibility
+
+  - Added AOEngine v0.55+ support.
+
 1.1.0
   Summary: Inventory Balance, equipped ammo coverage, DLTX policy, Smart Balance rename, MCM split
 
