@@ -139,8 +139,8 @@ local function _cfg_cooldown_sec()
 end
 
 -- Single-NPC eligibility predicate.
-local function _is_eligible(obj, actor_id, now, cooldown_sec)
-    local id = obj:id()
+-- @param id from xcreature.online_iter_with_id() — avoids obj:id() call on destroyed game objects
+local function _is_eligible(obj, id, actor_id, now, cooldown_sec)
     if id == actor_id then return nil, "actor" end
     if not IsStalker(obj) then return nil, "nonstalker" end
     if not obj:alive() then return nil, "dead" end
@@ -168,13 +168,15 @@ local function _pick_eligible(cooldown_sec)
     local now = xtime.game_sec()
     local eligible = {}
 
-    for obj in xcreature.online_iter() do
-        stats.total = stats.total + 1
-        local id, last_or_reason = _is_eligible(obj, actor_id, now, cooldown_sec)
-        if id then
-            eligible[#eligible + 1] = { id = id, last = last_or_reason }
-        else
-            stats[last_or_reason] = stats[last_or_reason] + 1
+    for id, obj in xcreature.online_iter_with_id() do
+        if alife_object(id) then
+            stats.total = stats.total + 1
+            local got_id, last_or_reason = _is_eligible(obj, id, actor_id, now, cooldown_sec)
+            if got_id then
+                eligible[#eligible + 1] = { id = got_id, last = last_or_reason }
+            else
+                stats[last_or_reason] = stats[last_or_reason] + 1
+            end
         end
     end
 

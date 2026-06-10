@@ -1,7 +1,15 @@
 next
-  Summary: AOEngine compatibility
+  Summary: AOEngine compatibility, destroyed-object guard in online scans
 
   - Added AOEngine v0.55+ support.
+
+  Inventory Balance / Test
+    - _pick_eligible (ab_inventory_balance) and _pick_npc (ab_test) switched to
+      xcreature.online_iter_with_id with alife_object(id) guard. Skips entities whose alife server
+      entry is already released, eliminating "you are trying to use a destroyed object [N]" warnings
+      emitted when iterator yields an obj mid-destroy.
+    - _is_eligible signature is (obj, id, actor_id, now, cooldown_sec); id comes from the iterator
+      rather than obj:id().
 
 1.1.0
   Summary: Inventory Balance, equipped ammo coverage, DLTX policy, Smart Balance rename, MCM split
