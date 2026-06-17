@@ -123,17 +123,21 @@ Compatibility:
   Tested with vanilla Anomaly 1.5.3, GAMMA, ZCP, Redone, Warfare, AlifeGuard, AlifePlus.
   Also tested with Night Mutants, Nocturnal Mutants, GAMMA Dynamic Despawner, Guards Spawner.
 
-  Smart Balance:
-    Vanilla and ZCP read the same cooldown field Smart Balance writes.
-    Redone and GAMMA NPC Spawns ship pure config. Smart Balance writes runtime state on a different layer.
-    Night Mutants spawns through the engine's own path. Squads still register against their origin smart.
-    Nocturnal Mutants spawns outside smart terrains. No interaction.
-    Dynamic Despawner and AlifeGuard despawn without firing the death event. Never trigger advances.
+  Superseded (AlifeBalance does this - drop the other):
+  - Anti-loot addons (NPC Stop Looting Dead Bodies, BoltBeGone): Inventory Balance handles NPC looting at the source.
 
-  Inventory Balance:
-    Inventory Balance manages vanilla NPC looting at the source, so anti-loot addons are no longer needed.
-    Disable any (NPC Stop Looting Dead Bodies, BoltBeGone) for the full effect.
-    Weapons Drop on Bodies is unrelated and compatible. It only changes where a dying NPC's active weapon ends up (corpse inventory vs floor) and does not block NPC looting.
+  Conflicts (critical): none. Vanilla and ZCP share the respawn-cooldown field Smart Balance writes; they compose.
+
+  Affects / coexists (Smart Balance):
+  - Vanilla, ZCP: same cooldown field; compose.
+  - Redone, GAMMA NPC Spawns: pure config; Smart Balance writes runtime state on a different layer.
+  - Night Mutants: engine spawn path; squads register against their origin smart.
+  - Nocturnal Mutants: spawn outside smart terrains; no interaction.
+  - ReSpawn Mutant Collection: composes if squads register against an origin smart.
+  - Dynamic Despawner, AlifeGuard: despawn without firing death; never trigger advances.
+
+  Affects / coexists (Inventory Balance):
+  - Weapons Drop on Bodies: only moves the dying NPC's weapon (corpse vs floor); doesn't block looting.
 
 
 MCM:

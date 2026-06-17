@@ -123,17 +123,21 @@ Inventory Balance:
   Тестировалось с ванильным Anomaly 1.5.3, GAMMA, ZCP, Redone, Warfare, AlifeGuard, AlifePlus.
   Также тестировалось с Night Mutants, Nocturnal Mutants, GAMMA Dynamic Despawner, Guards Spawner.
 
-  Smart Balance:
-    Vanilla и ZCP читают то же поле кулдауна, в которое пишет Smart Balance.
-    Redone и GAMMA NPC Spawns поставляют чистый конфиг. Smart Balance пишет рантайм-состояние на другом слое.
-    Night Mutants спавнит через собственный путь движка. Отряды по-прежнему регистрируются на своей умной территории происхождения.
-    Nocturnal Mutants спавнит вне умных территорий. Без взаимодействия.
-    Dynamic Despawner и AlifeGuard освобождают NPC без срабатывания события смерти. Никогда не вызывают ускорений.
+  Заменяет (AlifeBalance делает то же — отключите другой мод):
+    Анти-лут аддоны (NPC Stop Looting Dead Bodies, BoltBeGone): Inventory Balance управляет лутом NPC у источника.
 
-  Inventory Balance:
-    Inventory Balance управляет ванильным лутом NPC у источника, так что анти-лут аддоны больше не нужны.
-    Отключите любой из них (NPC Stop Looting Dead Bodies, BoltBeGone) для полного эффекта.
-    Weapons Drop on Bodies не связан и совместим. Он лишь меняет, куда попадает активное оружие умирающего NPC (инвентарь трупа или пол), и не блокирует лут NPC.
+  Конфликты (критичные): нет. Vanilla и ZCP используют то же поле кулдауна, в которое пишет Smart Balance; сочетаются.
+
+  Влияет / совместимо (Smart Balance):
+    Vanilla, ZCP: то же поле кулдауна; сочетаются.
+    Redone, GAMMA NPC Spawns: чистый конфиг; Smart Balance пишет рантайм-состояние на другом слое.
+    Night Mutants: путь движка; отряды регистрируются на своей умной территории происхождения.
+    Nocturnal Mutants: спавнят вне умных территорий; без взаимодействия.
+    ReSpawn Mutant Collection: сочетается, если отряды регистрируются на умной территории происхождения.
+    Dynamic Despawner, AlifeGuard: освобождают NPC без события смерти; никогда не вызывают ускорений.
+
+  Влияет / совместимо (Inventory Balance):
+    Weapons Drop on Bodies: лишь меняет, куда попадает оружие умирающего NPC (труп или пол); не блокирует лут.
 
 
 MCM:
