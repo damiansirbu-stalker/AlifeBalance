@@ -8,7 +8,7 @@ defaults = {
     min_minutes = 120,
     enabled_inventory = true,
     npcs_per_frame = 1,
-    scan_cooldown_h = 24,
+    scan_cooldown_h = 12,
     show_markers = false,
     log_level = "WARN",
 }
@@ -115,7 +115,7 @@ function on_mcm_load()
                     { id = "div_inventory", type = "line" },
                     { id = "enabled_inventory", type = "check", val = 1, def = true },
                     { id = "npcs_per_frame", type = "track", val = 2, min = 1, max = 10, step = 1, def = 1 },
-                    { id = "scan_cooldown_h", type = "track", val = 2, min = 1, max = 72, step = 1, def = 24 },
+                    { id = "scan_cooldown_h", type = "track", val = 2, min = 1, max = 72, step = 1, def = 12 },
                 },
             },
             -- ============ DEVELOPMENT TAB ============

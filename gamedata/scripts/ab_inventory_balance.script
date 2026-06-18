@@ -69,7 +69,7 @@ local _last_update = 0
 -- trim_npc no-ops cleanly.
 local function _load_policy()
     local block = xinventory.load_policy(POLICY_PATH, { POLICY_SECTION })[POLICY_SECTION]
-    INVENTORY_POLICY = { entries = block.entries, rules = block.rules, section_rules = block.section_rules }
+    INVENTORY_POLICY = { entries = block.entries, rules = block.rules }
 end
 
 -- ==================== PER-NPC TRIM (PUBLIC) ====================
@@ -91,8 +91,7 @@ function trim_npc(npc, opts)
 
     local npc_id = npc:id()
     local cat_opts = xinventory.get_category_opts(npc)
-    local section_rules = INVENTORY_POLICY.section_rules
-    local counts = xinventory.classify(npc, cat_opts, section_rules)
+    local counts = xinventory.classify(npc, cat_opts, INVENTORY_POLICY.rules)
 
     local result = {
         released = 0,
@@ -102,7 +101,6 @@ function trim_npc(npc, opts)
 
     result.released = xinventory.iterate_surplus(npc, cat_opts, {
         rules = INVENTORY_POLICY.rules,
-        section_rules = section_rules,
         counts = counts,
         on_surplus = function(item, cat, sec, _unit)
             if not dry_run then xinventory.release_item(item) end
@@ -136,7 +134,7 @@ end
 
 local function _cfg_cooldown_sec()
     local mcm = _cfg()
-    local hours = mcm and mcm.scan_cooldown_h or 24
+    local hours = mcm and mcm.scan_cooldown_h or 12
     return hours * 3600
 end
 

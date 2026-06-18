@@ -198,7 +198,7 @@ Not owned by AlifeBalance: which recipe the engine picks (random over open-budge
 
 The goal is to let the player keep vanilla NPC corpse looting enabled. Vanilla looting pays two costs over long sessions: jackpot bodies (one stalker carrying a vendor run of gear), and creep toward the engine's 65535 alife-ID cap as every looted item consumes one ID (vanilla Anomaly warns at 64000 via `alife_on_limit`). Anti-loot addons (NPC Stop Looting Dead Bodies, Weapons Drop on Bodies, BoltBeGone) sidestep both by blocking or rewriting the loot path. Inventory Balance bounds hoarding at the source instead, so anti-loot addons are no longer needed.
 
-Periodic scanner over online stalkers. Walks the online set in small batches, trims one NPC per frame, rescans each NPC at most once per game-day. Scope is random long-lived stalkers (gulag survivors, generic patrols). Companions, story NPCs, traders, and named characters are filtered out at the scheduler via `xcreature.is_unscriptable` and never reach `trim_npc`.
+Periodic scanner over online stalkers. Walks the online set in small batches, trims one NPC per frame, rescans each NPC at most twice per game-day (default 12 game-hour cooldown). Scope is random long-lived stalkers (gulag survivors, generic patrols). Companions, story NPCs, traders, and named characters are filtered out at the scheduler via `xcreature.is_unscriptable` and never reach `trim_npc`.
 
 ### Why scanner, not death-time hook
 
@@ -325,7 +325,7 @@ No persistence. The cooldown table not saved; on game load every NPC is fresh an
 | `gamedata/scripts/ab_smart_balance.script` | Death handler, periodic tick burst-advance loop, per-smart CTime delta cache, `_advance_smart` cooldown subtract, public `marker_label` + `show_smart_stats` for ab_smart_map |
 | `gamedata/scripts/ab_smart_recipe.script` | Per-(level, faction) eligibility + threshold cache, single-pass budget evaluation. Two entry points called by ab_smart_balance: `get_eligible_and_threshold` and `evaluate_budget_for_faction`. Delegates smart discovery and squad-size lookup to xsmart. |
 | `gamedata/scripts/ab_smart_map.script` | PDA marker render-state, right-click menu (teleport, show stats). Calls back into ab_smart_balance for label + stats formatting. |
-| `gamedata/scripts/ab_inventory_balance.script` | Online inventory scanner. Public API `trim_npc`, xslice scheduler with per-NPC game-day cooldown. Policy loaded from `ab_inventory_policy.ltx` via `xinventory.load_policy`. |
+| `gamedata/scripts/ab_inventory_balance.script` | Online inventory scanner. Public API `trim_npc`, xslice scheduler with per-NPC cooldown (default 12 game-hours). Policy loaded from `ab_inventory_policy.ltx` via `xinventory.load_policy`. |
 | `gamedata/configs/alifebalance/ab_inventory_policy.ltx` | Per-category `{min, max}` ceilings (DLTX-overridable). Single block `[ab_inventory_policy]`; shared LTX shape with `ap_trade_policy.ltx` and `ap_stash_policy.ltx`. |
 | `gamedata/scripts/ab_test.script` | Console-driven test harness. Kill loop fires fake NPC deaths every 3s, alternating on-level / off-level pools (same vermin filter as ab_smart_balance). Flow tests (`ab_test_<flow>()`) inject inventory and assert `ab_inventory_balance.trim_npc` results against the LTX policy. |
 | `gamedata/configs/text/eng/ui_st_mcm_ab.xml` | MCM strings (English) |
@@ -343,7 +343,7 @@ No persistence. The cooldown table not saved; on game load every NPC is fresh an
 | `Min Minutes`        | Smart Balance     | track  | 120     | 10-360  | Minimum cooldown remaining after every advance, in game minutes |
 | `enabled_inventory`  | Inventory Balance | check  | true    | -       | Scanner enable. When off, no scheduler, no trims. |
 | `npcs_per_frame`     | Inventory Balance | track  | 1       | 1-10    | xslice step: NPCs trimmed per frame inside a cycle. |
-| `scan_cooldown_h`    | Inventory Balance | track  | 24      | 1-72    | Per-NPC rescan cooldown in game-hours. |
+| `scan_cooldown_h`    | Inventory Balance | track  | 12      | 1-72    | Per-NPC rescan cooldown in game-hours. |
 | `log_level`          | Development       | list   | WARN    | -       | ERROR / WARN / INFO / DEBUG |
 | `show_markers`       | Development       | check  | false   | -       | Green PDA marker on every advanced smart, 5-min linger, right-click teleport / stats |
 | `btn_reset_all`      | Development       | button | -       | -       | Restore all MCM settings to factory defaults. Closes the MCM dialog via On_Cancel (not On_Discard, see ab_mcm.script comment for the SEH-on-some-exes rationale). |

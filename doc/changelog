@@ -1,10 +1,12 @@
 next
-  Summary: Smoke grenade cull, AOEngine compatibility, destroyed-object guard in online scans
+  Summary: Smoke grenade cull, 12h scan cooldown, AOEngine compatibility, destroyed-object guard in online scans
 
   - Added AOEngine v0.55+ support.
-  - Changed inventory balance to cull smoke grenades from NPC inventories.
+  - Changed inventory balance to cull smoke grenades from NPC inventories, including one held in
+    the grenade slot. ab_inventory_policy.ltx names grenade_smoke = 0 alongside grenade = 3.
     Smoke grenades crash the game when an NPC throws them on current exes.
-    ab_inventory_policy.ltx now takes per-item rows like grenade_smoke = 0 alongside category caps.
+  - Changed the inventory scan cooldown default to 12 game-hours (was 24): NPCs are trimmed
+    twice per game-day.
 
   Inventory Balance / Test
     - _pick_eligible (ab_inventory_balance) and _pick_npc (ab_test) switched to
