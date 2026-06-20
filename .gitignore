@@ -3,7 +3,6 @@
 .deleted/
 AGENTS.md
 meta.ini
-*.log
 *.tmp
 *.bak
 *~

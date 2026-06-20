@@ -1,20 +1,11 @@
-next
-  Summary: Smoke grenade cull, 12h scan cooldown, AOEngine compatibility, destroyed-object guard in online scans
+1.1.1
+  Summary: Smoke grenade cull, 12h scan cooldown, AOEngine compatibility, fewer engine warnings
 
   - Added AOEngine v0.55+ support.
-  - Changed inventory balance to cull smoke grenades from NPC inventories, including one held in
-    the grenade slot. ab_inventory_policy.ltx names grenade_smoke = 0 alongside grenade = 3.
-    Smoke grenades crash the game when an NPC throws them on current exes.
-  - Changed the inventory scan cooldown default to 12 game-hours (was 24): NPCs are trimmed
-    twice per game-day.
-
-  Inventory Balance / Test
-    - _pick_eligible (ab_inventory_balance) and _pick_npc (ab_test) switched to
-      xcreature.online_iter_with_id with alife_object(id) guard. Skips entities whose alife server
-      entry is already released, eliminating "you are trying to use a destroyed object [N]" warnings
-      emitted when iterator yields an obj mid-destroy.
-    - _is_eligible signature is (obj, id, actor_id, now, cooldown_sec); id comes from the iterator
-      rather than obj:id().
+  - Changed inventory balance to cull smoke grenades from NPC inventories, including one held in the
+    grenade slot. Smoke crashes the game when an NPC throws it on current exes.
+  - Changed the inventory scan cooldown to 12 game-hours (was 24), so NPCs are trimmed twice per game-day.
+  - Fixed a burst of "trying to use a destroyed object" warnings logged when a creature despawns during a scan.
 
 1.1.0
   Summary: Inventory Balance, equipped ammo coverage, DLTX policy, Smart Balance rename, MCM split

@@ -4,7 +4,7 @@ AlifeBalance is a balance layer for vanilla A-Life with two systems. Smart Balan
 
 [ModDB](https://www.moddb.com/mods/stalker-anomaly/addons/alifebalance) | [Nexus](https://www.nexusmods.com/stalkeranomaly/mods/110) | [Releases](https://github.com/damiansirbu-stalker/AlifeBalance/releases) | [Bugs, suggestions](https://github.com/damiansirbu-stalker/AlifeBalance/issues)
 
-Requires: Anomaly 1.5.3, [demonized 20260601+](https://github.com/themrdemonized/xray-monolith), [xlibs 1.7.0](https://www.moddb.com/mods/stalker-anomaly/addons/xlibs-1001), MCM
+Requires: Anomaly 1.5.3, [themrdemonized 2025.9.10+](https://github.com/themrdemonized/xray-monolith) or [AOEngine v0.55+](https://github.com/Mirrowel/AOEngine-Assets), [xlibs 1.7.7](https://www.moddb.com/mods/stalker-anomaly/addons/xlibs-1001), MCM
 
 Alife Collection:
 - [AlifePlus](https://www.moddb.com/mods/stalker-anomaly/addons/alifeplus-v1-0-01)
