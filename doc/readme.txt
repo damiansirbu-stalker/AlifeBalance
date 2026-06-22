@@ -175,6 +175,10 @@ Runs on xlibs over the X-Ray engine, using runtime callbacks only and leaving ba
 See doc/architecture.md for the full design and the multi-stage validation pipeline (luacheck, selene, AST analysis, contract rules, integration tests).
 
 
+FAQ:
+Do I need modded exes?
+  Yes. AlifeBalance needs themrdemonized modded exes (2025.9.10 or newer) or AOEngine (v0.55 or newer). Vanilla Anomaly does not expose the APIs it relies on.
+
 Credits:
 Altogolik - support, ideas, source materials.
 
