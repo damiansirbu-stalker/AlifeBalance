@@ -260,7 +260,7 @@ local function _pick_npc()
     local actor_id = actor:id()
     local best, best_dist = nil, math_huge
     for id, obj in xcreature.online_iter_with_id() do
-        if alife_object(id) and id ~= actor_id and IsStalker(obj) and obj:alive()
+        if id ~= actor_id and alife_object(id) and IsStalker(obj) and obj:alive()
             and not xcreature.is_unscriptable(obj) then
             local dist = obj:position():distance_to_sqr(actor_pos)
             if dist < best_dist then best, best_dist = obj, dist end
