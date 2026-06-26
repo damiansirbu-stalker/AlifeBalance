@@ -169,15 +169,16 @@ local function _pick_eligible(cooldown_sec)
     local eligible = {}
 
     for id, obj in xcreature.online_iter_with_id() do
-        if alife_object(id) then
-            stats.total = stats.total + 1
-            local got_id, last_or_reason = _is_eligible(obj, id, actor_id, now, cooldown_sec)
-            if got_id then
-                eligible[#eligible + 1] = { id = got_id, last = last_or_reason }
-            else
-                stats[last_or_reason] = stats[last_or_reason] + 1
-            end
+        local se = alife_object(id)
+        if not se then goto continue end
+        stats.total = stats.total + 1
+        local got_id, last_or_reason = _is_eligible(obj, id, actor_id, now, cooldown_sec)
+        if got_id then
+            eligible[#eligible + 1] = { id = got_id, last = last_or_reason }
+        else
+            stats[last_or_reason] = stats[last_or_reason] + 1
         end
+        ::continue::
     end
 
     table_sort(eligible, function(a, b) return a.last < b.last end)
