@@ -1,6 +1,7 @@
 next
-  Summary: Cull caps aligned with the loot policy
+  Summary: Cull caps aligned with the loot policy, platform status
 
+  - Added dynamic checking of xlibs and xray-monolith/AOEngine versions with a compatibility verdict.
   - Aligned the inventory cull caps with the AlifePlus loot policy. Rifle ammo drops from 120 to 45 and launcher grenades from 6 to 3, so culling and looting agree on how much an NPC keeps.
 
 1.1.1
