@@ -1,5 +1,5 @@
 STALKER Mod Validation Report
-Generated: 2026-06-21 00:36:41
+Generated: 2026-07-11 20:21:28
 Validator: stalker-manager validate
 Mods: 1
 
@@ -26,9 +26,9 @@ Files:
   Files checked: 7
   Errors: 0, Warnings: 0
 
-[3/4] contract - project rules (2 pts (S+))
-  Rules loaded: 250
-  Score: 2
+[3/4] contract - project rules (PASS (S+))
+  Rules loaded: 251
+  Score: 0
 
   PASS  [alao-table-insert] LUA-LOW w1 - table.insert optimization
   PASS  [alao-table-getn] LUA-MED w5 - table.getn deprecated
@@ -152,8 +152,7 @@ Files:
   PASS  [library-no-early-loop-exit] LUA-LOW w1 - No early loop exit
   PASS  [library-distance-sqrt] XRAY-LOW w1 - Distance with sqrt
   PASS  [library-string-find-loop] LUA-MED w5 - string.find in loop
-  FAIL  [library-expensive-check-first] LUA-LOW w1 - Expensive check before cheap check (1 findings, 1 pts)
-          gamedata\scripts\ab_test.script:263: Expensive check before cheap; reorder for short-circuit
+  PASS  [library-expensive-check-first] LUA-LOW w1 - Expensive check before cheap check
   PASS  [library-pcall-in-loop] LUA-MED w5 - pcall in loop
   PASS  [library-unthrottled-simboard] XRAY-MED w5 - Unthrottled SIMBOARD iteration
   PASS  [library-polling-in-update] XRAY-MED w5 - Polling in update loops
@@ -233,8 +232,7 @@ Files:
   PASS  [mcm-unused-default] XRAY-LOW w1 - Unused MCM default
   PASS  [mcm-missing-localization] XRAY-MED w5 - Missing MCM localization
   PASS  [mcm-uncached-config] XRAY-MED w5 - Uncached MCM config proxy
-  FAIL  [standards-nesting-depth] LUA-LOW w1 - standards-nesting-depth (1 findings, 1 pts)
-          gamedata\scripts\ab_inventory_balance.script:175: Nesting depth 3; max 2 (code-standards.md:125)
+  PASS  [standards-nesting-depth] LUA-LOW w1 - standards-nesting-depth
   PASS  [standards-function-length] LUA-LOW w1 - standards-function-length
   PASS  [standards-file-length] LUA-LOW w1 - standards-file-length
   PASS  [standards-line-length] LUA-LOW w1 - standards-line-length
@@ -279,6 +277,7 @@ Files:
   PASS  [standards-guard-only-param] LUA-MED w5 - standards-guard-only-param
   PASS  [standards-cross-module-in-on-game-start] LUA-HIGH w9 - standards-cross-module-in-on-game-start
   PASS  [standards-nil-check-on-boolean-field] LUA-MED w5 - standards-nil-check-on-boolean-field
+  PASS  [standards-no-raw-assign-smart] LUA-HIGH w12 - standards-no-raw-assign-smart
   PASS  [version-drift] LUA-HIGH w9 - Version drift
   PASS  [xlibs-engine-docs] LUA-MED w4 - xlibs-engine-docs
   PASS  [xlibs-private-docs] LUA-LOW w2 - xlibs-private-docs
@@ -286,55 +285,55 @@ Files:
 [4/4] load - runtime loading (PASS)
   Test: lua54 interpreter + X-Ray engine stubs
   Load test: AlifeBalance
-  LOAD: _ab_deps
-  LOAD: xsmart_spawn
-  LOAD: xprofiler
-  LOAD: xpp
-  LOAD: xsquad
-  LOAD: ab_smart_balance
-  LOAD: ab_smart_map
-  LOAD: ab_mcm
-  LOAD: xchange
-  LOAD: xpda
-  LOAD: xlibs_mcm
-  LOAD: xinspect
-  LOAD: xactor
-  LOAD: xtime
-  LOAD: xcombat
-  LOAD: ab_inventory_balance
-  LOAD: xstring
-  LOAD: xcreature
-  LOAD: xtrace
-  LOAD: xsmart
-  LOAD: xevent
-  LOAD: xtable
-  LOAD: xsound
-  LOAD: xlog
-  LOAD: xobject
-  LOAD: xconst
   LOAD: xmath
+  LOAD: xstash
+  LOAD: ab_smart_balance
+  LOAD: xlibs
+  LOAD: xbus
+  LOAD: xobject
+  LOAD: xlibs_mcm
+  LOAD: xsquad
+  LOAD: xttltable
+  LOAD: xcombat
+  LOAD: xstring
+  LOAD: xlog
+  LOAD: ab_test
+  LOAD: xactor
+  LOAD: xpda
+  LOAD: xtable
+  LOAD: xprofiler
+  LOAD: xlevel
+  LOAD: xsound
+  LOAD: ab_mcm
+  LOAD: ab_smart_map
+  LOAD: xconst
+  LOAD: ab_smart_recipe
+  LOAD: xcreature
+  LOAD: xchange
+  LOAD: xevent
   LOAD: xinventory
   LOAD: xdata
-  LOAD: xmcm
-  LOAD: xlibs
+  LOAD: _ab_deps
+  LOAD: ab_inventory_balance
+  LOAD: xtrace
+  LOAD: xtime
+  LOAD: xsmart_spawn
+  LOAD: xsmart
   LOAD: xslice
-  LOAD: ab_smart_recipe
-  LOAD: xlevel
-  LOAD: xbus
-  LOAD: xstash
-  LOAD: ab_test
-  LOAD: xttltable
+  LOAD: xpp
+  LOAD: xmcm
+  LOAD: xinspect
+  START: ab_smart_balance.on_game_start
+  START: xpp.on_game_start
+  START: ab_inventory_balance.on_game_start
   START: _ab_deps.on_game_start
   START: xtime.on_game_start
-  START: ab_smart_map.on_game_start
-  START: ab_inventory_balance.on_game_start
-  START: xsound.on_game_start
-  START: xlog.on_game_start
-  START: xpp.on_game_start
-  START: ab_smart_balance.on_game_start
   START: ab_mcm.on_game_start
+  START: xlog.on_game_start
+  START: xsound.on_game_start
+  START: ab_smart_map.on_game_start
   OK: 38 loaded, 9 on_game_start
 
 ========================================================================
-RESULT: Grade: S+ | Score: 2
+RESULT: PASS | Grade: S+ | Score: 0
 ========================================================================

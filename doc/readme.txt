@@ -1,5 +1,5 @@
 AlifeBalance: A-Life balance layer for STALKER Anomaly, by Damian
-Version: 1.1.1 (xlibs 1.7.7)
+Version: 1.1.2 (xlibs 1.8.2, demonized 20250908)
 GitHub: https://github.com/damiansirbu-stalker/AlifeBalance
 Changelog: https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/changelog
 Architecture: https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/architecture.md

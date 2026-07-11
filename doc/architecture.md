@@ -269,11 +269,12 @@ Policy values live in `gamedata/configs/alifebalance/ab_inventory_policy.ltx` (D
 
 | Category | max | Effect |
 |---|---|---|
-| ammo_slot_3_t1, ammo_slot_3_t2 | 120 (rounds) | NPC keeps 4 mags of rifle ammo per tier |
-| ammo_slot_2_t1, ammo_slot_2_t2 | 48 (rounds) | NPC keeps 3 mags of pistol ammo per tier |
+| ammo_slot_3_t1, ammo_slot_3_t2 | 45 (rounds) | NPC keeps 3 boxes of rifle ammo per tier |
+| ammo_slot_2_t1, ammo_slot_2_t2 | 48 (rounds) | NPC keeps 3 boxes of pistol ammo per tier |
 | ammo_not_equipped | 0 | Always release mismatched ammo |
 | grenade | 3 | Hand grenade buffer |
-| grenade_ammo | 6 | Launcher rounds (vog-25, og-7b, m209) |
+| grenade_smoke | 0 | Culled entirely; NPCs throwing smoke crash current exes |
+| grenade_ammo | 3 | Launcher rounds (vog-25, og-7b, m209) |
 | medkit, bandage | 5 | Self-heal supply; matches trade veteran max so trade-acquired bandages survive between visits |
 | food | 5 | Spare consumables |
 | antirad, stim, pill | 3 | Niche consumables |
