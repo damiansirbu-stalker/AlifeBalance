@@ -23,7 +23,7 @@ Part of a three-mod alife family: **AlifePlus** extends A-Life with new behavior
 Every smart terrain holds two engine fields that together define when it can spawn next:
 
 - `respawn_idle` — cooldown duration in game-seconds. Set once from LTX (`smart_terrain.script:231`), per-smart. Vanilla LTX default 86400 (24 game hours); the engine code fallback for unset entries is 43200 (12h); ZCP under GAMMA is 21600 (6h); Redone varies. AlifeBalance only reads this field.
-- `last_respawn_update` — timestamp of the smart's last spawn. The engine resets it to `curr_time` after every `SIMBOARD:create_squad`. AlifeBalance writes this field; one subtract per advance, in `_advance_smart` at `ab_smart_balance.script:291-305`.
+- `last_respawn_update` — timestamp of the smart's last spawn. The engine sets it to `curr_time` when the cooldown gate passes (`smart_terrain.script:1651`), before any `SIMBOARD:create_squad` and even when every budget is full and nothing spawns. AlifeBalance writes this field; one subtract per advance, in `_advance_smart`.
 
 The engine's cooldown gate inside `smart_terrain.script:try_respawn` (delegated to `smr_pop.smart_can_respawn` under ZCP):
 
@@ -114,13 +114,13 @@ _periodic_tick()
 ENGINE (its own alife tick at the advanced smart)
   - se_smart_terrain:update -> try_respawn
   - cooldown gate (smart_terrain.script:try_respawn): diff > respawn_idle ? proceed : skip
+  - on gate pass: writes last_respawn_update = curr_time (before any spawn, even if all budgets full)
   - per-recipe budget gate (smart_terrain.script:try_respawn, max_respawn_count > already_spawned[k].num)
   - picks recipe at random from open ones
   - picks squad section at random from recipe.squads
   - SIMBOARD:create_squad(smart, section)
   - sets squad.respawn_point_id = smart.id
   - increments already_spawned[k].num
-  - writes last_respawn_update = curr_time
 ```
 
 **Threshold** for a (level, faction) pair is the MAX `npc_in_squad` upper bound across all squad sections in eligible smarts' recipes that produce the faction. Cordon stalker = 3, Swamp boar = 15. Read from `squad_descr` LTX on first death, cached for the session. No MCM knob — engine-grounded by construction.
@@ -135,18 +135,18 @@ ENGINE (its own alife tick at the advanced smart)
 
 ## Engine gates inside try_respawn
 
-`smart_terrain.script:try_respawn` has eight gates. AlifeBalance affects one.
+`smart_terrain.script:try_respawn` has eight gates (line numbers are vanilla unpacked Anomaly 1.5.3). AlifeBalance affects one.
 
 | Gate                                          | Source line | Our effect |
 |-----------------------------------------------|-------------|------------|
-| Disabled / on_try_respawn callback            | 1607        | Untouched |
-| Peace info                                    | 1613        | Untouched |
-| Level filter (`respawn_only_level`)           | 1618        | Untouched |
-| Actor distance (`respawn_radius`)             | 1625        | Untouched |
-| `respawn_params and already_spawned` exist    | 1631        | Untouched |
-| Simulation availability                       | 1636        | Untouched |
-| Cooldown timer                                | 1657        | Subtract `(respawn_idle - Min Minutes*60) / advances` from `last_respawn_update` per advance |
-| Per-recipe budget                             | 1702        | Untouched |
+| Disabled / on_try_respawn callback            | 1601        | Untouched |
+| Peace info                                    | 1607        | Untouched |
+| Level filter (`respawn_only_level`)           | 1611        | Untouched |
+| Actor distance (`respawn_radius`)             | 1619        | Untouched |
+| `respawn_params and already_spawned` exist    | 1625        | Untouched |
+| Simulation availability                       | 1630        | Untouched |
+| Cooldown timer                                | 1651        | Subtract `(respawn_idle - Min Minutes*60) / advances` from `last_respawn_update` per advance |
+| Per-recipe budget                             | 1696        | Untouched |
 
 ---
 
@@ -226,8 +226,9 @@ _start_cycle()
   - if not enabled_inventory: return
   - if xslice.is_active("ab_inventory_balance_scan"): return
   - now = xtime.game_sec()
-  - eligible = [ npc_id for npc in xcreature.online_iter()
-                 if IsStalker(npc) and npc:alive()
+  - eligible = [ npc_id for id, npc in xcreature.online_iter_with_id()
+                 if alife_object(id)
+                    and IsStalker(npc) and npc:alive()
                     and not xcreature.is_unscriptable(npc)
                     and now - _last_scan_game_sec[npc_id] >= scan_cooldown_h * 3600 ]
   - sort eligible by oldest scan first
@@ -292,7 +293,7 @@ Companions, traders, story characters, and named NPCs are filtered at the schedu
 
 | State | Purpose |
 |---|---|
-| `_last_scan_game_sec[npc_id]` | game-second of last visit. Persists for session only; on game load every NPC is eligible. Stale ids harmless (id allocator never recycles within a save). |
+| `_last_scan_game_sec[npc_id]` | game-second of last visit. Persists for session only; on game load every NPC is eligible. Stale ids harmless: the engine recycles freed server ids within a session, but `_on_npc_net_destroy` prunes the row when an NPC despawns, so a recycled id starts fresh. |
 | `_cycle_id`, `_cycle_tid`, `_cycle_visited`, `_cycle_released`, `_cycle_timer` | per-cycle counters. Reset in `_start_cycle`. |
 | `_last_update`, `_dbg` | wall-clock gate (os.clock), debug-level mirror. |
 
@@ -313,7 +314,7 @@ No persistence. The cooldown table not saved; on game load every NPC is fresh an
 
 | Operation | Cost |
 |---|---|
-| `_start_cycle`, eligible-set walk | O(N online) with N ~ 200 typical. 1 `xtime.game_sec()` + per-NPC `IsStalker` + `alive()` + `xcreature.is_unscriptable` (weak-keyed cache, 0 luabind on hit) + hash read. |
+| `_start_cycle`, eligible-set walk | O(N online) with N ~ 200 typical. 1 `xtime.game_sec()` + per-NPC `alife_object(id)` existence check + `IsStalker` + `alive()` + `xcreature.is_unscriptable` (weak-keyed cache, 0 luabind on hit) + hash read. |
 | `_pick_eligible` sort | O(K log K) where K = eligible count. `table.sort` over an array of tables. |
 | Per NPC visit | O(items) inventory walk. 12 `item_in_slot` (one per main slot) + ~2 `parse_list` (ammo_class for slots 2 and 3) for state, plus per-item policy (hashes + clsid + IsItem/IsWeapon/IsOutfit/IsHeadgear/IsArtefact bridges). |
 | Per release | 1 `alife_object` + 1 `alife_release`. |
@@ -365,7 +366,7 @@ Threshold has no knob — it is engine-grounded, read from `squad_descr` LTX per
 | Per death | O(1). Protection check, vermin species lookup (cached), faction read, level lookup, counter increment. |
 | `ab_smart_recipe.get_eligible_and_threshold`, first call per pair | O(S * R * Q) over smarts on level * recipes per smart * sections per recipe. 2 luabind `ini_sys:r_string_ex` per section. Cached. |
 | `ab_smart_recipe.get_eligible_and_threshold`, cache hit | O(1) |
-| `ab_smart_recipe.evaluate_budget_for_faction`, per tick per eligible smart | O(R * Q) over recipes * sections. 1 `pick_section_from_condlist` per recipe + 1 `ini_sys:r_string_ex` per section until first faction match. |
+| `ab_smart_recipe.evaluate_budget_for_faction`, per tick per eligible smart | O(R * Q) over recipes * sections. 1 `pick_value_readonly` per recipe + 1 `ini_sys:r_bool_ex` common-flag read per recipe + 1 `ini_sys:r_string_ex` per section until first faction match. |
 | `_get_advance_params`, first call per smart | 2 CTime constructions + 2 `setHMSms` + 1 operator-. ~5 luabind. Cached. |
 | `_get_advance_params`, cache hit | O(1) |
 | `_can_advance`, per tick per eligible smart | 1 luabind: `xtime.game_time():diffSec(lru)`. |
@@ -378,8 +379,8 @@ Threshold has no knob — it is engine-grounded, read from `squad_descr` LTX per
 
 | Mod | Interaction |
 |-----|-------------|
-| Vanilla `try_respawn` | Reads `last_respawn_update` inside `smart_terrain.script:try_respawn` (cooldown gate). The advance moves the same field. Budget eval applies `ui_options.get("alife/general/alife_stalker_pop" / "..._mutant_pop")` to match the engine's pop_factor multiplier inside the same function. |
-| ZCP (forked `try_respawn`) | Gates against `smr_amain_mcm.get_config("respawn_idle")`, not `smart.respawn_idle`. AB's `_resolve_idle` reads the same cvar so the per-advance subtract sizes against ZCP's actual gate. Budget eval applies `smr_amain_mcm.get_config("stalker_pop_factor" / "monster_pop_factor")` to match `smr_pop.get_*_pop_factor` at `smr_pop.script:372-389`. The `Min Minutes` floor holds against the resolved cycle. |
+| Vanilla `try_respawn` | Reads `last_respawn_update` inside `smart_terrain.script:try_respawn` (cooldown gate). The advance moves the same field. Budget eval mirrors the engine's per-recipe factor selection verbatim (`smart_terrain.script:1675-1686`): only recipes whose first squad section has `common=true` are scaled, by `alife_mutant_pop` for `simulation`/`zombied` sections and `alife_stalker_pop` for `sim_squad`. |
+| ZCP (forked `try_respawn`) | Gates against `smr_amain_mcm.get_config("respawn_idle")`, not `smart.respawn_idle`. AB's `_resolve_idle` reads the same cvar so the per-advance subtract sizes against ZCP's actual gate. Budget eval takes the same per-recipe classification but sources the factors from `smr_amain_mcm.get_config("stalker_pop_factor" / "monster_pop_factor")` to match `smr_pop.get_*_pop_factor`. The `Min Minutes` floor holds against the resolved cycle. |
 | ZCP `smr_handle_spawn` | Substitutes the squad section in flight (zombie 90% under Survival; random mutant for monster squads; faction reshuffle for stalkers per `smr_pop.script:288-339`). Replacement still gets `respawn_point_id` and `respawn_point_prop_section` set, so engine budget accounting stays intact. The (level, faction) population invariant degrades to "deaths bound system-wide refill, not per-faction refill" under ZCP: AB credits faction A's kills, ZCP may produce faction B's squad. Total spawn-rate cap holds; per-faction accounting does not. |
 | Redone Collection | Pure LTX configuration. AlifeBalance writes runtime state. No conflict. |
 | GAMMA NPC Spawns | Pure LTX. No conflict. |

@@ -8,29 +8,45 @@
 --- and MCM reset).
 
 local pairs, ipairs, tonumber, tostring, type = pairs, ipairs, tonumber, tostring, type
-local string_format, table_concat = string.format, table.concat
+local string_format, table_concat, string_find = string.format, table.concat, string.find
 local math_floor, math_random = math.floor, math.random
 local xlog, xsmart, xlevel = xlog, xsmart, xlevel
+local ini_sys = ini_sys
 
--- ZCP-aware population factor for one faction. Engine in smart_terrain.script:try_respawn
--- multiplies max_respawn_count by stalker_pop_factor / monster_pop_factor before the
--- "open" comparison; ZCP replaces those at smr_pop.script:372-389 with its own MCM cvars
--- (GAMMA seeds both to 0.5). AB's budget eval must apply the same factor or advances
--- fire on smarts the engine will refuse. Engine classifies via the recipe's first
--- squad section name; AB classifies via the target faction (is_squad_monster is the
--- global hash at _g.script:2344) -- equivalent in normal recipes, AB-correct under
--- mixed pools where engine would inspect only the first squad section.
-local function _pop_factor(faction)
+-- Population factors, ZCP-aware. The engine (smart_terrain.script:try_respawn) reads
+-- alife_stalker_pop / alife_mutant_pop; ZCP replaces those with its own MCM cvars
+-- (GAMMA seeds both to 0.5). Split into stalker/monster getters so the per-recipe
+-- classifier can mirror the engine's factor selection verbatim.
+local function _monster_pop_factor()
     if smr_amain_mcm and smr_amain_mcm.get_config and smr_amain_mcm.get_config("smr_enabled") then
-        if is_squad_monster and is_squad_monster[faction] then
-            return smr_amain_mcm.get_config("monster_pop_factor") or 1
-        end
+        return smr_amain_mcm.get_config("monster_pop_factor") or 1
+    end
+    return ui_options.get("alife/general/alife_mutant_pop") or 1
+end
+
+local function _stalker_pop_factor()
+    if smr_amain_mcm and smr_amain_mcm.get_config and smr_amain_mcm.get_config("smr_enabled") then
         return smr_amain_mcm.get_config("stalker_pop_factor") or 1
     end
-    if is_squad_monster and is_squad_monster[faction] then
-        return ui_options.get("alife/general/alife_mutant_pop") or 1
-    end
     return ui_options.get("alife/general/alife_stalker_pop") or 1
+end
+
+-- Mirror the engine's per-recipe factor selection verbatim (smart_terrain.script:1675-1686):
+-- only recipes whose FIRST squad section carries common=true are scaled; a section name
+-- containing "simulation" or "zombied" takes the monster factor, "sim_squad" takes the
+-- stalker factor, anything else stays unscaled. Classifying by the recipe's own first
+-- section, not the target faction, is what makes AB agree with the engine gate.
+local function _recipe_factor(recipe, monster_factor, stalker_factor)
+    local squads = recipe.squads
+    local section = squads and squads[1]
+    if not section then return 1 end
+    if not ini_sys:r_bool_ex(section, "common") then return 1 end
+    if string_find(section, "simulation") or string_find(section, "zombied") then
+        return monster_factor
+    elseif string_find(section, "sim_squad") then
+        return stalker_factor
+    end
+    return 1
 end
 
 local log = xlog.get_logger("AB.SREC", { outfile = "alifebalance.log" })
@@ -269,16 +285,26 @@ function get_eligible_and_threshold(level_id, faction)
     return smarts, threshold
 end
 
--- Evaluate one recipe slot. Returns (cur, raw_max, open, eligible_for_match).
--- raw_max is the declared LTX capacity (unscaled) — used for the printed snapshot.
--- Effective max applies pop_factor (engine smart_terrain.script:try_respawn): round_idp for
--- >= 1, optimistic on fractional (>0 -> potential open) since AB cannot replicate the
--- engine's probabilistic gate for max < 1.
-local function _eval_recipe(recipe, k, smart, faction, factor)
-    local cur = (smart.already_spawned and smart.already_spawned[k]
-                 and smart.already_spawned[k].num) or 0
-    local picked = pick_value_readonly(recipe.num, db.actor, smart)
-    local raw_max = tonumber(picked) or 0
+-- Evaluate one recipe slot. Returns (cur, raw_max, open, eligible_for_match), or nil when
+-- the engine would skip this recipe entirely (missing already_spawned bookkeeping, or a
+-- faction_controlled smart whose recipe routes to another faction). raw_max is the declared
+-- LTX capacity (unscaled) used for the printed snapshot; effective max applies the mirrored
+-- per-recipe factor (round-half-up for >= 1, optimistic on fractional since AB cannot
+-- replicate the engine's probabilistic gate for max < 1).
+local function _eval_recipe(recipe, k, smart, faction, monster_factor, stalker_factor)
+    -- Engine guard (smart_terrain.script:1666,1701-1702): no num or no live
+    -- already_spawned[k].num -> engine logs ERROR and skips. AB skips silently.
+    local spawned = smart.already_spawned and smart.already_spawned[k]
+    if not (recipe.num and spawned and spawned.num) then return nil end
+    -- Engine faction_controlled gate (smart_terrain.script:1667): a faction_controlled
+    -- smart only spawns recipes whose faction matches its own.
+    if smart.faction_controlled ~= nil
+       and not (smart.faction ~= nil and recipe.faction == smart.faction) then
+        return nil
+    end
+    local cur = spawned.num
+    local raw_max = tonumber(pick_value_readonly(recipe.num, db.actor, smart)) or 0
+    local factor = _recipe_factor(recipe, monster_factor, stalker_factor)
     local effective_max = raw_max * factor
     local max = (effective_max >= 1) and math_floor(effective_max + 0.5) or effective_max
     local open = max > cur
@@ -286,23 +312,25 @@ local function _eval_recipe(recipe, k, smart, faction, factor)
     return cur, raw_max, open, eligible
 end
 
--- Single-pass budget eval. For each recipe: compute cur (already_spawned[k].num) and max
--- (pick_value_readonly on recipe.num); first recipe with open budget AND a
--- faction-matching section wins. pick_value_readonly runs ONCE per recipe per call, so
--- the gate decision and the printed snapshot read the same value -- previously the gate
--- and the formatter called it twice and could disagree.
--- Returns matched_key (or nil) and a budget string with * on the matched recipe.
+-- Single-pass budget eval. For each recipe the engine would consider: compute cur
+-- (already_spawned[k].num) and effective max (pick_value_readonly on recipe.num times the
+-- mirrored factor); first recipe with open budget AND a faction-matching section wins.
+-- pick_value_readonly runs ONCE per recipe per call, so the gate decision and the printed
+-- snapshot read the same value. Recipes the engine skips (see _eval_recipe) are omitted.
 function evaluate_budget_for_faction(smart, faction)
     if not smart.respawn_params then return nil, "[no respawn_params]" end
-    local factor = _pop_factor(faction)
+    local monster_factor = _monster_pop_factor()
+    local stalker_factor = _stalker_pop_factor()
     local matched_key
     local parts, any_open = {}, false
     for k, recipe in pairs(smart.respawn_params) do
-        local cur, raw_max, open, eligible = _eval_recipe(recipe, k, smart, faction, factor)
-        if open then any_open = true end
-        if not matched_key and eligible then matched_key = k end
-        local mark = (matched_key == k) and "*" or ""
-        parts[#parts + 1] = string_format("%s%s %d/%d", mark, tostring(k), cur, raw_max)
+        local cur, raw_max, open, eligible = _eval_recipe(recipe, k, smart, faction, monster_factor, stalker_factor)
+        if cur ~= nil then
+            if open then any_open = true end
+            if not matched_key and eligible then matched_key = k end
+            local mark = (matched_key == k) and "*" or ""
+            parts[#parts + 1] = string_format("%s%s %d/%d", mark, tostring(k), cur, raw_max)
+        end
     end
     return matched_key, string_format("[%s]%s",
         table_concat(parts, ", "), any_open and "" or " ALL_FULL")

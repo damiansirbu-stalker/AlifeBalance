@@ -29,7 +29,7 @@
 
 local table_sort, os_clock = table.sort, os.clock
 local xlog, xprofiler, xslice, xcreature, xtime, xinventory = xlog, xprofiler, xslice, xcreature, xtime, xinventory
-local level, IsStalker, RegisterScriptCallback = level, IsStalker, RegisterScriptCallback
+local level, IsStalker, RegisterScriptCallback, alife_object = level, IsStalker, RegisterScriptCallback, alife_object
 
 -- LTX policy loaded at on_game_start via xinventory.load_policy. Shape:
 --   { entries = ordered_list, rules = { [category] = {min, max} }, specials = {} }

@@ -28,7 +28,7 @@ local function _resolve_idle(smart)
     if smr_amain_mcm and smr_amain_mcm.get_config then
         if smr_amain_mcm.get_config("smr_enabled") then
             local idle = smr_amain_mcm.get_config("respawn_idle")
-            if idle and idle > 0 then return idle end
+            if idle then return idle end
         end
     end
     return smart.respawn_idle or DEFAULT_RESPAWN_IDLE_SEC
@@ -120,7 +120,8 @@ local function _format_cooldown(smart)
     local now = xtime.game_time()
     if not now then return "?" end
     local age  = now:diffSec(lru)
-    local idle = smart.respawn_idle or 0
+    local idle = _resolve_idle(smart)
+    if idle <= 0 then return string_format("age=%s (respawns disabled)", _fmt_hours(age)) end
     local left = idle - age
     if left <= 0 then return string_format("age=%s/idle=%s (engine ready)", _fmt_hours(age), _fmt_hours(idle)) end
     return string_format("age=%s/idle=%s (%s left)", _fmt_hours(age), _fmt_hours(idle), _fmt_hours(left))
@@ -326,9 +327,12 @@ function marker_label(smart)
     local lru   = smart.last_respawn_update
     if entry and now and lru then
         local age  = now:diffSec(lru)
-        local left = (smart.respawn_idle or 0) - age
+        local idle = _resolve_idle(smart)
+        local left = idle - age
         lines[#lines + 1] = string_format("advances: %d", entry.advances)
-        if left > 0 then
+        if idle <= 0 then
+            lines[#lines + 1] = "engine respawns disabled"
+        elseif left > 0 then
             lines[#lines + 1] = "engine spawns in " .. _fmt_hours(left) .. " of game time"
         else
             lines[#lines + 1] = "engine spawns on next alife tick"
@@ -447,7 +451,8 @@ local function _on_npc_creation(squad, _se_obj, spawn_smart)
 end
 
 -- Diagnostic: every engine try_respawn call on a smart we've advanced.
--- Fires at line 1603 in smart_terrain.script BEFORE every gate, so a [TRY_RESPAWN]
+-- SendScriptCallback("on_try_respawn") fires at line 1601 in vanilla unpacked
+-- smart_terrain.script (1603 under ZCP) BEFORE every gate, so a [TRY_RESPAWN]
 -- with no subsequent [SPAWN] (within a tick or two) means one of the later gates
 -- blocked: peace_info (1607), respawn_only_level (1611), actor distance (1619),
 -- respawn_params/already_spawned (1625), simulation availability (1630), or the
