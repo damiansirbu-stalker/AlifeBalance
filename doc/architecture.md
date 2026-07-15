@@ -208,7 +208,7 @@ Periodic scanner over online stalkers. Walks the online set in small batches, tr
 
 ### Why scanner, not death-time hook
 
-The previous shipped approach wrapped `death_manager.keep_item` and only ran when an NPC died. Three failure modes were missed:
+The previous approach wrapped `death_manager.keep_item` and only ran when an NPC died. Three failure modes were missed:
 
 1. **Long-lived NPCs never trim**. The population that survives is the population that hoards. Hundreds of random online stalkers (gulag survivors, generic patrols) keep looting corpses they walk over and never die. Death-time only catches NPCs that die; the survivors drive save bloat and steady performance drag indefinitely. (Companions, story NPCs, traders, and named characters are scripted-identity holders filtered at the scheduler entirely, so the hoarding problem is the random long-lived population only.)
 2. **Save bloat accumulates between deaths**. Every looted item is a server object persisted in the save. Long sessions accumulate without bound. Continuous trim bounds live state instead of waiting for the death event.
