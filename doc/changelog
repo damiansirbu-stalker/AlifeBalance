@@ -1,4 +1,4 @@
-next
+1.1.2
   Summary: Cull caps aligned with the loot policy, respawn pacing reads the active config, platform status
 
   - Added dynamic checking of xlibs and xray-monolith/AOEngine versions with a compatibility verdict.
