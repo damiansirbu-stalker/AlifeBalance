@@ -92,7 +92,8 @@ Inventory Balance:
     Long-lived stalkers carry a believable loadout instead of a trader-sized hoard.
     Killing a random stalker yields reasonable loot, not a vendor run.
     Saves stay performant across long sessions.
-    Companions, story characters, traders, and named NPCs are never touched.
+    Companions, story characters, named NPCs, and service NPCs are never touched.
+    Traders, mechanics, and medics are matched by role, so even ones spawned at runtime (Warfare and similar) keep their full stock.
     Vanilla looting still works. Stalkers loot their kills.
 
   Important:

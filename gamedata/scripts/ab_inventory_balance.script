@@ -12,8 +12,10 @@
 ---      die. The hoarding population is the population that survives. Hundreds of random
 ---      online stalkers (gulag survivors, generic patrols) carrying full hoards drive
 ---      save bloat, server-object inflation, and steady performance drag. (Companions,
----      story NPCs, traders, and named characters are filtered at the scheduler via
----      xcreature.is_unscriptable and never reach trim_npc.)
+---      story NPCs, and named characters are filtered at the scheduler via
+---      xcreature.is_unscriptable. Service NPCs (traders, mechanics, medics, barmen),
+---      including dynamically spawned ones, are filtered via xsmart.get_npc_roles.
+---      Neither reaches trim_npc.)
 ---   2. Save bloat. Every looted item is a server object persisted in the save. Continuous
 ---      trim bounds live state; death-time only releases when (and if) the NPC dies.
 ---   3. Bursty performance. N deaths in a firefight = N trims in the same frame as the
@@ -27,8 +29,8 @@
 --- returns a null timer when DEBUG off — zero luabind cost off-path. Self-contained
 --- scanner, no cross-module event flow, so no xtrace correlation id needed.
 
-local table_sort, os_clock = table.sort, os.clock
-local xlog, xprofiler, xslice, xcreature, xtime, xinventory = xlog, xprofiler, xslice, xcreature, xtime, xinventory
+local table_sort, os_clock, next = table.sort, os.clock, next
+local xlog, xprofiler, xslice, xcreature, xtime, xinventory, xsmart = xlog, xprofiler, xslice, xcreature, xtime, xinventory, xsmart
 local level, IsStalker, RegisterScriptCallback, alife_object = level, IsStalker, RegisterScriptCallback, alife_object
 
 -- LTX policy loaded at on_game_start via xinventory.load_policy. Shape:
@@ -145,6 +147,9 @@ local function _is_eligible(obj, id, actor_id, now, cooldown_sec)
     if not IsStalker(obj) then return nil, "nonstalker" end
     if not obj:alive() then return nil, "dead" end
     if xcreature.is_unscriptable(obj) then return nil, "unscriptable" end
+    -- Runtime service-NPC guard: catches dynamically spawned traders/mechanics/medics/barmen
+    -- that the is_unscriptable roster misses. See AB.INV header.
+    if next(xsmart.get_npc_roles(obj)) ~= nil then return nil, "service_npc" end
     local last = _last_scan_game_sec[id] or 0
     if now - last < cooldown_sec then return nil, "cooldown" end
     return id, last
@@ -157,7 +162,7 @@ local function _pick_eligible(cooldown_sec)
     local timer = xprofiler.new_if(_dbg):start()
     local stats = {
         total = 0, eligible = 0, dt_ms = 0,
-        actor = 0, nonstalker = 0, dead = 0, unscriptable = 0, cooldown = 0,
+        actor = 0, nonstalker = 0, dead = 0, unscriptable = 0, service_npc = 0, cooldown = 0,
     }
     if not (db and db.actor) then
         timer:stop(); stats.dt_ms = timer:get_ms()
@@ -227,9 +232,9 @@ local function _start_cycle()
     local picks, ps = _pick_eligible(_cfg_cooldown_sec())
 
     if _dbg then
-        log.debug("[PICK] online=%d eligible=%d picked=%d (skip: actor=%d nonstalker=%d dead=%d unscriptable=%d cooldown=%d) dt=%.2fms",
+        log.debug("[PICK] online=%d eligible=%d picked=%d (skip: actor=%d nonstalker=%d dead=%d unscriptable=%d service_npc=%d cooldown=%d) dt=%.2fms",
             ps.total, ps.eligible, #picks,
-            ps.actor, ps.nonstalker, ps.dead, ps.unscriptable, ps.cooldown, ps.dt_ms)
+            ps.actor, ps.nonstalker, ps.dead, ps.unscriptable, ps.service_npc, ps.cooldown, ps.dt_ms)
     end
 
     if #picks == 0 then return end

@@ -1,3 +1,9 @@
+next
+  Summary: Dynamic trader coverage
+
+  - Traders and other service NPCs spawned at runtime, such as Warfare base traders, now keep their full stock.
+    The inventory scan matches service NPCs by role, so dynamically spawned traders, mechanics, medics, and barmen are protected, not only the vanilla named ones.
+
 1.1.2
   Summary: Cull caps aligned with the loot policy, respawn pacing reads the active config, platform status
 

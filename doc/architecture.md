@@ -204,13 +204,13 @@ Not owned by AlifeBalance: which recipe the engine picks (random over open-budge
 
 The goal is to let the player keep vanilla NPC corpse looting enabled. Vanilla looting pays two costs over long sessions: jackpot bodies (one stalker carrying a vendor run of gear), and creep toward the engine's 65535 alife-ID cap as every looted item consumes one ID (vanilla Anomaly warns at 64000 via `alife_on_limit`). Anti-loot addons (NPC Stop Looting Dead Bodies, Weapons Drop on Bodies, BoltBeGone) sidestep both by blocking or rewriting the loot path. Inventory Balance bounds hoarding at the source instead, so anti-loot addons are no longer needed.
 
-Periodic scanner over online stalkers. Walks the online set in small batches, trims one NPC per frame, rescans each NPC at most twice per game-day (default 12 game-hour cooldown). Scope is random long-lived stalkers (gulag survivors, generic patrols). Companions, story NPCs, traders, and named characters are filtered out at the scheduler via `xcreature.is_unscriptable` and never reach `trim_npc`.
+Periodic scanner over online stalkers. Walks the online set in small batches, trims one NPC per frame, rescans each NPC at most twice per game-day (default 12 game-hour cooldown). Scope is random long-lived stalkers (gulag survivors, generic patrols). Companions, story NPCs, and named characters are filtered at the scheduler via `xcreature.is_unscriptable`. Service NPCs (traders, mechanics, medics, barmen), including dynamically spawned ones, are filtered via `xsmart.get_npc_roles`. Neither reaches `trim_npc`.
 
 ### Why scanner, not death-time hook
 
 The previous approach wrapped `death_manager.keep_item` and only ran when an NPC died. Three failure modes were missed:
 
-1. **Long-lived NPCs never trim**. The population that survives is the population that hoards. Hundreds of random online stalkers (gulag survivors, generic patrols) keep looting corpses they walk over and never die. Death-time only catches NPCs that die; the survivors drive save bloat and steady performance drag indefinitely. (Companions, story NPCs, traders, and named characters are scripted-identity holders filtered at the scheduler entirely, so the hoarding problem is the random long-lived population only.)
+1. **Long-lived NPCs never trim**. The population that survives is the population that hoards. Hundreds of random online stalkers (gulag survivors, generic patrols) keep looting corpses they walk over and never die. Death-time only catches NPCs that die; the survivors drive save bloat and steady performance drag indefinitely. (Companions, story NPCs, and named characters are scripted-identity holders filtered at the scheduler via `xcreature.is_unscriptable`, and service NPCs are filtered by role via `xsmart.get_npc_roles`, so the hoarding problem is the random long-lived population only.)
 2. **Save bloat accumulates between deaths**. Every looted item is a server object persisted in the save. Long sessions accumulate without bound. Continuous trim bounds live state instead of waiting for the death event.
 3. **Bursty performance**. N deaths in a firefight = N trims in the same frame as the corpse spawn. xslice spreads the trim cost across frames.
 
@@ -230,6 +230,7 @@ _start_cycle()
                  if alife_object(id)
                     and IsStalker(npc) and npc:alive()
                     and not xcreature.is_unscriptable(npc)
+                    and next(xsmart.get_npc_roles(npc)) == nil
                     and now - _last_scan_game_sec[npc_id] >= scan_cooldown_h * 3600 ]
   - sort eligible by oldest scan first
   - picks = all eligible (xslice paces the actual trim at npcs_per_frame)
@@ -288,7 +289,7 @@ Policy values live in `gamedata/configs/alifebalance/ab_inventory_policy.ltx` (D
 
 Ammo categories count in ROUNDS (sum of `ammo_get_count` per stack via `xinventory.classify`); other categories count in items. Untouchables (quest / anim / blacklisted) and equipped items are pre-filtered by `xinventory.get_category`. Three runtime per-item untouchable checks also gate via xinventory: items with `get_object_story_id`, items the actor gave to a companion (`axr_companions.is_assigned_item`), and player-strapped weapons (`se_load_var "strapped_item"`). None of these reach the policy.
 
-Companions, traders, story characters, and named NPCs are filtered at the scheduler via `xcreature.is_unscriptable(obj)` and never reach `trim_npc`; the policy only sees random extras whose identities no script depends on.
+Companions, story characters, and named NPCs are filtered at the scheduler via `xcreature.is_unscriptable(obj)`, and service NPCs (traders, mechanics, medics, barmen, including dynamically spawned ones) via `xsmart.get_npc_roles(obj)`. Neither reaches `trim_npc`; the policy only sees random extras whose identities no script depends on.
 
 ### State
 
