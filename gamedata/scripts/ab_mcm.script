@@ -1,4 +1,4 @@
---- ab_mcm: MCM configuration for AlifeBalance (Smart Balance + Inventory Balance)
+--- ab_mcm: MCM configuration for AlifeBalance (Smart Balance)
 
 -- ==================== DEFAULTS ====================
 
@@ -6,9 +6,6 @@ defaults = {
     enabled = true,
     advances = 4,
     min_minutes = 120,
-    enabled_inventory = true,
-    npcs_per_frame = 1,
-    scan_cooldown_h = 12,
     show_markers = false,
     log_level = "WARN",
 }
@@ -18,15 +15,12 @@ defaults = {
 local RegisterScriptCallback = RegisterScriptCallback
 
 local _key_to_tab = {
-    enabled           = "smart_balance",
-    advances          = "smart_balance",
-    min_minutes       = "smart_balance",
-    enabled_inventory = "inventory_balance",
-    npcs_per_frame    = "inventory_balance",
-    scan_cooldown_h   = "inventory_balance",
-    show_markers      = "development",
-    log_level         = "development",
-    btn_reset_all     = "development",
+    enabled       = "smart_balance",
+    advances      = "smart_balance",
+    min_minutes   = "smart_balance",
+    show_markers  = "development",
+    log_level     = "development",
+    btn_reset_all = "development",
 }
 
 local function path_builder(key)
@@ -102,20 +96,6 @@ function on_mcm_load()
                     { id = "div_footer", type = "line" },
                     { id = "platform", type = "desc", text = "ui_mcm_xmcm_footer",
                         ui_hook_functor = { _ab_deps.platform_functor() }, clr = {255, 212, 201, 168} },                },
-            },
-            -- ============ INVENTORY BALANCE TAB ============
-            {
-                id = "inventory_balance",
-                sh = true,
-                gr = {
-                    { id = "title", type = "slide", link = "ab_mcm_banner",
-                        text = "ui_mcm_ab_title", size = {512, 50}, spacing = 20 },
-                    { id = "desc", type = "desc", text = "ui_mcm_ab_inventory_balance_desc" },
-                    { id = "div_inventory", type = "line" },
-                    { id = "enabled_inventory", type = "check", val = 1, def = true },
-                    { id = "npcs_per_frame", type = "track", val = 2, min = 1, max = 10, step = 1, def = 1 },
-                    { id = "scan_cooldown_h", type = "track", val = 2, min = 1, max = 72, step = 1, def = 12 },
-                },
             },
             -- ============ DEVELOPMENT TAB ============
             {

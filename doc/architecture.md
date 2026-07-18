@@ -6,7 +6,7 @@ Two MCM knobs: `advances` (1-8, default 4) sets how many advances drive one smar
 
 Built on xlibs. `_ab_deps` asserts the minimum xlibs version on load.
 
-Part of a three-mod alife family: **AlifePlus** extends A-Life with new behaviors, **AlifeBalance** tunes existing rates and counts (this mod), **AlifeGuard** keeps alife state clean.
+Part of a three-mod alife family: **AlifePlus** extends A-Life with new behaviors, **AlifeBalance** modulates rates and counts the engine already owns and never releases anything (this mod), **AlifeGuard** owns all release work, entities and items, and repairs alife state.
 
 ![Layered position](img/layers.png)
 
@@ -200,131 +200,6 @@ Not owned by AlifeBalance: which recipe the engine picks (random over open-budge
 
 ---
 
-## Inventory Balance
-
-The goal is to let the player keep vanilla NPC corpse looting enabled. Vanilla looting pays two costs over long sessions: jackpot bodies (one stalker carrying a vendor run of gear), and creep toward the engine's 65535 alife-ID cap as every looted item consumes one ID (vanilla Anomaly warns at 64000 via `alife_on_limit`). Anti-loot addons (NPC Stop Looting Dead Bodies, Weapons Drop on Bodies, BoltBeGone) sidestep both by blocking or rewriting the loot path. Inventory Balance bounds hoarding at the source instead, so anti-loot addons are no longer needed.
-
-Periodic scanner over online stalkers. Walks the online set in small batches, trims one NPC per frame, rescans each NPC at most twice per game-day (default 12 game-hour cooldown). Scope is random long-lived stalkers (gulag survivors, generic patrols). Companions, story NPCs, and named characters are filtered at the scheduler via `xcreature.is_unscriptable`. Service NPCs (traders, mechanics, medics, barmen), including dynamically spawned ones, are filtered via `xsmart.get_npc_roles`. Neither reaches `trim_npc`.
-
-### Why scanner, not death-time hook
-
-The previous approach wrapped `death_manager.keep_item` and only ran when an NPC died. Three failure modes were missed:
-
-1. **Long-lived NPCs never trim**. The population that survives is the population that hoards. Hundreds of random online stalkers (gulag survivors, generic patrols) keep looting corpses they walk over and never die. Death-time only catches NPCs that die; the survivors drive save bloat and steady performance drag indefinitely. (Companions, story NPCs, and named characters are scripted-identity holders filtered at the scheduler via `xcreature.is_unscriptable`, and service NPCs are filtered by role via `xsmart.get_npc_roles`, so the hoarding problem is the random long-lived population only.)
-2. **Save bloat accumulates between deaths**. Every looted item is a server object persisted in the save. Long sessions accumulate without bound. Continuous trim bounds live state instead of waiting for the death event.
-3. **Bursty performance**. N deaths in a firefight = N trims in the same frame as the corpse spawn. xslice spreads the trim cost across frames.
-
-The engine `utils_item.is_overweight(npc)` self-limit at `xr_corpse_detection.script:421` caps live hoarding by weight (around 50kg) but the cap is generous; NPCs accumulate plenty before hitting it.
-
-### Pipeline
-
-```
-TICK (every 30 wall-seconds via actor_on_update)
-  |
-  v
-_start_cycle()
-  - if not enabled_inventory: return
-  - if xslice.is_active("ab_inventory_balance_scan"): return
-  - now = xtime.game_sec()
-  - eligible = [ npc_id for id, npc in xcreature.online_iter_with_id()
-                 if alife_object(id)
-                    and IsStalker(npc) and npc:alive()
-                    and not xcreature.is_unscriptable(npc)
-                    and next(xsmart.get_npc_roles(npc)) == nil
-                    and now - _last_scan_game_sec[npc_id] >= scan_cooldown_h * 3600 ]
-  - sort eligible by oldest scan first
-  - picks = all eligible (xslice paces the actual trim at npcs_per_frame)
-  - if #picks == 0: return
-  - cycle_id += 1; open xprofiler
-  - xslice.start("ab_inventory_balance_scan", picks, { step = npcs_per_frame, func = _visit, on_done = _on_cycle_done })
-
-FRAME (each frame while queue active)
-  |
-  v
-_visit(npc_id)
-  - npc = level.object_by_id(npc_id)
-  - if not npc or not npc:alive(): return true  (drain; went offline)
-  - r = trim_npc(npc)
-  - _last_scan_game_sec[npc_id] = xtime.game_sec()
-  - cycle counters += r
-  - return true  (drain)
-
-CYCLE END
-  |
-  v
-_on_cycle_done()
-  - log [SCAN] cycle summary (cycle_id, visited, released, dt_ms)
-```
-
-### Public API
-
-| Function | Purpose | Returns |
-|---|---|---|
-| `trim_npc(npc, opts)` | Apply inventory policy to one NPC. opts: `{ dry_run }`. Cooldown table NOT touched. | `{ released, released_by_category, dt_ms }` |
-
-Probes, MCM "trim now" buttons, TestZone probes, and console diagnostics call `trim_npc` directly without scheduler involvement.
-
-### Policy
-
-Policy values live in `gamedata/configs/alifebalance/ab_inventory_policy.ltx` (DLTX-overridable). Single uniform block `[ab_inventory_policy]` with single-value `<category> = <max>` rows. Shared LTX shape with `ap_trade_policy.ltx` and `ap_stash_policy.ltx`; loaded once at on_game_start via `xinventory.load_policy` and applied per-NPC via `xinventory.classify` (counts) + `xinventory.iterate_surplus` (release pass with `on_surplus = xinventory.release_item`).
-
-| Category | max | Effect |
-|---|---|---|
-| ammo_slot_3_t1, ammo_slot_3_t2 | 45 (rounds) | NPC keeps 3 boxes of rifle ammo per tier |
-| ammo_slot_2_t1, ammo_slot_2_t2 | 48 (rounds) | NPC keeps 3 boxes of pistol ammo per tier |
-| ammo_not_equipped | 0 | Always release mismatched ammo |
-| grenade | 3 | Hand grenade buffer |
-| grenade_smoke | 0 | Culled entirely; NPCs throwing smoke crash current exes |
-| grenade_ammo | 3 | Launcher rounds (vog-25, og-7b, m209) |
-| medkit, bandage | 5 | Self-heal supply; matches trade veteran max so trade-acquired bandages survive between visits |
-| food | 5 | Spare consumables |
-| antirad, stim, pill | 3 | Niche consumables |
-| drink | 3 | NPCs rarely benefit |
-| weapon | 1 | One spare for trading (equipped pre-filtered) |
-| outfit, helmet, device | 1 | One spare each (equipped pre-filtered) |
-| artefact, crafting | 3 | Harvested artefacts / tools-parts-upgrades for traders |
-| other | 3 | Fallthrough sentinel; small cap to bound unknown items |
-
-`money` (kind=i_money pickups) is intentionally absent from the LTX. Cull's `on_surplus` is `release_item` which destroys; the same LTX value `0, 0` in `ap_trade_policy.ltx` only transfers items to the seller. Cull would destroy money piles. No-rule = keep is the safe default for this consumer.
-
-Ammo categories count in ROUNDS (sum of `ammo_get_count` per stack via `xinventory.classify`); other categories count in items. Untouchables (quest / anim / blacklisted) and equipped items are pre-filtered by `xinventory.get_category`. Three runtime per-item untouchable checks also gate via xinventory: items with `get_object_story_id`, items the actor gave to a companion (`axr_companions.is_assigned_item`), and player-strapped weapons (`se_load_var "strapped_item"`). None of these reach the policy.
-
-Companions, story characters, and named NPCs are filtered at the scheduler via `xcreature.is_unscriptable(obj)`, and service NPCs (traders, mechanics, medics, barmen, including dynamically spawned ones) via `xsmart.get_npc_roles(obj)`. Neither reaches `trim_npc`; the policy only sees random extras whose identities no script depends on.
-
-### State
-
-| State | Purpose |
-|---|---|
-| `_last_scan_game_sec[npc_id]` | game-second of last visit. Persists for session only; on game load every NPC is eligible. Stale ids harmless: the engine recycles freed server ids within a session, but `_on_npc_net_destroy` prunes the row when an NPC despawns, so a recycled id starts fresh. |
-| `_cycle_id`, `_cycle_tid`, `_cycle_visited`, `_cycle_released`, `_cycle_timer` | per-cycle counters. Reset in `_start_cycle`. |
-| `_last_update`, `_dbg` | wall-clock gate (os.clock), debug-level mirror. |
-
-No persistence. The cooldown table not saved; on game load every NPC is fresh and the first round of cycles trims everyone, then steady-state takes over.
-
-### Prerequisites and conflicts
-
-| Mod / setting | Interaction |
-|---|---|
-| Vanilla NPC corpse looting enabled | Required. Inventory Balance bounds vanilla looting at the source. With looting disabled the scanner runs but finds nothing to release. |
-| Anti-loot addons (`311- NPC Stop Looting Dead Bodies`, `BoltBeGone`, equivalents) | Anti-loot addons Inventory Balance replaces. Disable. They were created to work around two costs of vanilla looting (jackpot kills, 65k alife-ID cap) by blocking or rewriting the corpse-loot path. Inventory Balance bounds the cause, so the workarounds are no longer needed. |
-| Jabbers' "Weapons Drop on bodies" 134 | No conflict. They patch `death_manager.keep_item`; we no longer touch that seam. The scanner releases from online inventories; their wrap fires at death on whatever the scanner left behind. |
-| Ish's BoltBeGone in Nitpicker's Modpack 124 | Same as Jabbers'. No conflict. |
-| Unscriptable NPCs (`xcreature.is_unscriptable`) | Skipped at scheduler level. Covers story characters (Strider, Magpie, Sidorovich) via engine story_id, companions via `npcx_is_companion` info-portion, named NPCs (traders, medics, mechanics, guides, guards, bodyguards, leaders, quest-givers) via `xdata.unscriptable_npcs`, and members of story squads. These NPCs have scripted identities the rest of the game depends on; trimming their inventories risks breaking quest scripts or destroying trader stock. |
-| Untouchables (`xinventory.get_section_category(sec) == "untouchable"`) | Never released regardless of category. Covers quest items (`quest_item=1` or `kind=i_quest`), animation props (`anim_item=1`), and sections in `xr_corpse_detection.ltx [ignore_sections]`. Resolved once per section by xinventory and cached. |
-
-### Performance
-
-| Operation | Cost |
-|---|---|
-| `_start_cycle`, eligible-set walk | O(N online) with N ~ 200 typical. 1 `xtime.game_sec()` + per-NPC `alife_object(id)` existence check + `IsStalker` + `alive()` + `xcreature.is_unscriptable` (weak-keyed cache, 0 luabind on hit) + hash read. |
-| `_pick_eligible` sort | O(K log K) where K = eligible count. `table.sort` over an array of tables. |
-| Per NPC visit | O(items) inventory walk. 12 `item_in_slot` (one per main slot) + ~2 `parse_list` (ammo_class for slots 2 and 3) for state, plus per-item policy (hashes + clsid + IsItem/IsWeapon/IsOutfit/IsHeadgear/IsArtefact bridges). |
-| Per release | 1 `alife_object` + 1 `alife_release`. |
-| Per cycle dt | Single-digit ms for typical batches (20 NPCs * 1 per frame = 20 frames). |
-| Idle cost | 1 `xslice.is_active` hash lookup per actor_on_update + 1 `os.clock()` compare. |
-
----
-
 ## Files
 
 | File | Purpose |
@@ -334,9 +209,7 @@ No persistence. The cooldown table not saved; on game load every NPC is fresh an
 | `gamedata/scripts/ab_smart_balance.script` | Death handler, periodic tick burst-advance loop, per-smart CTime delta cache, `_advance_smart` cooldown subtract, public `marker_label` + `show_smart_stats` for ab_smart_map |
 | `gamedata/scripts/ab_smart_recipe.script` | Per-(level, faction) eligibility + threshold cache, single-pass budget evaluation. Two entry points called by ab_smart_balance: `get_eligible_and_threshold` and `evaluate_budget_for_faction`. Delegates smart discovery and squad-size lookup to xsmart. |
 | `gamedata/scripts/ab_smart_map.script` | PDA marker render-state, right-click menu (teleport, show stats). Calls back into ab_smart_balance for label + stats formatting. |
-| `gamedata/scripts/ab_inventory_balance.script` | Online inventory scanner. Public API `trim_npc`, xslice scheduler with per-NPC cooldown (default 12 game-hours). Policy loaded from `ab_inventory_policy.ltx` via `xinventory.load_policy`. |
-| `gamedata/configs/alifebalance/ab_inventory_policy.ltx` | Per-category `{min, max}` ceilings (DLTX-overridable). Single block `[ab_inventory_policy]`; shared LTX shape with `ap_trade_policy.ltx` and `ap_stash_policy.ltx`. |
-| `gamedata/scripts/ab_test.script` | Console-driven test harness. Kill loop fires fake NPC deaths every 3s, alternating on-level / off-level pools (same vermin filter as ab_smart_balance). Flow tests (`ab_test_<flow>()`) inject inventory and assert `ab_inventory_balance.trim_npc` results against the LTX policy. |
+| `gamedata/scripts/ab_test.script` | Console-driven test harness. Kill loop fires fake NPC deaths every 3s, alternating on-level / off-level pools (same vermin filter as ab_smart_balance). |
 | `gamedata/configs/text/eng/ui_st_mcm_ab.xml` | MCM strings (English) |
 | `gamedata/configs/text/rus/ui_st_mcm_ab.xml` | MCM strings (Russian) |
 | `gamedata/textures/ab_mcm_banner.dds` | MCM banner (512x50) |
@@ -350,9 +223,6 @@ No persistence. The cooldown table not saved; on game load every NPC is fresh an
 | `enabled`            | Smart Balance     | check  | true    | -       | Master toggle |
 | `advances`           | Smart Balance     | track  | 4       | 1-8     | Per-advance subtract is `(respawn_idle - Min Minutes*60) / advances` |
 | `Min Minutes`        | Smart Balance     | track  | 120     | 10-360  | Minimum cooldown remaining after every advance, in game minutes |
-| `enabled_inventory`  | Inventory Balance | check  | true    | -       | Scanner enable. When off, no scheduler, no trims. |
-| `npcs_per_frame`     | Inventory Balance | track  | 1       | 1-10    | xslice step: NPCs trimmed per frame inside a cycle. |
-| `scan_cooldown_h`    | Inventory Balance | track  | 12      | 1-72    | Per-NPC rescan cooldown in game-hours. |
 | `log_level`          | Development       | list   | WARN    | -       | ERROR / WARN / INFO / DEBUG |
 | `show_markers`       | Development       | check  | false   | -       | Green PDA marker on every advanced smart, 5-min linger, right-click teleport / stats |
 | `btn_reset_all`      | Development       | button | -       | -       | Restore all MCM settings to factory defaults. Closes the MCM dialog via On_Cancel (not On_Discard, see ab_mcm.script comment for the SEH-on-some-exes rationale). |

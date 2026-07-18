@@ -11,12 +11,11 @@
 
 <p><b>! Reset MCM settings to defaults after updating !</b></p>
 
-<p>AlifeBalance is a balance layer for vanilla A-Life. It contains multiple systems:</p>
+<p>AlifeBalance is a balance layer for vanilla A-Life:</p>
 <ul>
 <li><b>Smart Balance:</b> shortens respawn cooldowns only where combat actually happened.</li>
-<li><b>Inventory Balance:</b> bounds NPC inventory hoarding so anti-loot addons are no longer needed.</li>
 </ul>
-<p>Both run alongside the engine without rewriting it. Each can be toggled independently.</p>
+<p>It runs alongside the engine without rewriting it. Inventory bounding (formerly Inventory Balance) now lives in AlifeGuard as Inventory Guard.</p>
 
 <p>Built as a companion to <a href="https://www.moddb.com/mods/stalker-anomaly/addons/alifeplus-v1-0-01">AlifePlus</a>, which adds reactive A-Life behavior across the Zone. More activity means more deaths, and AlifeBalance scales refill to match. Both mods are independent and can be used separately.</p>
 
@@ -57,37 +56,6 @@
 <li><b>Conservative</b> (one burst = 12.5% advancement): advance count 8, minimum cooldown 360.</li>
 </ul>
 
-<h2>Inventory Balance</h2>
-
-<p>Vanilla NPCs loot corpses, and over a long session this builds up two costs. A long-lived stalker carries a trader run of gear, so killing them becomes a jackpot. Every looted item is also a permanent alife server object, and the engine tracks at most around 65000 of those. Long saves drift toward the cap and the game eventually slows, then crashes.</p>
-
-<h3>Why not just disable NPC looting?</h3>
-<p>Mods like NPC Stop Looting Dead Bodies and BoltBeGone sidestep the problem by blocking the engine's loot path. That fixes the symptom but stalkers no longer loot their kills, which is one of the things that makes A-Life feel alive. Inventory Balance keeps vanilla looting on and bounds the cause instead. A lightweight scanner walks online stalkers in small batches and releases anything above each category's limit. Killing a stalker still yields what they actually need to carry, not what they have accumulated over 50 game-days.</p>
-
-<h3>What you'll notice</h3>
-<ul>
-<li>Long-lived stalkers carry a believable loadout instead of a trader-sized hoard.</li>
-<li>Killing a random stalker yields reasonable loot, not a vendor run.</li>
-<li>Saves stay performant across long sessions.</li>
-<li>Companions, story characters, traders, and named NPCs are never touched.</li>
-<li>Vanilla looting still works. Stalkers loot their kills.</li>
-</ul>
-
-<h3>Important</h3>
-<p>Inventory Balance never spawns items. It releases what NPCs already accumulated above the per-category limits. Quest items, equipped gear, story_id items, companion gifts, and player-strapped weapons are always preserved.</p>
-
-<h3>Example</h3>
-<p>An online stalker on Cordon has been alive for 50 game-days. They have picked up 47 medkits, 23 bandages, 18 grenades, and 600 rounds of mismatched ammo. The scanner's next visit releases 42 medkits (cap 5), 18 bandages (cap 5), 15 grenades (cap 3), and the 600 mismatched rounds (cap 0). The NPC walks around with a believable load: a few medkits, a stack of bandages, three grenades, and ammo for the gun they actually carry.</p>
-
-<h3>Settings (MCM, Inventory Balance tab)</h3>
-<ul>
-<li><b>NPCs per frame</b> (1-10, default 1): how many NPCs the scanner trims in a single frame. The default keeps every frame cheap. Raise only if the scanner cannot keep up on very large saves.</li>
-<li><b>Rescan cooldown</b> (1-72 game-hours, default 24): an NPC is not rescanned until this many game-hours have passed. Lower trims more aggressively against fast hoarders. Higher reduces overall work.</li>
-</ul>
-
-<h3>Policy</h3>
-<p>Per-category limits live in <i>configs/alifebalance/ab_inventory_policy.ltx</i> (DLTX-overridable). Defaults cover equipped ammo (in rounds, per tier), grenades, and consumables: medkit, bandage, antirad, stim, pill, food, drink. Gear coverage: weapons, outfits, helmets, artefacts, crafting items, devices. Quest items, equipped gear, story_id items, companion gifts, and player-strapped weapons are protected by xlibs and never touched.</p>
-
 <h2>Compatibility</h2>
 
 <ul>
@@ -96,11 +64,6 @@
 <li>The full feature set needs the latest demonized build. A feature that needs a newer build stays inactive on older exes.</li>
 </ul>
 <p>Tested with vanilla Anomaly 1.5.3, GAMMA, ZCP, Redone, Warfare, AlifeGuard, AlifePlus. Also tested with Night Mutants, Nocturnal Mutants, GAMMA Dynamic Despawner, Guards Spawner.</p>
-
-<h3>Superseded (AlifeBalance does this - drop the other)</h3>
-<ul>
-<li>Anti-loot addons (NPC Stop Looting Dead Bodies, BoltBeGone): Inventory Balance handles NPC looting at the source.</li>
-</ul>
 
 <h3>Conflicts (critical)</h3>
 <p>None. Vanilla and ZCP share the respawn-cooldown field Smart Balance writes; they compose.</p>
@@ -115,13 +78,9 @@
 <li>Dynamic Despawner, AlifeGuard: despawn without firing death; never trigger advances.</li>
 </ul>
 
-<h3>Affects / coexists (Inventory Balance)</h3>
-<p>Weapons Drop on Bodies: only moves the dying NPC's weapon (corpse vs floor); doesn't block looting.</p>
-
 <h2>MCM</h2>
 <ul>
 <li><b>Smart Balance tab:</b> enable, advance count, minimum cooldown remaining.</li>
-<li><b>Inventory Balance tab:</b> enable, NPCs per frame, rescan cooldown.</li>
 <li><b>Development tab:</b> log level, map markers.</li>
 </ul>
 <p>Map markers (Development): green PDA spots appear on every smart terrain that received an advance. They linger 5 real-time minutes. Right-click any marker to teleport to that smart or display its full advance history. Independent of log level.</p>

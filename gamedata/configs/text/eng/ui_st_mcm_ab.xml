@@ -9,9 +9,6 @@
     <string id="ui_mcm_menu_smart_balance">
         <text>Smart Balance</text>
     </string>
-    <string id="ui_mcm_menu_inventory_balance">
-        <text>Inventory Balance</text>
-    </string>
     <string id="ui_mcm_menu_development">
         <text>Development</text>
     </string>
@@ -44,32 +41,9 @@
         <text>The minimum cooldown that must always remain on a smart terrain after Smart Balance applies an acceleration, in game-minutes. The engine ages the final wait out on its own clock and fires the respawn from there. A smart already within this margin of firing naturally is skipped. Default 120 minutes (two game-hours). Raise to leave more delay between combat and refill; lower for snappier turnover.</text>
     </string>
 
-    <!-- ==================== INVENTORY BALANCE TAB ==================== -->
-    <string id="ui_mcm_ab_inventory_balance_desc">
-        <text>Inventory Balance trims excess loot from long-lived NPCs. A lightweight scanner walks online stalkers one per frame, releasing the surplus above per-category limits and rescanning each NPC at most twice per game-day. Companions, story characters, traders, and named NPCs are never touched. Without it, every looted item fills one of the engine's ~65000 alife slots and saves drift toward crash.</text>
-    </string>
-    <string id="ui_mcm_ab_inventory_balance_enabled_inventory">
-        <text>Enable Inventory Balance</text>
-    </string>
-    <string id="ui_mcm_ab_inventory_balance_enabled_inventory_desc">
-        <text>Master toggle for Inventory Balance. The scanner walks the eligible online set in small batches spread across frames, rescanning each NPC at most twice per game-day. Per-category limits load from configs/alifebalance/ab_inventory_policy.ltx (DLTX-overridable). Coverage: equipped-tier ammo (counted in rounds), grenades, consumables (medkit, bandage, antirad, stim, pill, food, drink), and gear (weapons, outfits, helmets, artefacts, crafting, devices). Quest items, equipped gear, story_id items, companion gifts, and player-strapped weapons are always preserved. Companions, story characters, traders, and named NPCs are filtered out at the scheduler and never scanned. When off, vanilla trim still applies but online inventories accumulate without bound.</text>
-    </string>
-    <string id="ui_mcm_ab_inventory_balance_npcs_per_frame">
-        <text>NPCs per frame</text>
-    </string>
-    <string id="ui_mcm_ab_inventory_balance_npcs_per_frame_desc">
-        <text>How many NPCs the scanner trims per frame inside a cycle. The default of 1 keeps every frame cheap, with one inventory walk at a time. Raise only if the scanner struggles to keep up with the eligible set on very large saves. The per-NPC rescan cooldown already paces total work across long stretches of game-time, so this slider rarely needs changing.</text>
-    </string>
-    <string id="ui_mcm_ab_inventory_balance_scan_cooldown_h">
-        <text>Per-NPC rescan cooldown (game hours)</text>
-    </string>
-    <string id="ui_mcm_ab_inventory_balance_scan_cooldown_h_desc">
-        <text>An NPC is not rescanned until this many game-hours have passed since the last visit. Default 12 (twice per game-day). Lower values trim more aggressively against fast hoarders. Higher values reduce overall work and let NPCs hold a modest stash longer between visits. This cooldown is the rate limit on the whole feature.</text>
-    </string>
-
     <!-- ==================== DEVELOPMENT TAB ==================== -->
     <string id="ui_mcm_ab_development_desc">
-        <text>Diagnostic tools for tuning and troubleshooting. Raise log level for structured tracing of every death, advance, eligibility scan, and trim cycle to alifebalance.log (small performance cost at DEBUG).</text>
+        <text>Diagnostic tools for tuning and troubleshooting. Raise log level for structured tracing of every death, advance, and eligibility scan to alifebalance.log (small performance cost at DEBUG).</text>
     </string>
     <string id="ui_mcm_ab_development_btn_reset_all">
         <text>Reset to defaults</text>
