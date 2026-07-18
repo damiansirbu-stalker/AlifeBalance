@@ -6,6 +6,7 @@ defaults = {
     enabled = true,
     advances = 4,
     min_minutes = 120,
+    size_bias = true,
     show_markers = false,
     log_level = "WARN",
 }
@@ -18,6 +19,7 @@ local _key_to_tab = {
     enabled       = "smart_balance",
     advances      = "smart_balance",
     min_minutes   = "smart_balance",
+    size_bias     = "smart_balance",
     show_markers  = "development",
     log_level     = "development",
     btn_reset_all = "development",
@@ -91,6 +93,7 @@ function on_mcm_load()
                     { id = "enabled", type = "check", val = 1, def = true },
                     { id = "advances", type = "track", val = 2, min = 1, max = 8, step = 1, def = 4 },
                     { id = "min_minutes", type = "track", val = 2, min = 10, max = 360, step = 5, def = 120 },
+                    { id = "size_bias", type = "check", val = 1, def = true },
 
                     -- Platform footer (self-contained builder in _ab_deps, not xlibs)
                     { id = "div_footer", type = "line" },

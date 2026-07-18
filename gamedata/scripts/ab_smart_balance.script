@@ -1,11 +1,21 @@
---- ab_smart_balance: Smart Balance - per-(level, faction) death pressure advances smart cooldowns by 1/advances per advance
+--- ab_smart_balance: Smart Balance - per-map population homeostat over smart-terrain respawn cooldowns
+---
+--- A staggered census counts live NPCs per (level, bin), where a bin is a human faction
+--- or the MUTANTS aggregate (ab_smart_recipe.MUTANTS). Each completed pass compares the
+--- counts against the level's declared capacity (ab_smart_recipe.get_level_model) with a
+--- deadband. Under-capacity bins get eligible smarts' cooldowns advanced (subtract);
+--- over-capacity bins get them delayed (bounded add, never below age 0, spawns are
+--- delayed, never blocked). The size lever (ab_squad_size) reads get_verdict at spawn.
+--- The engine keeps owning the spawn itself, recipes, squad selection, and budgets;
+--- this module writes exactly one engine field: last_respawn_update.
 
 local pairs, ipairs, tonumber, tostring = pairs, ipairs, tonumber, tostring
 local math_floor, string_format = math.floor, string.format
-local table_concat, table_sort, table_remove = table.concat, table.sort, table.remove
+local table_concat, table_sort = table.concat, table.sort
 local os_clock, RegisterScriptCallback = os.clock, RegisterScriptCallback
+local alife_object = alife_object
 local xlog, xprofiler = xlog, xprofiler
-local xsmart, xlevel, xtime, xcreature = xsmart, xlevel, xtime, xcreature
+local xsmart, xlevel, xtime, xsquad = xsmart, xlevel, xtime, xsquad
 -- NOTE: never cache CreateTimeEvent/ResetTimeEvent/RemoveTimeEvent as locals (doc/library/xray/internals/globals.md:208-219).
 -- demonized_time_events.script replaces the globals at load time; cached locals point at a dead queue.
 
@@ -17,13 +27,33 @@ local TICK_INTERVAL_SEC = 60
 local SEC_PER_MIN = 60
 local DEFAULT_RESPAWN_IDLE_SEC = 43200
 
+-- Census pacing: CENSUS_PER_TICK squads per 60s tick; a pass over N squads completes in
+-- ceil(N / CENSUS_PER_TICK) ticks, so ~400 squads finish in ~8 minutes of real time.
+local CENSUS_PER_TICK = 50
+
+-- Deadband around declared capacity: a bin within max(BAND_MIN, capacity * BAND_FRAC)
+-- NPCs of its capacity is healthy and untouched on both levers.
+local BAND_FRAC = 0.25
+local BAND_MIN = 2
+
+-- Level models (capacity + eligibility) recomputed every this many passes, so condlist
+-- spawn_num flips and runtime respawn_params mutations converge within a few passes.
+local MODEL_REFRESH_PASSES = 3
+
+local STATUS_TIP_MS = 8000
+
+local VERDICT_UNDER = 1
+local VERDICT_OVER = -1
+
+local ACTION = { ADVANCE = "advance", DELAY = "delay" }
+
 -- ZCP's smr_pop.smart_can_respawn gates against smr_amain_mcm.get_config("respawn_idle"),
 -- NOT smart.respawn_idle. Under ZCP-enabled (GAMMA seeds the cvar to 21600 via
 -- axr_options.ltx), the engine's per-smart LTX field is ignored at the gate. Read ZCP's
 -- cvar when ZCP is loaded and enabled; fall through to smart.respawn_idle otherwise
 -- (ZCP's own fallback path inside smr_pop.smart_can_respawn does the same). Cvar value of -1
 -- means "respawns disabled" -> idle <= 0 -> _get_advance_params yields advance == 0 ->
--- _can_advance returns false. AB silently no-ops, matching ZCP intent.
+-- _can_advance and _can_delay return false. AB silently no-ops, matching ZCP intent.
 local function _resolve_idle(smart)
     if smr_amain_mcm and smr_amain_mcm.get_config then
         if smr_amain_mcm.get_config("smr_enabled") then
@@ -35,7 +65,6 @@ local function _resolve_idle(smart)
 end
 
 local CALLBACK = {
-    SQUAD_ON_NPC_DEATH    = "squad_on_npc_death",
     SQUAD_ON_NPC_CREATION = "squad_on_npc_creation",
     ON_OPTION_CHANGE      = "on_option_change",
     LOAD_STATE            = "load_state",
@@ -43,55 +72,51 @@ local CALLBACK = {
     ON_TRY_RESPAWN        = "on_try_respawn",
 }
 
-local STATUS_TIP_MS = 8000
-
--- Vermin species: gameplay-trivial pest mobs whose deaths shouldn't drive respawn
--- pressure. Their squads are big (10-15) so threshold throttling already absorbs them,
--- but they kill-spam the counter without representing meaningful combat. Filter at
--- source. Species names match xcreature.get_mutant_species return strings.
-local _VERMIN_SPECIES = { rat = true, tushkano = true }
-
-function is_vermin_squad(squad)
-    local species = xcreature.get_mutant_species(squad)
-    return species and _VERMIN_SPECIES[species] or false
-end
-
 local cfg = {
     enabled = true,
     advances = 4,
     min_minutes = 120,
+    size_bias = true,
     show_markers = false,
     log_level = "WARN",
 }
 -- mirrors log level >= DEBUG; updated in _load_config
 local _dbg = false
 
--- _deaths[level_id][faction]      = NPC deaths from squads of this faction on this level,
---                                   since last advance for this (level, faction) pair.
--- _delta_cache[smart_id]          = CTime of respawn_idle/advances seconds for this smart. Lazy
---                                   cached; reset on advances change in MCM and on _reset_state.
--- (Eligibility + threshold caches live in ab_smart_recipe; see ab_smart_recipe.script.)
--- _seen_squads[squad.id]          = true. Dedup for spawn tracing (DEBUG only).
--- _smart_stats[smart_id]          = per-smart bookkeeping for advances we've issued:
+-- _census                    = staggered pass state: snapshot ids array, total, cursor,
+--                              active flag, and the accumulating counts[level_id][bin].
+-- _verdicts[level_id][bin]   = VERDICT_UNDER / VERDICT_OVER from the last completed pass;
+--                              absent = in band. Read by ab_squad_size via get_verdict.
+-- _last_counts               = counts table of the last completed pass (status display).
+-- _known_levels[level_id]    = true once the census has ever seen a squad there; the
+--                              judged level set (survives model invalidation).
+-- _delta_cache[smart_id]     = CTime of usable/advances seconds for this smart. Lazy
+--                              cached; reset on option change and on _reset_state.
+-- _seen_squads[squad.id]     = true. Dedup for spawn tracing (DEBUG only).
+-- _smart_stats[smart_id]     = per-smart bookkeeping of the actions we've issued:
 --     {
 --       factions = {f1, f2, ...},
---       advances, first_at, last_at,
---       last_trigger = { level_id, faction, count, threshold },
+--       advances, delays, first_at, last_at,
+--       last_trigger = { level_id, bin, actual, capacity, action },
 --       last_before_cooldown,                         -- string snapshot
 --       last_budget,                                  -- string snapshot
 --     }
-local _deaths           = {}
-local _delta_cache      = {}
-local _seen_squads      = {}
-local _smart_stats      = {}
+local _census       = { ids = {}, total = 0, cursor = 1, active = false, counts = {} }
+local _verdicts     = {}
+local _last_counts  = {}
+local _known_levels = {}
+local _passes       = 0
+local _delta_cache  = {}
+local _seen_squads  = {}
+local _smart_stats  = {}
 -- _advance_pending[smart_id] = true between an advance at the smart and the next engine
 -- spawn there. Drives the "from_us" correlation in _on_npc_creation. Distinct from
 -- _smart_stats (lifetime history): pending is consumed on spawn, history persists for
 -- the right-click "Show stats" display.
-local _advance_pending  = {}
-local _stats            = { deaths = 0, counted = 0, vermin = 0,
-                            no_squad = 0, no_faction = 0, no_level = 0,
-                            ticks = 0, advances = 0, spawns = 0, spawns_from_us = 0 }
+local _advance_pending = {}
+local _stats           = { censused = 0, skipped = 0, passes = 0,
+                           advances = 0, delays = 0, size_adds = 0,
+                           ticks = 0, spawns = 0, spawns_from_us = 0 }
 
 -- ==================== SMART STATE FORMATTERS ====================
 
@@ -156,15 +181,6 @@ local function _format_pop(smart)
     return string_format("%d/%d", pop, smart.max_population or 0)
 end
 
--- Comma-joined name list from an array of smart objects (for the [DEFER] DEBUG log).
-local function _smart_names_str(smarts)
-    local names = {}
-    for i = 1, #smarts do
-        names[i] = smarts[i]:name() or "?"
-    end
-    return table_concat(names, ",")
-end
-
 -- Union faction set across a recipe's squad sections, mutating `seen` (set semantics).
 local function _gather_recipe_factions(recipe, seen)
     if not recipe.squads then return end
@@ -189,10 +205,10 @@ end
 -- ==================== SMART STATS BOOKKEEPING ====================
 
 -- Create or update the per-smart stats record. before_cooldown is captured BEFORE
--- _advance_smart runs; we don't store the after-state since the live cooldown is read on
--- demand in show_smart_stats. level_id and trigger details come from the advance context.
-local function _record_advance(smart, level_id, faction, count, threshold,
-                            before_cooldown, before_budget)
+-- the cooldown write; we don't store the after-state since the live cooldown is read
+-- on demand in show_smart_stats. ctx is the correction context built in _correct_level
+-- ({ level_id, bin, actual, capacity, model, verdicts_lv }).
+local function _record_action(smart, action, ctx, before_cooldown, budget_str)
     local entry = _smart_stats[smart.id]
     if not entry then
         local recipe_arr = {}
@@ -201,18 +217,23 @@ local function _record_advance(smart, level_id, faction, count, threshold,
         end
         table_sort(recipe_arr)
         entry = {
-            factions  = recipe_arr,
-            advances  = 0,
-            first_at  = os_clock(),
+            factions = recipe_arr,
+            advances = 0,
+            delays   = 0,
+            first_at = os_clock(),
         }
         _smart_stats[smart.id] = entry
     end
-    entry.advances                = entry.advances + 1
+    if action == ACTION.ADVANCE then
+        entry.advances = entry.advances + 1
+    else
+        entry.delays = entry.delays + 1
+    end
     entry.last_at              = os_clock()
-    entry.last_trigger         = { level_id = level_id, faction = faction,
-                                   count = count, threshold = threshold }
+    entry.last_trigger         = { level_id = ctx.level_id, bin = ctx.bin,
+                                   actual = ctx.actual, capacity = ctx.capacity, action = action }
     entry.last_before_cooldown = before_cooldown
-    entry.last_budget          = before_budget
+    entry.last_budget          = budget_str
 end
 
 -- ==================== PACING ====================
@@ -220,7 +241,7 @@ end
 -- Build a CTime whose m_time equals exactly `seconds` (as ms). setHMSms(h,m,s,0) zeros
 -- m_time then adds generate_time(1,1,1,h,m,s,0). Two CTimes constructed this way differ
 -- in m_time by exactly the H/M/S delta in ms -- the (year=1, month=1, day=1) base cancels
--- under operator-. Result is a pure duration usable with xrTime:sub for backdating.
+-- under operator-. Result is a pure duration usable with xrTime:sub/:add.
 local function _make_delta_ctime(seconds)
     local secs    = math_floor(seconds)
     local hours   = math_floor(secs / 3600)
@@ -233,15 +254,14 @@ local function _make_delta_ctime(seconds)
     return stamp - zero
 end
 
--- Per-smart cache: the per-advance CTime delta, scalar advance, plus usable. Advance is
--- the standard subtract per advance, sized so exactly `advances` advances carry a fresh
--- smart from age 0 to `usable` (resolved idle - min_minutes_sec), leaving exactly min_minutes
--- of cooldown for the engine to age out on its own. `idle` comes from _resolve_idle, which
--- returns ZCP's cvar under ZCP-enabled and smart.respawn_idle otherwise -- so the floor
--- always sizes against the gate the engine actually uses, not the dead LTX field under ZCP.
--- `usable` is the floor's max age: any smart with age >= usable already has cooldown
--- remaining <= min_minutes and is skipped (engine fires soon naturally). Cache invalidated
--- in _load_config on any option change (AB or ZCP cvar moved), and in _reset_state.
+-- Per-smart cache: the per-step CTime delta, scalar step, plus usable. The step is
+-- sized so exactly `advances` passes carry a fresh smart from age 0 to `usable`
+-- (resolved idle - min_minutes_sec), leaving exactly min_minutes of cooldown for the
+-- engine to age out on its own. The delay direction uses the same step. `idle` comes
+-- from _resolve_idle, which returns ZCP's cvar under ZCP-enabled and smart.respawn_idle
+-- otherwise -- so the floor always sizes against the gate the engine actually uses.
+-- Cache invalidated in _load_config on any option change (AB or ZCP cvar moved), and in
+-- _reset_state.
 local function _get_advance_params(smart)
     local cached = _delta_cache[smart.id]
     if cached then return cached end
@@ -257,14 +277,14 @@ local function _get_advance_params(smart)
     return params
 end
 
--- Picker gate. Skip conditions:
+-- Advance gate. Skip conditions:
 --   (a) degenerate config (advance <= 0, when min_minutes*60 >= respawn_idle)
 --   (b) fresh smart (lru == nil; engine gate already open, no acceleration needed)
 --   (c) advances >= 2: smart cannot accept a full `params.advance` push without overshoot
 --   (d) advances == 1: smart is within one `min_minutes` of the floor. Two reasons:
 --       precision-drift guard (a clamp-to-floor push lands age = usable plus or minus
 --       a few seconds; without this gate _can_advance would re-fire trivial pushes); and
---       "don't waste a kill on a smart already close to firing naturally".
+--       "don't waste a step on a smart already close to firing naturally".
 -- For advances >= 2 the gate is strict: no clamping ever happens, every push is the
 -- cached delta. For advances == 1 the gate allows partial pushes >= min_minutes of
 -- headroom; _advance_smart clamps them to land exactly at the floor.
@@ -283,10 +303,10 @@ local function _can_advance(smart)
     return max_push >= cfg.min_minutes * SEC_PER_MIN
 end
 
--- Push lru backward so age grows by `push_sec`. For advances >= 2 the picker gate
--- ensures the full `params.advance` fits without overshoot, so push_sec is the cached
--- advance and the cached delta is reused. For advances == 1 the push is clamped to
--- (usable - age) so the smart lands at exactly the floor; a one-off CTime is built.
+-- Push lru backward so age grows by `push_sec`. For advances >= 2 the gate ensures the
+-- full `params.advance` fits without overshoot, so push_sec is the cached step and the
+-- cached delta is reused. For advances == 1 the push is clamped to (usable - age) so
+-- the smart lands at exactly the floor; a one-off CTime is built.
 -- Returns the push size in seconds (caller logs it).
 local function _advance_smart(smart)
     local lru = smart.last_respawn_update
@@ -304,12 +324,46 @@ local function _advance_smart(smart)
     return push_sec
 end
 
+-- Delay gate. Skip conditions:
+--   (a) degenerate config (same as _can_advance)
+--   (b) fresh smart (lru == nil): writing lru on a fresh smart would close an
+--       engine-open gate -- delays never block a spawn that is already due
+--   (c) age <= 0: nothing left to delay (age 0 = one full vanilla cooldown, the
+--       punishment ceiling), or a third-party future timestamp we don't fight
+local function _can_delay(smart)
+    local params = _get_advance_params(smart)
+    if params.advance <= 0 then return false end
+    local lru = smart.last_respawn_update
+    if lru == nil then return false end
+    local now = xtime.game_time()
+    if not now then return false end
+    return now:diffSec(lru) > 0
+end
+
+-- Push lru forward so age shrinks by `push_sec`, clamped so age never goes below 0.
+-- Mirror of _advance_smart with CTime:add (engine binding: xr_time.h add_script,
+-- level_script.cpp CTime class registration). Returns the push size in seconds.
+local function _delay_smart(smart)
+    local lru = smart.last_respawn_update
+    if lru == nil then return 0 end
+    local params = _get_advance_params(smart)
+    local now = xtime.game_time()
+    if not now then return 0 end
+    local age = now:diffSec(lru)
+    if age <= 0 then return 0 end
+    local push_sec = (params.advance <= age) and params.advance or age
+    local delta    = (push_sec == params.advance) and params.delta or _make_delta_ctime(push_sec)
+    lru:add(delta)
+    smart.last_respawn_update = lru
+    return push_sec
+end
+
 -- ==================== MARKER LABEL (public, called by ab_smart_map) ====================
 
--- Hover hint for ab_smart_map markers: mod / feature name + translated smart name +
--- recipe-derived factions + advance snapshot (count of advances applied, cooldown
--- remaining the engine still ages out before firing).
--- Exposed for ab_smart_map.mark_smart_with_linger; reads pacing-side _smart_stats directly.
+--- Hover hint for ab_smart_map markers: mod / feature name + translated smart name +
+--- recipe-derived factions + action snapshot (advances and delays applied, cooldown
+--- remaining the engine still ages out before firing).
+--- Exposed for ab_smart_map.mark_smart_with_linger; reads pacing-side _smart_stats directly.
 function marker_label(smart)
     local name       = smart:name() or "?"
     local translated = game.translate_string(name)
@@ -329,7 +383,7 @@ function marker_label(smart)
         local age  = now:diffSec(lru)
         local idle = _resolve_idle(smart)
         local left = idle - age
-        lines[#lines + 1] = string_format("advances: %d", entry.advances)
+        lines[#lines + 1] = string_format("advances: %d, delays: %d", entry.advances, entry.delays)
         if idle <= 0 then
             lines[#lines + 1] = "engine respawns disabled"
         elseif left > 0 then
@@ -349,71 +403,229 @@ local function _load_config()
     local was_show_markers = cfg.show_markers
     cfg.enabled      = mcm.enabled
     cfg.advances     = mcm.advances or 4
-    cfg.min_minutes    = mcm.min_minutes or 120
+    cfg.min_minutes  = mcm.min_minutes or 120
+    cfg.size_bias    = mcm.size_bias
     cfg.show_markers = mcm.show_markers
     cfg.log_level    = mcm.log_level
     log.set_level(cfg.log_level)
     -- DEBUG = 5 per xlog.script:8
     _dbg = log.get_level() >= 5
     -- AB knobs OR ZCP cvars (respawn_idle, pop_factor) may have moved; rebuild lazily next
-    -- tick. Cache is cheap to reseed (one CTime construction per smart on first advance).
+    -- pass. Cache is cheap to reseed (one CTime construction per smart on first action).
     _delta_cache = {}
-    -- sync DEBUG flag to ab_smart_recipe so its [INVENTORY] / [ELIGIBLE] log lines respect it,
-    -- and clear its inventory gate so DEBUG re-dumps when re-enabled.
+    -- sync DEBUG flag to the sibling modules so their gated log lines respect it.
     ab_smart_recipe.set_debug(_dbg)
-    log.info("[CONFIG] enabled=%s advances=%d min_minutes=%d show_markers=%s log=%s",
-        tostring(cfg.enabled), cfg.advances, cfg.min_minutes, tostring(cfg.show_markers), cfg.log_level)
+    ab_squad_size.set_debug(_dbg)
+    log.info("[CONFIG] enabled=%s advances=%d min_minutes=%d size_bias=%s show_markers=%s log=%s",
+        tostring(cfg.enabled), cfg.advances, cfg.min_minutes,
+        tostring(cfg.size_bias), tostring(cfg.show_markers), cfg.log_level)
     if was_show_markers and not cfg.show_markers then ab_smart_map.clear_all_markers() end
 end
 
--- ==================== DEATH HANDLER ====================
+-- ==================== VERDICTS AND CORRECTIONS ====================
 
--- Filter: vermin (rat / tushkano) squads are gameplay-trivial pest mobs; kill spam from
--- them would dominate the counter without representing meaningful combat. Every other
--- species counts toward the per-(level, faction) counter; the threshold mechanism (MAX
--- npc_in_squad upper bound per faction) throttles big-squad species proportionally.
--- Every skip path is counted in _stats AND traced at DEBUG so the player can correlate
--- in-game kills to recorded deaths. Luabind calls inside log lines are gated by `_dbg`.
-local function _on_npc_death(squad, npc, _killer)
-    if not cfg.enabled then return end
-    _stats.deaths = _stats.deaths + 1
-    if not squad then
-        _stats.no_squad = _stats.no_squad + 1
-        if _dbg then
-            log.debug("[SKIP] reason=no_squad npc=%s",
-                (npc and npc.section_name and npc:section_name()) or "?")
-        end
-        return
+-- Verdict for one bin against its declared capacity, nil inside the deadband.
+local function _bin_verdict(actual, capacity)
+    local band = capacity * BAND_FRAC
+    if band < BAND_MIN then band = BAND_MIN end
+    if capacity - actual > band then return VERDICT_UNDER end
+    if actual - capacity > band then return VERDICT_OVER end
+    return nil
+end
+
+-- Fire one action (advance or delay) on a smart: snapshot state, write the cooldown,
+-- record for the right-click stats display, refresh the marker hint if enabled.
+local function _fire_action(smart, ctx, budget_str, action)
+    local before_cooldown = _format_cooldown(smart)
+    local push_sec
+    if action == ACTION.ADVANCE then
+        push_sec = _advance_smart(smart)
+    else
+        push_sec = _delay_smart(smart)
     end
-    if is_vermin_squad(squad) then
-        _stats.vermin = _stats.vermin + 1
-        if _dbg then
-            log.debug("[SKIP] reason=vermin squad=%d player_id=%s",
-                squad.id, tostring(squad.player_id))
-        end
-        return
+    if push_sec <= 0 then return end
+    if action == ACTION.ADVANCE then
+        _stats.advances = _stats.advances + 1
+        _advance_pending[smart.id] = true
+    else
+        _stats.delays = _stats.delays + 1
     end
-    local faction = squad.player_id
-    if not faction or faction == "" then
-        _stats.no_faction = _stats.no_faction + 1
-        if _dbg then log.debug("[SKIP] reason=no_faction squad=%d", squad.id) end
-        return
-    end
-    local level_id = xlevel.get_level_id(npc or squad)
-    if not level_id then
-        _stats.no_level = _stats.no_level + 1
-        if _dbg then
-            log.debug("[SKIP] reason=no_level squad=%d faction=%s", squad.id, faction)
-        end
-        return
-    end
-    _stats.counted = _stats.counted + 1
-    _deaths[level_id] = _deaths[level_id] or {}
-    _deaths[level_id][faction] = (_deaths[level_id][faction] or 0) + 1
+    _record_action(smart, action, ctx, before_cooldown, budget_str)
+    if cfg.show_markers then ab_smart_map.mark_smart_with_linger(smart) end
     if _dbg then
-        log.debug("[DEATH] level=%d faction=%s count=%d npc=%s squad=%d",
-            level_id, faction, _deaths[level_id][faction],
-            (npc and npc.section_name and npc:section_name()) or "?", squad.id)
+        log.debug("[%s] smart=%s level=%d bin=%s actual=%d/capacity=%.1f push=%s pop=%s cooldown[%s -> %s] budget=%s",
+            action == ACTION.ADVANCE and "ADVANCE" or "DELAY",
+            smart:name() or "?", ctx.level_id, tostring(ctx.bin), ctx.actual, ctx.capacity,
+            _fmt_hours(push_sec), _format_pop(smart), before_cooldown,
+            _format_cooldown(smart), budget_str or "-")
+    end
+end
+
+-- One advance step on a qualifying smart: floor gate + open budget for the bin.
+local function _try_advance(smart, ctx)
+    if not _can_advance(smart) then return end
+    local matched, budget_str = ab_smart_recipe.evaluate_budget_for_bin(smart, ctx.bin)
+    if not matched then return end
+    _fire_action(smart, ctx, budget_str, ACTION.ADVANCE)
+end
+
+-- Delay only smarts whose every produced bin is over capacity: a mixed smart still
+-- serving an under- or in-band bin is never punished for the crowded one.
+local function _all_bins_over(smart_id, ctx)
+    local bins = ctx.model.smart_bins[smart_id]
+    if not bins then return false end
+    for bin in pairs(bins) do
+        if ctx.verdicts_lv[bin] ~= VERDICT_OVER then return false end
+    end
+    return true
+end
+
+local function _try_delay(smart, ctx)
+    if not _can_delay(smart) then return end
+    if not _all_bins_over(smart.id, ctx) then return end
+    _fire_action(smart, ctx, nil, ACTION.DELAY)
+end
+
+-- Format one bin's [PASS] log fragment.
+local function _pass_part(bin, actual, capacity, verdict)
+    local tag = ""
+    if verdict == VERDICT_UNDER then tag = " UNDER" end
+    if verdict == VERDICT_OVER then tag = " OVER" end
+    return string_format("%s=%d/%.1f%s", tostring(bin), actual, capacity, tag)
+end
+
+-- Judge one level: verdicts per producible bin, nil when every bin is in band. Bins
+-- without recipes on the level have no actuator and are ignored even when squads of
+-- that faction roam there.
+local function _judge_level(level_id, counts_lv)
+    local model = ab_smart_recipe.get_level_model(level_id)
+    local verdicts_lv
+    local parts = _dbg and {} or nil
+    for bin, capacity in pairs(model.capacity) do
+        local actual = counts_lv and counts_lv[bin] or 0
+        local verdict = _bin_verdict(actual, capacity)
+        if verdict then
+            verdicts_lv = verdicts_lv or {}
+            verdicts_lv[bin] = verdict
+        end
+        if parts then parts[#parts + 1] = _pass_part(bin, actual, capacity, verdict) end
+    end
+    if parts then
+        log.debug("[PASS] level=%d bins [%s]", level_id, table_concat(parts, ", "))
+    end
+    return verdicts_lv
+end
+
+-- Correct one bin on one level: one step per qualifying eligible smart per pass, so
+-- `advances` passes carry a smart from full cooldown to the floor (and symmetrically
+-- back for delays).
+local function _correct_bin(verdict, eligibles, ctx)
+    if not eligibles then return end
+    for i = 1, #eligibles do
+        if verdict == VERDICT_UNDER then
+            _try_advance(eligibles[i], ctx)
+        else
+            _try_delay(eligibles[i], ctx)
+        end
+    end
+end
+
+local function _correct_level(level_id, verdicts_lv, counts_lv)
+    local model = ab_smart_recipe.get_level_model(level_id)
+    for bin, verdict in pairs(verdicts_lv) do
+        local ctx = {
+            level_id    = level_id,
+            bin         = bin,
+            actual      = counts_lv and counts_lv[bin] or 0,
+            capacity    = model.capacity[bin] or 0,
+            model       = model,
+            verdicts_lv = verdicts_lv,
+        }
+        _correct_bin(verdict, model.eligible[bin], ctx)
+    end
+end
+
+-- Pass end: refresh models on cadence, judge every known level, apply corrections.
+local function _finalize_pass(counts)
+    local tmr = xprofiler.new_if(_dbg):start()
+    _passes = _passes + 1
+    _stats.passes = _passes
+    if _passes % MODEL_REFRESH_PASSES == 0 then
+        ab_smart_recipe.invalidate_models()
+    end
+    local _next_verdicts = {}
+    for level_id in pairs(_known_levels) do
+        local verdicts_lv = _judge_level(level_id, counts[level_id])
+        if verdicts_lv then _next_verdicts[level_id] = verdicts_lv end
+    end
+    _verdicts = _next_verdicts
+    _last_counts = counts
+    for level_id, verdicts_lv in pairs(_next_verdicts) do
+        _correct_level(level_id, verdicts_lv, counts[level_id])
+    end
+    tmr:stop()
+    if _dbg then
+        log.debug("[SUMMARY] pass=%d censused=%d skipped=%d advances=%d delays=%d size_adds=%d spawns=%d from_advance=%d [%.2fms]",
+            _passes, _stats.censused, _stats.skipped, _stats.advances, _stats.delays,
+            _stats.size_adds, _stats.spawns, _stats.spawns_from_us, tmr:get_ms())
+    end
+end
+
+-- ==================== CENSUS ====================
+
+-- Snapshot SIMBOARD squad ids and reset the pass accumulator. False when no squads.
+local function _start_pass()
+    local ids, total = xsquad.collect_squad_ids(_census.ids)
+    _census.ids = ids
+    _census.total = total
+    _census.cursor = 1
+    _census.counts = {}
+    return total > 0
+end
+
+-- Count one squad into the pass accumulator (_census.counts). Skips: gone, empty,
+-- permanent (story / trader / named-NPC garrisons are seeded outside the respawn system
+-- and would permanently distort actual vs respawn-declared capacity), companions,
+-- no bin, no level.
+local function _census_squad(squad_id)
+    local squad = alife_object(squad_id)
+    if not squad then return end
+    local npc_count = squad.npc_count and squad:npc_count() or 0
+    if npc_count == 0 then return end
+    if xsquad.is_permanent_squad(squad) or xsquad.is_companion(squad) then
+        _stats.skipped = _stats.skipped + 1
+        return
+    end
+    local bin = ab_smart_recipe.bin_of_faction(squad.player_id)
+    if not bin then return end
+    local level_id = xlevel.get_level_id(squad)
+    if not level_id then return end
+    _known_levels[level_id] = true
+    local _counts = _census.counts
+    local counts_lv = _counts[level_id]
+    if not counts_lv then
+        counts_lv = {}
+        _counts[level_id] = counts_lv
+    end
+    counts_lv[bin] = (counts_lv[bin] or 0) + npc_count
+    _stats.censused = _stats.censused + 1
+end
+
+-- Walk up to CENSUS_PER_TICK squads from the cursor; on wrap, finalize the pass.
+local function _census_chunk()
+    if not _census.active then
+        if not _start_pass() then return end
+        _census.active = true
+    end
+    local last = _census.cursor + CENSUS_PER_TICK - 1
+    if last > _census.total then last = _census.total end
+    for i = _census.cursor, last do
+        _census_squad(_census.ids[i])
+    end
+    _census.cursor = last + 1
+    if _census.cursor > _census.total then
+        _census.active = false
+        _finalize_pass(_census.counts)
     end
 end
 
@@ -435,7 +647,7 @@ local function _on_npc_creation(squad, _se_obj, spawn_smart)
     if not spawn_smart then return end
     _stats.spawns = _stats.spawns + 1
     -- from_us = at least one advance fired at this smart since the previous spawn here.
-    -- _advance_pending is set in _fire_advance and consumed (cleared) on the next spawn,
+    -- _advance_pending is set in _fire_action and consumed (cleared) on the next spawn,
     -- so spawns_from_us accurately reflects "engine spawns we caused" rather than
     -- "engine spawns at smarts we ever touched".
     local from_us = _advance_pending[spawn_smart.id] == true
@@ -450,7 +662,7 @@ local function _on_npc_creation(squad, _se_obj, spawn_smart)
     end
 end
 
--- Diagnostic: every engine try_respawn call on a smart we've advanced.
+-- Diagnostic: every engine try_respawn call on a smart we've acted on.
 -- SendScriptCallback("on_try_respawn") fires at line 1601 in vanilla unpacked
 -- smart_terrain.script (1603 under ZCP) BEFORE every gate, so a [TRY_RESPAWN]
 -- with no subsequent [SPAWN] (within a tick or two) means one of the later gates
@@ -471,180 +683,97 @@ end
 
 -- ==================== PERIODIC TICK ====================
 
--- Try to qualify one smart for the with_budget array; nil-skip + can-advance + budget check.
-local function _try_collect_smart(smart, faction, with_budget)
-    if not smart or not _can_advance(smart) then return end
-    local matched, budget_str = ab_smart_recipe.evaluate_budget_for_faction(smart, faction)
-    if not matched then return end
-    with_budget[#with_budget + 1] = { smart = smart, budget_str = budget_str }
-end
-
--- Walk eligible smarts once. For each, evaluate budget for `faction` in a single pass
--- (one pick_value_readonly per recipe) and keep those that have a matched open
--- recipe AND can still accept another advance without crossing the min_minutes floor.
--- Returns array of { smart, budget_str } so the advance log line can reuse the same string
--- the gate decided on -- no second evaluation that could disagree.
-local function _collect_with_budget(smarts, faction)
-    local with_budget = {}
-    for i = 1, #smarts do
-        _try_collect_smart(smarts[i], faction, with_budget)
-    end
-    return with_budget
-end
-
--- Fire one advance on the picked smart: snapshot live state, advance the cooldown,
--- record the advance for the right-click stats display, refresh the marker hint if
--- enabled, log at DEBUG. Pure side-effect body; the caller owns the loop state
--- (count, with_budget) and the `_can_advance` recheck after this returns.
-local function _fire_advance(level_id, faction, pick, triggering_count, threshold)
-    local smart = pick.smart
-    local tmr   = xprofiler.new_if(_dbg):start()
-    local before_cooldown = _format_cooldown(smart)
-    local pop_str         = _format_pop(smart)
-    local push_sec        = _advance_smart(smart)
-    _stats.advances = _stats.advances + 1
-    _advance_pending[smart.id] = true
-    _record_advance(smart, level_id, faction, triggering_count, threshold,
-                 before_cooldown, pick.budget_str)
-    if cfg.show_markers then ab_smart_map.mark_smart_with_linger(smart) end
-    tmr:stop()
-    if _dbg then
-        local params    = _get_advance_params(smart)
-        local push_tag  = (push_sec < params.advance)
-                          and string_format(" clamped %s/%s", _fmt_hours(push_sec), _fmt_hours(params.advance))
-                          or ""
-        log.debug(
-            "[ADVANCE] smart=%s level=%d faction=%s count=%d/threshold=%d advance=%d/%d%s pop=%s cooldown[%s -> %s] budget=%s [%.2fms]",
-            smart:name() or "?", level_id, faction, triggering_count, threshold,
-            _smart_stats[smart.id].advances, cfg.advances, push_tag,
-            pop_str, before_cooldown, _format_cooldown(smart), pick.budget_str, tmr:get_ms())
-    end
-end
-
--- Sort with_budget descending by actor->smart distance. Refills land away from
--- the actor's current combat zone first: pile advances onto far smarts before
--- near ones. The engine's own respawn_radius gate inside smart_terrain.script:try_respawn
--- would otherwise block spawns at near-actor smarts anyway; preferring far is
--- a soft player-intuition heuristic, not a hard filter. When only near smarts
--- are eligible (player surrounded), they still receive the advance and the
--- engine handles the spawn after the actor moves out of respawn_radius.
-local function _sort_with_budget_by_actor_distance(with_budget)
-    if not db or not db.actor then return end
-    local actor_pos = db.actor:position()
-    for i = 1, #with_budget do
-        local pick = with_budget[i]
-        pick.dist_sqr = actor_pos:distance_to_sqr(pick.smart.position)
-    end
-    table_sort(with_budget, function(a, b) return a.dist_sqr > b.dist_sqr end)
-end
-
--- Walk eligible smarts for one (level, faction) pair and burn through accumulated
--- death pressure. Sort with_budget by actor distance descending; loop while
--- count >= threshold AND at least one smart in with_budget can still advance.
--- Each iteration picks the current front (farthest), fires the advance,
--- subtracts threshold from count, and drops the smart from with_budget if it
--- hit the min_minutes floor. After it drops, the next-farthest becomes the front.
--- 100 kills with threshold 3 produces up to 33 advances in one tick, applied
--- far-to-near. Leftover count (< threshold) carries to the next tick.
--- Gate logs at DEBUG: [NOELIG] no recipe on this level produces the faction;
--- [BELOW] count below threshold; [DEFER] threshold met but every eligible is at
--- budget cap or floor (counter holds); [BURST] >1 advance fired this tick.
-local function _try_advance_for_faction(level_id, by_faction, faction, count)
-    local eligibles, threshold = ab_smart_recipe.get_eligible_and_threshold(level_id, faction)
-    if #eligibles == 0 then
-        if _dbg then
-            log.debug("[NOELIG] level=%d faction=%s count=%d threshold=%d",
-                level_id, faction, count, threshold)
-        end
-        return
-    end
-    if count < threshold then
-        if _dbg then
-            log.debug("[BELOW] level=%d faction=%s count=%d/threshold=%d eligibles=%d",
-                level_id, faction, count, threshold, #eligibles)
-        end
-        return
-    end
-    local with_budget = _collect_with_budget(eligibles, faction)
-    if #with_budget == 0 then
-        if _dbg then
-            log.debug("[DEFER] level=%d faction=%s count=%d/threshold=%d eligibles=%d [%s]",
-                level_id, faction, count, threshold, #eligibles, _smart_names_str(eligibles))
-        end
-        return
-    end
-    _sort_with_budget_by_actor_distance(with_budget)
-    local burst_advances = 0
-    while count >= threshold and #with_budget > 0 do
-        local pick = with_budget[1]
-        _fire_advance(level_id, faction, pick, count, threshold)
-        count = count - threshold
-        burst_advances = burst_advances + 1
-        if not _can_advance(pick.smart) then table_remove(with_budget, 1) end
-    end
-    by_faction[faction] = count
-    if _dbg and burst_advances > 1 then
-        log.debug("[BURST] level=%d faction=%s advances_this_tick=%d remaining_count=%d",
-            level_id, faction, burst_advances, count)
-    end
-end
-
--- Walk _deaths. For each (level, faction) at threshold, qualify smarts via
--- _collect_with_budget, sort by actor distance descending, loop firing advances while
--- pressure remains. ResetTimeEvent FIRST per
--- doc/library/xray/internals/globals.md:194-202.
+-- One census chunk per tick; corrections fire inside _finalize_pass when a pass wraps.
+-- ResetTimeEvent FIRST per doc/library/xray/internals/globals.md:194-202.
 local function _periodic_tick()
     ResetTimeEvent(TIMER_EV, TIMER_TICK, TICK_INTERVAL_SEC)
     if not cfg.enabled then return end
     _stats.ticks = _stats.ticks + 1
-    local tmr = xprofiler.new_if(_dbg):start()
-    for level_id, by_faction in pairs(_deaths) do
-        for faction, count in pairs(by_faction) do
-            _try_advance_for_faction(level_id, by_faction, faction, count)
-        end
-    end
+    _census_chunk()
     ab_smart_map.prune_markers()
-    tmr:stop()
-    if _dbg then
-        log.debug("[SUMMARY] deaths=%d counted=%d vermin=%d no_squad=%d no_faction=%d no_level=%d ticks=%d advances=%d spawns=%d from_advance=%d [%.2fms]",
-            _stats.deaths, _stats.counted, _stats.vermin,
-            _stats.no_squad, _stats.no_faction, _stats.no_level,
-            _stats.ticks, _stats.advances, _stats.spawns, _stats.spawns_from_us, tmr:get_ms())
+end
+
+-- ==================== PUBLIC API ====================
+
+--- Verdict for a (level, bin) from the last completed census pass.
+--- 1 = under capacity (boost recovery), -1 = over capacity (delay), 0 = in band.
+--- Read by ab_squad_size at squad spawn; 0 for unknown levels/bins keeps it inert.
+function get_verdict(level_id, bin)
+    local verdicts_lv = _verdicts[level_id]
+    if not verdicts_lv then return 0 end
+    return verdicts_lv[bin] or 0
+end
+
+--- Stats hook for ab_squad_size: members added by the size lever.
+function count_size_adds(added)
+    _stats.size_adds = _stats.size_adds + added
+end
+
+--- Console helper (ab_test): run one full census pass synchronously and return the
+--- number of squads walked. Heavier than the staggered pass; diagnostic use only.
+function debug_force_pass()
+    if not _start_pass() then return 0 end
+    for i = 1, _census.total do
+        _census_squad(_census.ids[i])
     end
+    _census.active = false
+    _finalize_pass(_census.counts)
+    return _census.total
+end
+
+--- Console helper (ab_test): one "level: bin actual/capacity verdict" line per known level.
+function debug_status_lines()
+    local lines = {}
+    for level_id in pairs(_known_levels) do
+        local model = ab_smart_recipe.get_level_model(level_id)
+        local counts_lv = _last_counts[level_id]
+        local parts = {}
+        for bin, capacity in pairs(model.capacity) do
+            local actual = counts_lv and counts_lv[bin] or 0
+            local verdict = get_verdict(level_id, bin)
+            parts[#parts + 1] = string_format("%s %d/%.0f%s", tostring(bin), actual, capacity,
+                (verdict == VERDICT_UNDER and "+") or (verdict == VERDICT_OVER and "-") or "")
+        end
+        lines[#lines + 1] = string_format("%s: %s",
+            xlevel.get_level_name(level_id) or tostring(level_id),
+            table_concat(parts, ", "))
+    end
+    table_sort(lines)
+    return lines
 end
 
 -- ==================== STATS DISPLAY (public, called by ab_smart_map menu) ====================
 
--- Show tracked stats for a smart that received advances, via stacked PDA tips. Pulls from
--- _smart_stats and reads live engine state for current cooldown / budget / capacity, so
--- the player sees both the historical record and the present situation in one view.
+--- Show tracked stats for a smart that received actions, via stacked PDA tips. Pulls from
+--- _smart_stats and reads live engine state for current cooldown / budget / capacity, so
+--- the player sees both the historical record and the present situation in one view.
 function show_smart_stats(se_obj)
     if not db or not db.actor then return end
     local name  = se_obj:name() or "?"
     local entry = _smart_stats[se_obj.id]
     if not entry then
-        news_manager.send_tip(db.actor, name .. ": no advances yet", nil, nil, STATUS_TIP_MS)
+        news_manager.send_tip(db.actor, name .. ": no actions yet", nil, nil, STATUS_TIP_MS)
         return
     end
-    local now      = os_clock()
-    local last_ago = _fmt_real(now - (entry.last_at or entry.first_at))
+    local now       = os_clock()
+    local last_ago  = _fmt_real(now - (entry.last_at or entry.first_at))
     local first_ago = _fmt_real(now - entry.first_at)
-    local trigger  = entry.last_trigger or {}
+    local trigger   = entry.last_trigger or {}
     news_manager.send_tip(db.actor, string_format(
-        "%s: %d advances (last %s ago, first %s ago)",
-        name, entry.advances, last_ago, first_ago),
+        "%s: %d advances, %d delays (last %s ago, first %s ago)",
+        name, entry.advances, entry.delays, last_ago, first_ago),
         nil, nil, STATUS_TIP_MS)
     news_manager.send_tip(db.actor, string_format(
         "now: %s, pop %s, budget %s",
         _format_cooldown(se_obj), _format_pop(se_obj), _format_budget(se_obj)),
         nil, nil, STATUS_TIP_MS)
     news_manager.send_tip(db.actor, string_format(
-        "last trigger: %s on level %s, %d/%d deaths",
-        tostring(trigger.faction), tostring(trigger.level_id),
-        trigger.count or 0, trigger.threshold or 0),
+        "last trigger: %s %s on level %s, %d alive vs %.0f declared",
+        tostring(trigger.action), tostring(trigger.bin), tostring(trigger.level_id),
+        trigger.actual or 0, trigger.capacity or 0),
         nil, nil, STATUS_TIP_MS)
     news_manager.send_tip(db.actor, string_format(
-        "before that advance: %s, budget %s",
+        "before that: %s, budget %s",
         entry.last_before_cooldown or "?", entry.last_budget or "?"),
         nil, nil, STATUS_TIP_MS)
     news_manager.send_tip(db.actor, string_format(
@@ -657,14 +786,18 @@ end
 local function _reset_state()
     ab_smart_map.clear_all_markers()
     ab_smart_recipe.reset_state()
-    _deaths           = {}
-    _delta_cache      = {}
-    _seen_squads      = {}
-    _smart_stats      = {}
-    _advance_pending  = {}
-    _stats            = { deaths = 0, counted = 0, vermin = 0,
-                          no_squad = 0, no_faction = 0, no_level = 0,
-                          ticks = 0, advances = 0, spawns = 0, spawns_from_us = 0 }
+    _census          = { ids = {}, total = 0, cursor = 1, active = false, counts = {} }
+    _verdicts        = {}
+    _last_counts     = {}
+    _known_levels    = {}
+    _passes          = 0
+    _delta_cache     = {}
+    _seen_squads     = {}
+    _smart_stats     = {}
+    _advance_pending = {}
+    _stats           = { censused = 0, skipped = 0, passes = 0,
+                         advances = 0, delays = 0, size_adds = 0,
+                         ticks = 0, spawns = 0, spawns_from_us = 0 }
 end
 
 local function _on_load_state(_m_data)
@@ -679,7 +812,6 @@ end
 local function _on_first_update()
     _load_config()
     _reset_state()
-    RegisterScriptCallback(CALLBACK.SQUAD_ON_NPC_DEATH, _on_npc_death)
     RegisterScriptCallback(CALLBACK.SQUAD_ON_NPC_CREATION, _on_npc_creation)
     RegisterScriptCallback(CALLBACK.ON_OPTION_CHANGE, _on_option_change)
     RegisterScriptCallback(CALLBACK.LOAD_STATE, _on_load_state)

@@ -1,5 +1,20 @@
 next
-  Summary: Inventory Balance moved to AlifeGuard
+  Summary: Per-map population balance, full squads for depleted groups, Inventory Balance moved to AlifeGuard
+
+  Smart Balance
+    - Changed Smart Balance from kill-counting to a per-map population balance. A rolling census counts live NPCs per map
+      for every faction the map can spawn, mutants as one group, and compares them against the population the map's own spawn configs declare.
+      Depleted groups get respawn cooldowns advanced, overgrown groups get them delayed, up to one full vanilla cooldown and never blocking a spawn.
+      Wipe out a faction and it returns first and strongest, while healthy maps are left completely alone.
+    - Added full squads for depleted groups: a group below its map's declared population spawns squads at their maximum configured size.
+      Members are only ever added up to the squad's own limit, never removed. Toggle in MCM, on by default.
+    - Territory changes from other mods (conquest, infestation) now shift the balance target automatically,
+      so a captured smart terrain gets populated by its new owner and drifts back after the effect expires.
+    - Map markers now also mark delayed smart terrains, and the right-click stats show advances and delays.
+    - Removed the death counter, kill thresholds, and the vermin filter. The census replaces them all.
+
+  Compatibility
+    - Warfare is no longer supported alongside Smart Balance. Its population model fights any external balancing. Disable AlifeBalance when running Warfare.
 
   - Removed Inventory Balance. The system moved to AlifeGuard, where it is called Inventory Guard, with identical behavior.
     Configure it in AlifeGuard's MCM. Reset MCM settings after updating.

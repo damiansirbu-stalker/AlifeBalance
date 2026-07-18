@@ -1,218 +1,43 @@
---- ab_test: test harness for AlifeBalance.
----
---- Kill loop: fires one fake NPC death every KILL_INTERVAL wall seconds, alternating
---- on-actor-level vs off-actor-level pools (strict 1:1). Same vermin filter as
---- ab_smart_balance so the test exercises the same code path. Logs to alifebalance.log.
+--- ab_test: console probes for AlifeBalance Smart Balance.
 ---
 --- Run from the X-Ray debug console (requires `-dbg` or `-dbgdev` in launch args):
----   run_string db.actor:give_info_portion("ab_test_authorized")  -- one-time per save
----   run_string ab_test.start()
----   run_string ab_test.stop()
----   run_string ab_test.toggle()
+---   run_string ab_test.census()  -- force one full census pass now (synchronous)
+---   run_string ab_test.status()  -- per-level "bin alive/declared" lines to tips + log
 ---
---- The authorize info portion is a deliberate two-step gate on the kill loop; start()
---- refuses without it. This prevents accidental console runs (typos, copy-pasted commands)
---- from killing real NPCs across the actor's whole world. Revoke with disable_info_portion
---- when done.
+--- status() marks a bin with "+" when under capacity (recovery boosted) and "-" when
+--- over (recovery delayed); unmarked bins are inside the deadband. census() is the
+--- staggered pass run in one call; use it before status() to read fresh counts.
 
-local pairs, math_random = pairs, math.random
-local string_format = string.format
-local xlog, xsquad, xlevel, xcreature = xlog, xsquad, xlevel, xcreature
-local alife_object = alife_object
--- NOTE: never cache CreateTimeEvent/ResetTimeEvent/RemoveTimeEvent as locals
--- (doc/library/xray/internals/globals.md:208-219). demonized_time_events.script
--- replaces the globals at load time; cached locals point at a dead queue.
+local ipairs, xlog = ipairs, xlog
 
 local log = xlog.get_logger("AB.TEST", { outfile = "alifebalance.log" })
 
-local TIMER_EV       = "ab_test"
-local TIMER_TICK     = "kill"
-local KILL_INTERVAL  = 3
-local AUTHORIZE_INFO = "ab_test_authorized"
+local STATUS_TIP_MS = 8000
 
--- ==================== KILL LOOP ====================
-
--- _tick_count is monotonic and used for strict on/off-level alternation in _pick_pool.
-local _running    = false
-local _kills      = 0
-local _skips      = 0
-local _tick_count = 0
-
--- True if this squad's members are valid kill targets. SIMBOARD assigns a
--- squad to at most one smart at a time (sim_board.script:242-258), so no
--- cross-smart dedup is needed in the caller.
-local function _is_valid_squad(squad)
-    if not squad then return false end
-    if squad:npc_count() == 0 then return false end
-    if ab_smart_balance.is_vermin_squad(squad) then return false end
-    return true
-end
-
-local function _collect_squad_members(squad, out)
-    if squad:npc_count() == 0 then return end
-    for member in squad:squad_members() do
-        out[#out + 1] = member.id
-    end
-end
-
-local function _collect_smart_squads(rec, out)
-    for squad_id in pairs(rec.squads or {}) do
-        local squad = alife_object(squad_id)
-        if _is_valid_squad(squad) then
-            _collect_squad_members(squad, out)
-        end
-    end
-end
-
--- Walk every smart in SIMBOARD, partition assigned squads by level vs the
--- actor's level. Returns two arrays: on-level npc_ids, off-level npc_ids.
-local function _collect_candidates_split(actor_level_id)
-    local on_level, off_level = {}, {}
-    local board = SIMBOARD
-    if not board or not board.smarts then return on_level, off_level end
-    for _, rec in pairs(board.smarts) do
-        local smart = rec.smrt
-        local smart_level = smart and xlevel.get_level_id(smart)
-        if smart_level then
-            local target = (smart_level == actor_level_id) and on_level or off_level
-            _collect_smart_squads(rec, target)
-        end
-    end
-    return on_level, off_level
-end
-
--- Collect display fields for the PDA tip and the [TEST] kill log. Reads creature
--- name (xcreature.get_name), faction (squad.player_id), assigned smart name
--- (xlevel.get_smart_display_name), and level name (xlevel.get_level_name).
--- All lookups are nil-guarded; any missing field falls back to "?".
-local function _kill_details(npc_id)
-    local npc_se = alife_object(npc_id)
-    if not npc_se then return nil end
-    local squad        = xsquad.get_squad_by_member(npc_id)
-    local creature     = xcreature.get_name(npc_se) or "?"
-    local faction      = (squad and squad.player_id) or "?"
-    local smart        = squad and xsquad.get_squad_smart(squad)
-    local smart_name   = smart and xlevel.get_smart_display_name(smart) or "?"
-    local level_id     = xlevel.get_level_id(npc_se)
-    local level_name   = level_id and xlevel.get_level_name(level_id) or "?"
-    return creature, faction, smart_name, level_name
-end
-
--- Pattern mirrors xr_effects.kill_squad (STALKER-Anomaly-gamedata
--- scripts/xr_effects.script:3472-3478). Online: game_object:kill fires
--- npc_on_death -> squad:on_npc_death -> SendScriptCallback("squad_on_npc_death").
--- Offline: server_entity:kill fires the equivalent server-side path. Both end
--- at the same callback ab_smart_balance listens to.
-local function _kill_one(npc_id)
-    local cl_obj = db.storage[npc_id] and db.storage[npc_id].object
-    if cl_obj then
-        cl_obj:kill(cl_obj)
-        return "online"
-    end
-    local se = alife_object(npc_id)
-    if se then
-        se:kill()
-        return "offline"
-    end
-    return nil
-end
-
--- Strict alternation: even ticks pick on-level, odd ticks pick off-level.
--- Falls back to the other pool if the chosen pool is empty (e.g. early in the
--- run when off-level squads haven't been spawned by alife yet).
-local function _pick_pool(on_level, off_level)
-    if _tick_count % 2 == 0 then
-        if #on_level > 0 then return on_level, "on" end
-        return off_level, "off"
-    end
-    if #off_level > 0 then return off_level, "off" end
-    return on_level, "on"
-end
-
-local function _tick()
-    ResetTimeEvent(TIMER_EV, TIMER_TICK, KILL_INTERVAL)
-    if not _running then return end
-    if not db or not db.actor then return end
-    _tick_count = _tick_count + 1
-    local sim = alife()
-    local actor_se = sim and sim:actor()
-    local actor_level_id = actor_se and xlevel.get_level_id(actor_se)
-    if not actor_level_id then
-        _skips = _skips + 1
-        log.info("[TEST] skip no_level")
-        return
-    end
-    local on_level, off_level = _collect_candidates_split(actor_level_id)
-    local pool, loc = _pick_pool(on_level, off_level)
-    if #pool == 0 then
-        _skips = _skips + 1
-        log.info("[TEST] skip pool_empty on=%d off=%d", #on_level, #off_level)
-        return
-    end
-    local victim_id = pool[math_random(#pool)]
-    local creature, faction, smart_name, level_name = _kill_details(victim_id)
-    local mode = _kill_one(victim_id)
-    if mode then
-        _kills = _kills + 1
-        log.info(
-            "[TEST] kill #%d npc_id=%d creature=%s faction=%s smart=%s level=%s mode=%s loc=%s on=%d off=%d",
-            _kills, victim_id, creature, faction, smart_name, level_name,
-            mode, loc, #on_level, #off_level)
-        if db.actor and creature then
-            news_manager.send_tip(db.actor,
-                string_format("Killed %s (%s) at %s on %s",
-                    creature, faction, smart_name, level_name),
-                nil, nil, 3500)
-        end
-    else
-        _skips = _skips + 1
-        log.info("[TEST] skip kill_failed npc_id=%d loc=%s", victim_id, loc)
-    end
+--- @export console
+function census()
+    local actor = db and db.actor
+    if not actor then return end
+    local walked = ab_smart_balance.debug_force_pass()
+    log.info("[TEST] forced census pass: %d squads walked", walked)
+    news_manager.send_tip(actor,
+        "AlifeBalance: census pass complete (" .. walked .. " squads)",
+        nil, nil, STATUS_TIP_MS)
 end
 
 --- @export console
-function start()
-    if _running then return end
-    -- Authorize gate: refuses unless the actor has the AUTHORIZE_INFO info portion.
-    -- Two-step unlock (give info portion, then start) prevents accidental console runs
-    -- from killing real NPCs across the actor's whole world.
-    if not db or not db.actor then
-        log.info("[TEST] refused: no actor")
+function status()
+    local actor = db and db.actor
+    if not actor then return end
+    local lines = ab_smart_balance.debug_status_lines()
+    if #lines == 0 then
+        news_manager.send_tip(actor,
+            "AlifeBalance: no census data yet (run ab_test.census() or wait for a pass)",
+            nil, nil, STATUS_TIP_MS)
         return
     end
-    if not db.actor:has_info(AUTHORIZE_INFO) then
-        log.info("[TEST] refused: actor lacks info '%s'. Run: run_string db.actor:give_info_portion(\"%s\")",
-            AUTHORIZE_INFO, AUTHORIZE_INFO)
-        news_manager.send_tip(db.actor,
-            "AlifeBalance test: REFUSED. First run: db.actor:give_info_portion(\"" .. AUTHORIZE_INFO .. "\")",
-            nil, nil, 6000)
-        return
+    for _, line in ipairs(lines) do
+        log.info("[TEST] %s", line)
+        news_manager.send_tip(actor, line, nil, nil, STATUS_TIP_MS)
     end
-    _running = true
-    _kills, _skips, _tick_count = 0, 0, 0
-    RemoveTimeEvent(TIMER_EV, TIMER_TICK)
-    CreateTimeEvent(TIMER_EV, TIMER_TICK, KILL_INTERVAL, _tick)
-    log.info("[TEST] kill loop started (interval=%ds, 1:1 on-level / off-level alternation)", KILL_INTERVAL)
-    news_manager.send_tip(db.actor,
-        "AlifeBalance test: kill loop ON (" .. KILL_INTERVAL .. "s, 1:1 on/off-level)",
-        nil, nil, 4000)
-end
-
---- @export console
-function stop()
-    if not _running then return end
-    _running = false
-    RemoveTimeEvent(TIMER_EV, TIMER_TICK)
-    log.info("[TEST] kill loop stopped (kills=%d skips=%d)", _kills, _skips)
-    if db and db.actor then
-        news_manager.send_tip(db.actor,
-            "AlifeBalance test: kill loop OFF (kills=" .. _kills
-            .. ", skips=" .. _skips .. ")",
-            nil, nil, 4000)
-    end
-end
-
---- @export console
-function toggle()
-    if _running then stop() else start() end
 end

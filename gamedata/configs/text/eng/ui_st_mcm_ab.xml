@@ -20,30 +20,36 @@
 
     <!-- ==================== SMART BALANCE TAB ==================== -->
     <string id="ui_mcm_ab_smart_balance_desc">
-        <text>Smart Balance dynamically adapts respawn to where combat actually happens. It counts deaths per region and faction, then advances the cooldown at the matching smart farthest from you so refills land off-screen. The engine still owns every spawn. Smart Balance only nudges a timestamp it was going to read anyway. Without it, vanilla's global fixed cooldown leaves fight regions empty while quiet maps overcrowd.</text>
+        <text>Smart Balance keeps each map's population near what its own spawn configs declare. A rolling census counts live NPCs per region for every faction the map can spawn (mutants counted as one group) and compares them against the map's declared capacity. Depleted groups get their respawn cooldowns advanced and spawn at full squad size; overgrown groups get cooldowns delayed, never beyond one full vanilla cooldown. The engine still owns every spawn. Smart Balance only shifts a timestamp it was going to read anyway.</text>
     </string>
     <string id="ui_mcm_ab_smart_balance_enabled">
         <text>Enable Smart Balance</text>
     </string>
     <string id="ui_mcm_ab_smart_balance_enabled_desc">
-        <text>Master toggle for Smart Balance. When off, no death tracking and no cooldown advances.</text>
+        <text>Master toggle for Smart Balance. When off, no census and no cooldown corrections.</text>
     </string>
     <string id="ui_mcm_ab_smart_balance_advances">
-        <text>Advances to floor</text>
+        <text>Correction steps to floor</text>
     </string>
     <string id="ui_mcm_ab_smart_balance_advances_desc">
-        <text>How many combat bursts it takes to fully accelerate one smart terrain from full cooldown to the floor. A burst is one squad's worth of deaths in the affected faction (set automatically from the largest possible squad size for that faction). At 1, a single burst pushes a smart all the way to the floor. At 4 (default), four bursts step it through at 25% per burst. At 8, eight bursts at 12.5% per burst. Higher values pace acceleration across longer combat so a single firefight does not flush everything at once.</text>
+        <text>How many census passes it takes to carry one smart terrain from full cooldown to the floor while its group stays depleted (a pass covers all tracked squads, several minutes of real time). Delays use the same step size in the opposite direction. At 1, a single pass pushes a smart all the way. At 4 (default), four passes step it through at 25% per pass. At 8, eight passes at 12.5% per pass. Higher values correct more gradually.</text>
     </string>
     <string id="ui_mcm_ab_smart_balance_min_minutes">
         <text>Minimum cooldown remaining (game minutes)</text>
     </string>
     <string id="ui_mcm_ab_smart_balance_min_minutes_desc">
-        <text>The minimum cooldown that must always remain on a smart terrain after Smart Balance applies an acceleration, in game-minutes. The engine ages the final wait out on its own clock and fires the respawn from there. A smart already within this margin of firing naturally is skipped. Default 120 minutes (two game-hours). Raise to leave more delay between combat and refill; lower for snappier turnover.</text>
+        <text>The minimum cooldown that must always remain on a smart terrain after Smart Balance applies an acceleration, in game-minutes. The engine ages the final wait out on its own clock and fires the respawn from there. A smart already within this margin of firing naturally is skipped. Default 120 minutes (two game-hours). Raise to leave more delay between depletion and refill; lower for snappier turnover.</text>
+    </string>
+    <string id="ui_mcm_ab_smart_balance_size_bias">
+        <text>Full squads for depleted groups</text>
+    </string>
+    <string id="ui_mcm_ab_smart_balance_size_bias_desc">
+        <text>When a group is below its map's declared capacity, its squads spawn at the maximum size their own squad definition allows, instead of a random draw from the range. Members are only ever added up to that limit, never removed, and squads with fixed rosters or story roles are untouched. Overgrown groups are handled by cooldown delays alone.</text>
     </string>
 
     <!-- ==================== DEVELOPMENT TAB ==================== -->
     <string id="ui_mcm_ab_development_desc">
-        <text>Diagnostic tools for tuning and troubleshooting. Raise log level for structured tracing of every death, advance, and eligibility scan to alifebalance.log (small performance cost at DEBUG).</text>
+        <text>Diagnostic tools for tuning and troubleshooting. Raise log level for structured tracing of every census pass, capacity model, advance, delay, and squad top-up to alifebalance.log (small performance cost at DEBUG).</text>
     </string>
     <string id="ui_mcm_ab_development_btn_reset_all">
         <text>Reset to defaults</text>
@@ -63,7 +69,7 @@
         <text>Log level</text>
     </string>
     <string id="ui_mcm_ab_development_log_level_desc">
-        <text>Controls verbosity of alifebalance.log. ERROR logs crashes only. WARN adds unexpected conditions. INFO adds startup, configuration, and reset events. DEBUG traces every death, advance, eligibility scan, gate outcome, and per-cycle summary. Default WARN is silent in normal play; DEBUG is for tuning or bug reports.</text>
+        <text>Controls verbosity of alifebalance.log. ERROR logs crashes only. WARN adds unexpected conditions. INFO adds startup, configuration, and reset events. DEBUG traces every census pass, capacity model, advance, delay, squad top-up, and per-pass summary. Default WARN is silent in normal play; DEBUG is for tuning or bug reports.</text>
     </string>
     <string id="ab_development_log_level_lst_error">
         <text>Error</text>
@@ -86,7 +92,7 @@
         <text>Show map markers</text>
     </string>
     <string id="ui_mcm_ab_development_show_markers_desc">
-        <text>Drops a green PDA map marker on every smart terrain that receives a cooldown advance. The marker lingers for five real-time minutes and then clears itself. Right-click any marker to teleport to that smart or display its full advance history. Independent of log level, so you can run with markers on and logging off for a clean session view.</text>
+        <text>Drops a green PDA map marker on every smart terrain that receives a cooldown advance or delay. The marker lingers for five real-time minutes and then clears itself. Right-click any marker to teleport to that smart or display its full correction history. Independent of log level, so you can run with markers on and logging off for a clean session view.</text>
     </string>
 
     <!-- Map menu actions -->
