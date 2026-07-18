@@ -20,7 +20,7 @@
 
     <!-- ==================== SMART BALANCE TAB ==================== -->
     <string id="ui_mcm_ab_smart_balance_desc">
-        <text>Smart Balance keeps each map's population near what its own spawn configs declare. A rolling census counts live NPCs per region for every faction the map can spawn (mutants counted as one group) and compares them against the map's declared capacity. Depleted groups get their respawn cooldowns advanced and spawn at full squad size; overgrown groups get cooldowns delayed, never beyond one full vanilla cooldown. The engine still owns every spawn. Smart Balance only shifts a timestamp it was going to read anyway.</text>
+        <text>Smart Balance keeps each map's population near what the map itself declares. It regularly counts who is actually alive, per faction, with all mutants as one group. Wiped-out groups come back sooner and at full squad size; overgrown groups wait longer. Every correction stays inside the limits below, healthy groups are left completely alone, and the game engine still decides every spawn.</text>
     </string>
     <string id="ui_mcm_ab_smart_balance_enabled">
         <text>Enable Smart Balance</text>
@@ -39,6 +39,12 @@
     </string>
     <string id="ui_mcm_ab_smart_balance_min_minutes_desc">
         <text>The minimum cooldown that must always remain on a smart terrain after Smart Balance applies an acceleration, in game-minutes. The engine ages the final wait out on its own clock and fires the respawn from there. A smart already within this margin of firing naturally is skipped. Default 120 minutes (two game-hours). Raise to leave more delay between depletion and refill; lower for snappier turnover.</text>
+    </string>
+    <string id="ui_mcm_ab_smart_balance_max_minutes">
+        <text>Maximum cooldown remaining (game minutes)</text>
+    </string>
+    <string id="ui_mcm_ab_smart_balance_max_minutes_desc">
+        <text>The ceiling on remaining cooldown after Smart Balance applies a delay, in game-minutes. Delays stop once a smart terrain's remaining wait reaches this ceiling, even when the installed respawn cooldown is longer. When the respawn cooldown is at or below the ceiling, one full vanilla cooldown stays the bound. Raise to idle overgrown groups longer; lower to keep recovery moving everywhere.</text>
     </string>
     <string id="ui_mcm_ab_smart_balance_size_bias">
         <text>Full squads for depleted groups</text>

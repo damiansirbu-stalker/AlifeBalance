@@ -10,15 +10,18 @@ next
       Members are only ever added up to the squad's own limit, never removed. Toggle in MCM, on by default.
     - Territory changes from other mods (conquest, infestation) now shift the balance target automatically,
       so a captured smart terrain gets populated by its new owner and drifts back after the effect expires.
+    - Added a ceiling on delayed cooldowns: a delay never leaves a smart terrain waiting longer than the configured maximum (default 12 game-hours),
+      pairing with the existing minimum-cooldown floor (default 2 game-hours) so every correction stays inside a configurable window.
     - Map markers now also mark delayed smart terrains, and the right-click stats show advances and delays.
     - Removed the death counter, kill thresholds, and the vermin filter. The census replaces them all.
 
   Compatibility
     - Warfare is no longer supported alongside Smart Balance. Its population model fights any external balancing. Disable AlifeBalance when running Warfare.
 
-  - Removed Inventory Balance. The system moved to AlifeGuard, where it is called Inventory Guard, with identical behavior.
-    Configure it in AlifeGuard's MCM. Reset MCM settings after updating.
-    DLTX overrides of configs/alifebalance/ab_inventory_policy.ltx must repoint to configs/alifeguard/ag_inventory_policy.ltx.
+  Inventory Balance
+    - Removed Inventory Balance. The system moved to AlifeGuard, where it is called Inventory Guard, with identical behavior.
+      Configure it in AlifeGuard's MCM. Reset MCM settings after updating.
+      DLTX overrides of configs/alifebalance/ab_inventory_policy.ltx must repoint to configs/alifeguard/ag_inventory_policy.ltx.
 
 1.1.2
   Summary: Cull caps aligned with the loot policy, respawn pacing reads the active config, platform status

@@ -2,7 +2,7 @@
 
 AlifeBalance steers each level's population toward the composition the level's own spawn configs declare. A rolling census counts live NPCs per (level, bin) — a bin is a human faction or the single MUTANTS aggregate — and compares them against the declared capacity computed from the level's `respawn_params`. Under-capacity bins get eligible smarts' `last_respawn_update` advanced (cooldown shortened) and their squads topped up to full size at spawn; over-capacity bins get the cooldown delayed, never beyond one full vanilla cooldown. The engine still owns the spawn itself, the recipe choice, the squad section, and the budgets. AlifeBalance writes exactly one engine field on the timing lever (`last_respawn_update`) and uses the engine's own `add_squad_member` on the strength lever.
 
-Two MCM knobs shape the timing lever: `advances` (1-8, default 4) sets how many census passes carry one smart from full cooldown to the floor (delays use the same step); `Min Minutes` (10-360, default 120) sets the floor on remaining cooldown that the advance direction never pushes below. A third knob, `size_bias` (default on), toggles the strength lever.
+Three MCM knobs shape the timing lever: `advances` (1-8, default 4) sets how many census passes carry one smart from full cooldown to the floor (delays use the same step); `min_minutes` (10-360, default 120) sets the floor on remaining cooldown that the advance direction never pushes below; `max_minutes` (60-1440, default 720) sets the ceiling on remaining cooldown that the delay direction never pushes above. A fourth knob, `size_bias` (default on), toggles the strength lever.
 
 Built on xlibs. `_ab_deps` asserts the minimum xlibs version on load.
 
@@ -16,7 +16,7 @@ Part of a three-mod alife family: **AlifePlus** extends A-Life with new behavior
 
 - **No steady-state per-frame work.** Ongoing work runs on a throttled tick (a fixed interval) or on a discrete engine event (hit, shot, spawn, option change); it never runs continuously every frame. Full rule and rationale: `doc/standards/code-standards.md` "No Per-Frame Work".
 - **Never a release.** The size lever only adds members (up to the section's own `npc_in_squad` upper bound); over-capacity is handled by the delay lever alone. Release work belongs to AlifeGuard.
-- **Spawns delayed, never blocked.** The delay direction clamps age to >= 0 (one full vanilla cooldown is the ceiling), skips fresh smarts (`last_respawn_update == nil` means the engine gate is already open), and never writes the engine's `on_try_respawn` disable flag.
+- **Spawns delayed, never blocked.** The delay direction never leaves more than `max_minutes` of remaining cooldown and clamps age to >= 0 (one full vanilla cooldown is the hard ceiling when it is shorter than `max_minutes`), skips fresh smarts (`last_respawn_update == nil` means the engine gate is already open), and never writes the engine's `on_try_respawn` disable flag.
 
 ---
 
@@ -70,20 +70,23 @@ otherwise                 ->  in band (untouched on both levers)
 
 Bins whose squads roam the level but which no recipe produces have no actuator and are ignored. Verdicts persist until the next pass and are served to the size lever via `get_verdict(level_id, bin)`.
 
-**Advance** (UNDER): every eligible smart that passes `_can_advance` (floor gate) and has an open recipe budget for the bin (`evaluate_budget_for_bin`) gets one step: `last_respawn_update:sub((resolved_idle - Min Minutes*60) / advances)`. One step per smart per pass.
+**Advance** (UNDER): every eligible smart that passes `_can_advance` (floor gate) and has an open recipe budget for the bin (`evaluate_budget_for_bin`) gets one step: `last_respawn_update:sub((resolved_idle - min_minutes*60) / advances)`. One step per smart per pass.
 
-**Delay** (OVER): every eligible smart that passes `_can_delay` gets one step in the opposite direction: `last_respawn_update:add(step)`, clamped so age never goes below 0. A smart whose recipes also serve an under- or in-band bin is never delayed (`smart_bins` check) — no cross-bin punishment at mixed smarts. Fresh smarts are skipped in both directions.
+**Delay** (OVER): every eligible smart that passes `_can_delay` gets one step in the opposite direction: `last_respawn_update:add(step)`, clamped so remaining cooldown never exceeds `max_minutes` (`delay_age_floor` in `_get_advance_params`) and age never goes below 0. A smart whose recipes also serve an under- or in-band bin is never delayed (`smart_bins` check) — no cross-bin punishment at mixed smarts. Fresh smarts are skipped in both directions.
 
-Worked example at ZCP-resolved idle 21600 (6 game-hours), `advances=4`, `Min Minutes=120`:
+Worked example at ZCP-resolved idle 21600 (6 game-hours), `advances=4`, `min_minutes=120`:
 
 ```
 usable   = 21600 - 7200 = 14400 s = 4 game-hours
 step     = 14400 / 4    =  3600 s = 1 game-hour per pass
 floor    =  7200 s      = 2 game-hours the engine always ages out itself
-ceiling  = age 0        = one full 6-hour vanilla cooldown (delay direction)
+ceiling  = age 0        = one full 6-hour vanilla cooldown (delay direction;
+                          the 12-hour max_minutes ceiling does not bind at idle 6h --
+                          it binds only when the resolved idle exceeds it, e.g. ZCP's
+                          out-of-box 24-hour default)
 ```
 
-`_resolve_idle` reads `smr_amain_mcm.get_config("respawn_idle")` when ZCP is loaded and enabled, `smart.respawn_idle` otherwise, so the step always sizes against the gate the engine actually uses.
+`_resolve_idle` mirrors ZCP's own gate selection exactly (`smr_pop.script:1246-1249`): the `smr_amain_mcm.get_config("respawn_idle")` cvar when ZCP is enabled OR when it is disabled with the cvar at its 86400 default, `smart.respawn_idle` only when ZCP is absent or disabled with a moved cvar — so the step always sizes against the gate the engine actually uses.
 
 ---
 
@@ -91,7 +94,7 @@ ceiling  = age 0        = one full 6-hour vanilla cooldown (delay direction)
 
 Function-level patch of `sim_squad_scripted:create_npc`, applied at `on_game_start` (the patched body is byte-identical across vanilla unpacked, the demonized overlay, and ZCP's slot, so one wrap serves all installs). After the base draw, a squad whose bin is UNDER on its level is topped up to its section's own `npc_in_squad` upper bound via the engine's `add_squad_member` (registers the member, fires `squad_on_add_npc`; the caller's post-`create_npc` member loop in `sim_board:create_squad` sets the added members up like the drawn ones).
 
-Add-only: members are never removed. Skipped: fixed-roster sections (no `npc_random`), story squads, spawns without a smart (named-location path), unknown bins, and any verdict other than UNDER.
+Add-only: members are never removed. Skipped: fixed-roster sections (no `npc_random`), story squads, spawns without a smart (named-location path), unknown bins, and any verdict other than UNDER. Added members spawn at the smart's center — the engine's own fallback position when a squad declares no `spawn_vid`/`spawn_point` (`create_npc:678-682`); base members that used a patrol point spawn there instead, and positions reconcile on online switch.
 
 ---
 
@@ -141,14 +144,16 @@ SPAWN (engine, its own alife tick at any smart whose gate opens)
 | Cooldown timer                                | 1651        | Advance: subtract one step per pass while the bin is UNDER. Delay: add one step while OVER, age clamped >= 0 |
 | Per-recipe budget                             | 1696        | Untouched (read-mirrored for eligibility and capacity) |
 
+One engine semantic worth knowing: on every cooldown-gate pass the engine resets `last_respawn_update = curr_time` BEFORE evaluating the recipe budgets, even when no recipe has open budget and nothing spawns. An advance therefore buys exactly one engine attempt; `_try_advance` checks `evaluate_budget_for_bin` at advance time so the attempt almost always has an open recipe, but a budget that closes between the advance and the engine's alife tick consumes the advance without a spawn. The next census pass sees the unchanged population and advances again — self-correcting, at the cost of one cycle.
+
 ---
 
 ## Population equilibrium
 
 The controller converges each level toward its declared composition, bounded on every side by engine-owned limits:
 
-- **Refill bound**: spawns only happen through the engine's own recipes, so refill can never exceed the per-recipe `spawn_num` caps (concurrent squads) regardless of how many advances accumulate. An advance only moves WHEN the engine reads its own gate, never past the `Min Minutes` floor.
-- **Suppression bound**: a delay moves age toward 0 and stops; the worst case for an over-capacity bin is one full vanilla cooldown per cycle, exactly the pace of a freshly-spawned smart. Spawns are never blocked.
+- **Refill bound**: spawns only happen through the engine's own recipes, so refill can never exceed the per-recipe `spawn_num` caps (concurrent squads) regardless of how many advances accumulate. An advance only moves WHEN the engine reads its own gate, never past the `min_minutes` floor.
+- **Suppression bound**: a delay moves age toward the `delay_age_floor` and stops; the worst case for an over-capacity bin is `max_minutes` of remaining cooldown (default 12 game-hours), or one full vanilla cooldown when that is shorter. Spawns are never blocked.
 - **Massacre response**: a wiped bin reads actual 0 against full declared capacity — the strongest possible correction on both levers. Uniform depletion of a whole level reads every bin UNDER (absolute comparison, not shares), so the level as a whole recovers faster.
 - **In band, silence**: on a healthy level every bin sits inside the deadband and AlifeBalance does nothing at all.
 
@@ -158,7 +163,7 @@ If the player ignores a level, its cooldowns still age from game-time alone and 
 
 ## Design rationale: why advance, not clear
 
-Setting `last_respawn_update = nil` bypasses the cooldown gate entirely — the engine fires on its next alife tick. "Depleted" becomes "spawn now," with no middle ground. Per-step subtract keeps the gate engaged: each pass moves a depleted bin's smarts a bounded step closer, and the `Min Minutes` floor guarantees the engine fires the last leg on its own clock. The delay direction is the exact mirror with the age-0 ceiling. Both directions preserve the engine's ownership of the actual spawn decision.
+Setting `last_respawn_update = nil` bypasses the cooldown gate entirely — the engine fires on its next alife tick. "Depleted" becomes "spawn now," with no middle ground. Per-step subtract keeps the gate engaged: each pass moves a depleted bin's smarts a bounded step closer, and the `min_minutes` floor guarantees the engine fires the last leg on its own clock. The delay direction is the exact mirror with the age-0 ceiling. Both directions preserve the engine's ownership of the actual spawn decision.
 
 ---
 
@@ -172,7 +177,7 @@ Owned state, all in-memory, reset on game load:
 | ab_smart_balance | `_verdicts[level_id][bin]` | UNDER/OVER from the last pass; read by ab_squad_size via `get_verdict` |
 | ab_smart_balance | `_last_counts` | last pass counts (status display) |
 | ab_smart_balance | `_known_levels[level_id]` | judged level set, survives model refresh |
-| ab_smart_balance | `_delta_cache[smart_id]` | cached `{ delta, advance, usable }`, invalidated on option change or reset |
+| ab_smart_balance | `_delta_cache[smart_id]` | cached `{ delta, advance, usable, delay_age_floor }`, invalidated on option change or reset |
 | ab_smart_balance | `_smart_stats[smart_id]` | per-smart advance/delay bookkeeping for the right-click "Show stats" tip |
 | ab_smart_balance | `_advance_pending[smart_id]` | set on advance, consumed on next spawn at the smart; drives `from_us` in `[SPAWN]` |
 | ab_smart_balance | `_seen_squads[squad.id]` | dedup set for spawn tracing (DEBUG only) |
@@ -198,7 +203,7 @@ Not owned by AlifeBalance: which recipe the engine picks (random over open-budge
 | `gamedata/scripts/ab_smart_recipe.script` | Per-level capacity/eligibility model, bin classification, single-pass budget evaluation, side-effect-free condlist walker |
 | `gamedata/scripts/ab_squad_size.script` | `create_npc` fn-patch: add-only squad top-up for under-capacity bins |
 | `gamedata/scripts/ab_smart_map.script` | PDA marker render-state, right-click menu (teleport, show stats) |
-| `gamedata/scripts/ab_test.script` | Console probes: `census()` forces a full pass, `status()` prints per-level bin state |
+| `gamedata/scripts/ab_test.script` | Console probes (`census()`, `status()`) plus the `ab_test_smart_balance()` flow test: pacing arithmetic vs MCM limits, forced census pass, advance-to-floor / delay-to-ceiling on one smart with cooldown restore |
 | `gamedata/configs/text/eng/ui_st_mcm_ab.xml` | MCM strings (English) |
 | `gamedata/configs/text/rus/ui_st_mcm_ab.xml` | MCM strings (Russian) |
 | `gamedata/textures/ab_mcm_banner.dds` | MCM banner (512x50) |
@@ -211,7 +216,8 @@ Not owned by AlifeBalance: which recipe the engine picks (random over open-budge
 |---|---|---|---|---|---|
 | `enabled` | Smart Balance | check | true | - | Master toggle |
 | `advances` | Smart Balance | track | 4 | 1-8 | Census passes from full cooldown to the floor; delay step is the same size |
-| `Min Minutes` | Smart Balance | track | 120 | 10-360 | Minimum cooldown remaining after every advance, in game minutes |
+| `min_minutes` | Smart Balance | track | 120 | 10-360 | Minimum cooldown remaining after every advance, in game minutes |
+| `max_minutes` | Smart Balance | track | 720 | 60-1440 | Maximum cooldown remaining after every delay, in game minutes; one full vanilla cooldown binds when shorter |
 | `size_bias` | Smart Balance | check | true | - | Top up under-capacity squads to their section max at spawn |
 | `log_level` | Development | list | WARN | - | ERROR / WARN / INFO / DEBUG |
 | `show_markers` | Development | check | false | - | Green PDA marker on every corrected smart, 5-min linger, right-click teleport / stats |

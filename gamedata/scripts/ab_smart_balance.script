@@ -3,9 +3,11 @@
 --- A staggered census counts live NPCs per (level, bin), where a bin is a human faction
 --- or the MUTANTS aggregate (ab_smart_recipe.MUTANTS). Each completed pass compares the
 --- counts against the level's declared capacity (ab_smart_recipe.get_level_model) with a
---- deadband. Under-capacity bins get eligible smarts' cooldowns advanced (subtract);
---- over-capacity bins get them delayed (bounded add, never below age 0, spawns are
---- delayed, never blocked). The size lever (ab_squad_size) reads get_verdict at spawn.
+--- deadband. Under-capacity bins get eligible smarts' cooldowns advanced (subtract,
+--- never leaving less than min_minutes of cooldown); over-capacity bins get them
+--- delayed (bounded add, never leaving more than max_minutes of remaining cooldown,
+--- never below age 0, spawns are delayed, never blocked). The size lever
+--- (ab_squad_size) reads get_verdict at spawn.
 --- The engine keeps owning the spawn itself, recipes, squad selection, and budgets;
 --- this module writes exactly one engine field: last_respawn_update.
 
@@ -26,6 +28,9 @@ local TIMER_TICK = "tick"
 local TICK_INTERVAL_SEC = 60
 local SEC_PER_MIN = 60
 local DEFAULT_RESPAWN_IDLE_SEC = 43200
+-- ZCP's MCM default for respawn_idle (smr_amain_mcm.script:4). Part of ZCP's gate
+-- condition, see _resolve_idle.
+local ZCP_DEFAULT_RESPAWN_IDLE_SEC = 86400
 
 -- Census pacing: CENSUS_PER_TICK squads per 60s tick; a pass over N squads completes in
 -- ceil(N / CENSUS_PER_TICK) ticks, so ~400 squads finish in ~8 minutes of real time.
@@ -49,15 +54,18 @@ local ACTION = { ADVANCE = "advance", DELAY = "delay" }
 
 -- ZCP's smr_pop.smart_can_respawn gates against smr_amain_mcm.get_config("respawn_idle"),
 -- NOT smart.respawn_idle. Under ZCP-enabled (GAMMA seeds the cvar to 21600 via
--- axr_options.ltx), the engine's per-smart LTX field is ignored at the gate. Read ZCP's
--- cvar when ZCP is loaded and enabled; fall through to smart.respawn_idle otherwise
--- (ZCP's own fallback path inside smr_pop.smart_can_respawn does the same). Cvar value of -1
--- means "respawns disabled" -> idle <= 0 -> _get_advance_params yields advance == 0 ->
--- _can_advance and _can_delay return false. AB silently no-ops, matching ZCP intent.
+-- axr_options.ltx), the engine's per-smart LTX field is ignored at the gate. ZCP falls
+-- back to smart.respawn_idle only when it is DISABLED and the cvar was moved off its
+-- 86400 default; disabled-at-default still gates on the cvar
+-- (smr_pop.script:1246-1249, the `(not smr_enabled) and (cfg ~= 86400)` branch).
+-- Mirrored exactly here so the step always sizes against the gate the engine uses.
+-- Cvar value of -1 means "respawns disabled" -> idle <= 0 -> _get_advance_params yields
+-- advance == 0 -> _can_advance and _can_delay return false. AB silently no-ops,
+-- matching ZCP intent.
 local function _resolve_idle(smart)
     if smr_amain_mcm and smr_amain_mcm.get_config then
-        if smr_amain_mcm.get_config("smr_enabled") then
-            local idle = smr_amain_mcm.get_config("respawn_idle")
+        local idle = smr_amain_mcm.get_config("respawn_idle")
+        if smr_amain_mcm.get_config("smr_enabled") or idle == ZCP_DEFAULT_RESPAWN_IDLE_SEC then
             if idle then return idle end
         end
     end
@@ -76,6 +84,7 @@ local cfg = {
     enabled = true,
     advances = 4,
     min_minutes = 120,
+    max_minutes = 720,
     size_bias = true,
     show_markers = false,
     log_level = "WARN",
@@ -258,8 +267,8 @@ end
 -- sized so exactly `advances` passes carry a fresh smart from age 0 to `usable`
 -- (resolved idle - min_minutes_sec), leaving exactly min_minutes of cooldown for the
 -- engine to age out on its own. The delay direction uses the same step. `idle` comes
--- from _resolve_idle, which returns ZCP's cvar under ZCP-enabled and smart.respawn_idle
--- otherwise -- so the floor always sizes against the gate the engine actually uses.
+-- from _resolve_idle, which mirrors ZCP's own gate selection (see its comment) -- so
+-- the floor always sizes against the gate the engine actually uses.
 -- Cache invalidated in _load_config on any option change (AB or ZCP cvar moved), and in
 -- _reset_state.
 local function _get_advance_params(smart)
@@ -268,10 +277,15 @@ local function _get_advance_params(smart)
     local idle        = _resolve_idle(smart)
     local usable      = idle - cfg.min_minutes * SEC_PER_MIN
     local advance_sec = (usable > 0) and (usable / cfg.advances) or 0
+    local max_sec     = cfg.max_minutes * SEC_PER_MIN
     local params      = {
         delta   = (advance_sec > 0) and _make_delta_ctime(advance_sec) or nil,
         advance = advance_sec,
         usable  = usable,
+        -- Delay ceiling: age may not drop below this, so remaining cooldown
+        -- (idle - age) never exceeds max_minutes. 0 when idle already fits under
+        -- the ceiling -- there the age-0 clamp (one full vanilla cooldown) binds.
+        delay_age_floor = (idle > max_sec) and (idle - max_sec) or 0,
     }
     _delta_cache[smart.id] = params
     return params
@@ -328,8 +342,9 @@ end
 --   (a) degenerate config (same as _can_advance)
 --   (b) fresh smart (lru == nil): writing lru on a fresh smart would close an
 --       engine-open gate -- delays never block a spawn that is already due
---   (c) age <= 0: nothing left to delay (age 0 = one full vanilla cooldown, the
---       punishment ceiling), or a third-party future timestamp we don't fight
+--   (c) age <= delay_age_floor: remaining cooldown already at the max_minutes
+--       ceiling (age floor 0 when idle fits under the ceiling: one full vanilla
+--       cooldown is the bound there), or a third-party future timestamp we don't fight
 local function _can_delay(smart)
     local params = _get_advance_params(smart)
     if params.advance <= 0 then return false end
@@ -337,21 +352,24 @@ local function _can_delay(smart)
     if lru == nil then return false end
     local now = xtime.game_time()
     if not now then return false end
-    return now:diffSec(lru) > 0
+    return now:diffSec(lru) > params.delay_age_floor
 end
 
--- Push lru forward so age shrinks by `push_sec`, clamped so age never goes below 0.
--- Mirror of _advance_smart with CTime:add (engine binding: xr_time.h add_script,
--- level_script.cpp CTime class registration). Returns the push size in seconds.
+-- Push lru forward so age shrinks by `push_sec`, clamped so age never goes below
+-- delay_age_floor (the max_minutes ceiling on remaining cooldown; 0 when idle fits
+-- under the ceiling). Mirror of _advance_smart with CTime:add (engine binding:
+-- xr_time.h add_script, level_script.cpp CTime class registration). Returns the
+-- push size in seconds.
 local function _delay_smart(smart)
     local lru = smart.last_respawn_update
     if lru == nil then return 0 end
     local params = _get_advance_params(smart)
     local now = xtime.game_time()
     if not now then return 0 end
-    local age = now:diffSec(lru)
-    if age <= 0 then return 0 end
-    local push_sec = (params.advance <= age) and params.advance or age
+    local age  = now:diffSec(lru)
+    local room = age - params.delay_age_floor
+    if room <= 0 then return 0 end
+    local push_sec = (params.advance <= room) and params.advance or room
     local delta    = (push_sec == params.advance) and params.delta or _make_delta_ctime(push_sec)
     lru:add(delta)
     smart.last_respawn_update = lru
@@ -402,8 +420,9 @@ local function _load_config()
     if not mcm then return end
     local was_show_markers = cfg.show_markers
     cfg.enabled      = mcm.enabled
-    cfg.advances     = mcm.advances or 4
-    cfg.min_minutes  = mcm.min_minutes or 120
+    cfg.advances     = mcm.advances
+    cfg.min_minutes  = mcm.min_minutes
+    cfg.max_minutes  = mcm.max_minutes
     cfg.size_bias    = mcm.size_bias
     cfg.show_markers = mcm.show_markers
     cfg.log_level    = mcm.log_level
@@ -416,8 +435,8 @@ local function _load_config()
     -- sync DEBUG flag to the sibling modules so their gated log lines respect it.
     ab_smart_recipe.set_debug(_dbg)
     ab_squad_size.set_debug(_dbg)
-    log.info("[CONFIG] enabled=%s advances=%d min_minutes=%d size_bias=%s show_markers=%s log=%s",
-        tostring(cfg.enabled), cfg.advances, cfg.min_minutes,
+    log.info("[CONFIG] enabled=%s advances=%d min_minutes=%d max_minutes=%d size_bias=%s show_markers=%s log=%s",
+        tostring(cfg.enabled), cfg.advances, cfg.min_minutes, cfg.max_minutes,
         tostring(cfg.size_bias), tostring(cfg.show_markers), cfg.log_level)
     if was_show_markers and not cfg.show_markers then ab_smart_map.clear_all_markers() end
 end
@@ -483,7 +502,10 @@ end
 local function _try_delay(smart, ctx)
     if not _can_delay(smart) then return end
     if not _all_bins_over(smart.id, ctx) then return end
-    _fire_action(smart, ctx, nil, ACTION.DELAY)
+    -- Budget is not a delay gate; the snapshot string feeds _record_action so the
+    -- right-click "Show stats" display carries real budget data for delays too.
+    local _, budget_str = ab_smart_recipe.evaluate_budget_for_bin(smart, ctx.bin)
+    _fire_action(smart, ctx, budget_str, ACTION.DELAY)
 end
 
 -- Format one bin's [PASS] log fragment.
@@ -707,6 +729,37 @@ end
 --- Stats hook for ab_squad_size: members added by the size lever.
 function count_size_adds(added)
     _stats.size_adds = _stats.size_adds + added
+end
+
+--- Console helper (ab_test): read-only snapshot of one smart's pacing state under the
+--- current config: resolved idle, cooldown age, step sizing, delay age floor, both gates.
+function debug_probe_smart(smart)
+    local params = _get_advance_params(smart)
+    local now = xtime.game_time()
+    local lru = smart.last_respawn_update
+    return {
+        idle            = _resolve_idle(smart),
+        age             = (now and lru) and now:diffSec(lru) or nil,
+        advance         = params.advance,
+        usable          = params.usable,
+        delay_age_floor = params.delay_age_floor,
+        can_advance     = _can_advance(smart),
+        can_delay       = _can_delay(smart),
+    }
+end
+
+--- Console helper (ab_test): one gated advance step on a smart, bypassing verdicts and
+--- budget (pure actuator). Returns pushed seconds, 0 when the gate is closed.
+function debug_advance_step(smart)
+    if not _can_advance(smart) then return 0 end
+    return _advance_smart(smart)
+end
+
+--- Console helper (ab_test): one gated delay step on a smart (pure actuator mirror).
+--- Returns pushed seconds, 0 when the gate is closed.
+function debug_delay_step(smart)
+    if not _can_delay(smart) then return 0 end
+    return _delay_smart(smart)
 end
 
 --- Console helper (ab_test): run one full census pass synchronously and return the

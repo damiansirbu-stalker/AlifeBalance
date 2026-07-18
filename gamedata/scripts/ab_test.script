@@ -1,14 +1,16 @@
---- ab_test: console probes for AlifeBalance Smart Balance.
+--- ab_test: console probes and flow tests for AlifeBalance Smart Balance.
 ---
 --- Run from the X-Ray debug console (requires `-dbg` or `-dbgdev` in launch args):
 ---   run_string ab_test.census()  -- force one full census pass now (synchronous)
 ---   run_string ab_test.status()  -- per-level "bin alive/declared" lines to tips + log
+---   run_string ab_test.ab_test_smart_balance()  -- census pipeline + lever limits flow test
 ---
 --- status() marks a bin with "+" when under capacity (recovery boosted) and "-" when
 --- over (recovery delayed); unmarked bins are inside the deadband. census() is the
 --- staggered pass run in one call; use it before status() to read fresh counts.
 
-local ipairs, xlog = ipairs, xlog
+local ipairs, pairs, tostring, xlog, xtime = ipairs, pairs, tostring, xlog, xtime
+local string_format, math_abs = string.format, math.abs
 
 local log = xlog.get_logger("AB.TEST", { outfile = "alifebalance.log" })
 
@@ -40,4 +42,138 @@ function status()
         log.info("[TEST] %s", line)
         news_manager.send_tip(actor, line, nil, nil, STATUS_TIP_MS)
     end
+end
+
+-- ==================== FLOW TEST ====================
+-- Self-contained @export console test, same conventions as ag_test: setup / action /
+-- assert / teardown in one synchronous call, per-session log file with explicit flush,
+-- PASS / FAIL as a yellow tip. The lever phase mutates one real smart's cooldown through
+-- the gated debug actuators and restores the original value before returning, all inside
+-- a single Lua call, so the engine never observes the intermediate states.
+
+local MOD = "alifebalance"
+
+-- Cumulative float steps + whole-second CTime deltas drift by <1s per step; 8 steps max.
+local TOLERANCE_SEC = 10
+local STEP_LOOP_CAP = 12
+
+local _flow_log
+local function _get_flow_log()
+    if _flow_log then return _flow_log end
+    local ts = os.date("%Y-%m-%d_%H-%M-%S")
+    -- Logger name must be unique across mods: xlog's registry is name-keyed, and ag_test
+    -- already owns "TEST" -- a duplicate name reuses ITS logger and outfile (tested 2026-07-18).
+    _flow_log = xlog.get_logger("TEST.AB", { outfile = string_format("test_%s_%s.log", MOD, ts) })
+    return _flow_log
+end
+
+-- xlog facade methods are plain functions (not OO methods). Call with `.`, not `:`.
+local function _log_info(msg, ...)
+    _get_flow_log().info(msg, ...)
+    xlog.flush_all()
+end
+
+local function _flow_tip(msg, ms)
+    if db and db.actor then news_manager.send_tip(db.actor, msg, nil, nil, ms or 25000) end
+end
+
+-- Any smart with respawn bookkeeping serves; the lever phase needs no open budget.
+local function _pick_balance_smart()
+    local board = SIMBOARD
+    if not (board and board.smarts) then return nil end
+    for _, rec in pairs(board.smarts) do
+        local smart = rec.smrt
+        if smart and smart.respawn_params and smart.already_spawned then return smart end
+    end
+    return nil
+end
+
+-- Drive one gated actuator until its gate closes; returns steps taken and seconds moved.
+local function _drive_lever(smart, step_fn)
+    local steps, moved = 0, 0
+    for _ = 1, STEP_LOOP_CAP do
+        local push = step_fn(smart)
+        if push <= 0 then break end
+        steps = steps + 1
+        moved = moved + push
+    end
+    return steps, moved
+end
+
+--- Smart Balance flow test: config wiring, census pipeline, and both pacing levers
+--- against their limits. Phase 1 asserts min_minutes/max_minutes arithmetic in the
+--- pacing params. Phase 2 forces a full census pass and asserts data flowed. Phase 3
+--- zeroes one smart's cooldown age, advances to the floor (remaining >= min_minutes)
+--- and delays to the ceiling (remaining <= max_minutes), then restores the cooldown.
+--- @export console
+function ab_test_smart_balance()
+    local TEST = "smart_balance"
+    _log_info("[BEGIN] %s", TEST)
+
+    local smart = _pick_balance_smart()
+    if not smart then
+        _log_info("[FAIL] %s: no smart with respawn_params on SIMBOARD", TEST)
+        _flow_tip("[FAIL] " .. TEST .. ": no respawn smart found")
+        return
+    end
+    local name = smart:name() or "?"
+    local min_sec = (ab_mcm.get_config("min_minutes") or ab_mcm.defaults.min_minutes) * 60
+    local max_sec = (ab_mcm.get_config("max_minutes") or ab_mcm.defaults.max_minutes) * 60
+    local advances_cfg = ab_mcm.get_config("advances") or ab_mcm.defaults.advances
+
+    local probe = ab_smart_balance.debug_probe_smart(smart)
+    _log_info("[SETUP] smart=%s idle=%.0f usable=%.0f advance=%.1f delay_age_floor=%.0f (min=%.0f max=%.0f advances=%.0f)",
+        name, probe.idle, probe.usable, probe.advance, probe.delay_age_floor, min_sec, max_sec, advances_cfg)
+    if probe.advance <= 0 then
+        _log_info("[SKIP] %s: respawns disabled or degenerate config (advance step 0)", TEST)
+        _flow_tip("[SKIP] " .. TEST .. ": respawns disabled, lever test not applicable")
+        return
+    end
+
+    -- Phase 1: pacing arithmetic reflects the MCM limits.
+    local ok_wiring = math_abs(probe.usable - (probe.idle - min_sec)) <= 1
+        and math_abs(probe.advance * advances_cfg - probe.usable) <= 1
+        and probe.delay_age_floor == ((probe.idle > max_sec) and (probe.idle - max_sec) or 0)
+
+    -- Phase 2: census pipeline end to end.
+    local walked = ab_smart_balance.debug_force_pass()
+    local lines = ab_smart_balance.debug_status_lines()
+    local ok_census = walked > 0 and #lines > 0
+    _log_info("[CENSUS] walked=%d status_lines=%d", walked, #lines)
+
+    -- Phase 3: levers on one real smart, cooldown restored afterwards.
+    local original_lru = smart.last_respawn_update
+    local saved = original_lru and game.CTime(original_lru) or nil
+    smart.last_respawn_update = xtime.game_time()
+
+    local adv_steps, adv_moved = _drive_lever(smart, ab_smart_balance.debug_advance_step)
+    local after_adv = ab_smart_balance.debug_probe_smart(smart)
+    local remaining_floor = after_adv.idle - (after_adv.age or 0)
+    local ok_floor = adv_steps >= 1 and adv_steps <= advances_cfg
+        and remaining_floor >= min_sec - TOLERANCE_SEC
+
+    local del_steps, del_moved = _drive_lever(smart, ab_smart_balance.debug_delay_step)
+    local after_del = ab_smart_balance.debug_probe_smart(smart)
+    local remaining_ceiling = after_del.idle - (after_del.age or 0)
+    local ok_ceiling = del_steps >= 1 and remaining_ceiling <= max_sec + TOLERANCE_SEC
+
+    smart.last_respawn_update = saved
+
+    local summary = string_format(
+        "smart=%s idle=%.0f | wiring ok=%s | census walked=%d lines=%d | advance %d steps %.0fs -> remaining %.0fs (floor %.0f) | delay %d steps %.0fs -> remaining %.0fs (ceiling %.0f)",
+        name, probe.idle, tostring(ok_wiring), walked, #lines,
+        adv_steps, adv_moved, remaining_floor, min_sec,
+        del_steps, del_moved, remaining_ceiling, max_sec)
+    _log_info("[SUMMARY] %s", summary)
+
+    if ok_wiring and ok_census and ok_floor and ok_ceiling then
+        _log_info("[PASS] %s | %s", TEST, summary)
+        _flow_tip(string_format("[PASS] %s\n%s", TEST, summary), 30000)
+    else
+        local reason = string_format("wiring=%s census=%s floor=%s ceiling=%s",
+            tostring(ok_wiring), tostring(ok_census), tostring(ok_floor), tostring(ok_ceiling))
+        _log_info("[FAIL] %s | %s | %s", TEST, summary, reason)
+        _flow_tip(string_format("[FAIL] %s\n%s\n%s", TEST, summary, reason), 30000)
+    end
+    _log_info("[TEARDOWN] smart=%s cooldown restored (%s)", name, saved and "original CTime" or "fresh nil")
 end

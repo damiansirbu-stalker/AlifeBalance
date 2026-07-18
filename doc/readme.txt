@@ -32,7 +32,7 @@ Smart Balance:
   Smart Balance runs a rolling census: it counts live NPCs per map for every faction the map can spawn, with all mutants counted as one group.
   Each map's spawn configs already declare how many of each group it is meant to hold; that declared population is the target.
   A group below its target gets its respawn cooldowns advanced and its squads spawn at full size.
-  A group above its target gets its cooldowns delayed, never by more than one full vanilla cooldown, and spawns are never blocked.
+  A group above its target gets its cooldowns delayed, never past a configurable ceiling (default 12 game-hours; one full vanilla cooldown binds when shorter), and spawns are never blocked.
   Groups near their target are left completely alone.
 
   What you'll notice:
@@ -52,13 +52,15 @@ Smart Balance:
     The next census pass sees bandits far below Cordon's declared bandit population.
     Every Cordon smart terrain that can spawn bandits gets its cooldown advanced one step per pass, and bandit squads spawn at full size.
     Refills arrive over the next game-hours as the engine reaches each shortened wait; once bandits are back near target, Smart Balance goes silent.
-    If instead the map is overrun (say a mod flooded it), those cooldowns are delayed up to one full vanilla cycle until the census clears.
+    If instead the map is overrun (say a mod flooded it), those cooldowns are delayed up to the configured ceiling until the census clears.
 
   Settings (MCM, Smart Balance tab):
     Correction steps to floor (1-8, default 4): how many census passes carry one smart terrain from full cooldown to the floor.
     Lower corrects harder per pass; higher corrects more gradually. Delays use the same step size.
     Minimum cooldown remaining (10-360 game-minutes, default 120): the floor the advance direction never pushes below.
     The engine ages the final wait out on its own clock.
+    Maximum cooldown remaining (60-1440 game-minutes, default 720): the ceiling the delay direction never pushes past.
+    One full vanilla cooldown stays the bound when it is shorter than the ceiling.
     Full squads for depleted groups (default on): under-target groups spawn squads at their maximum configured size.
 
   Presets:
@@ -98,7 +100,7 @@ MCM:
 
 Requirements:
 Anomaly 1.5.3
-xlibs 1.7.0+ (https://www.moddb.com/mods/stalker-anomaly/addons/xlibs-1001)
+xlibs 1.8.2+ (https://www.moddb.com/mods/stalker-anomaly/addons/xlibs-1001)
 MCM
 
 
