@@ -31,12 +31,16 @@ Smart Balance:
 
   Smart Balance runs a rolling census: it counts live NPCs per map for every faction the map can spawn, with all mutants counted as one group.
   Each map's spawn configs already declare how many of each group it is meant to hold; that declared population is the target.
-  A group below its target gets its respawn cooldowns advanced and its squads spawn at full size.
+  A group below its target gets its respawn cooldowns advanced, and its squads that fell below their own minimum size
+  are gradually refilled, one member at a time, far from the player and never in crowded areas.
+  Corrections pick their smart terrains: only ones that can spawn the depleted group and still have spawn budget,
+  never ones in already-crowded areas, so recovery flows toward the empty parts of a map.
   A group above its target gets its cooldowns delayed, never past a configurable ceiling (default 12 game-hours; one full vanilla cooldown binds when shorter), and spawns are never blocked.
   Groups near their target are left completely alone.
 
   What you'll notice:
-    Massacre a faction and it returns first and at full strength, while overgrown factions idle.
+    Massacre a faction and it returns first, while overgrown factions idle.
+    Squads ground down to lone survivors regain their members instead of wandering the map forever as one-man ghosts.
     Mutant maps stay mutant-heavy and war zones stay contested; each map drifts back to its designed character.
     A depleted map as a whole recovers faster; a healthy map behaves exactly like vanilla.
     Vanilla A-Life still owns every spawn.
@@ -44,14 +48,16 @@ Smart Balance:
   Important:
     Smart Balance never blocks a spawn and never removes an NPC.
     The timing lever shifts a timestamp the engine was always going to read on its next alife tick.
-    The size lever only adds squad members at spawn, up to the squad's own configured maximum, never beyond it.
+    The refill only adds members to depleted squads, up to the squad's own configured minimum, never beyond it,
+    and only while the squad is offline and its group is below the map's declared population.
     The engine still owns spawning, recipes, squad selection, and budget caps.
 
   Example:
     A firefight wipes the bandits on Cordon.
     The next census pass sees bandits far below Cordon's declared bandit population.
-    Every Cordon smart terrain that can spawn bandits gets its cooldown advanced one step per pass, and bandit squads spawn at full size.
-    Refills arrive over the next game-hours as the engine reaches each shortened wait; once bandits are back near target, Smart Balance goes silent.
+    Every Cordon smart terrain that can spawn bandits gets its cooldown advanced one step per pass,
+    and surviving bandit squads that dropped below their minimum size regain a member each pass.
+    Recovery arrives over the next game-hours as the engine reaches each shortened wait; once bandits are back near target, Smart Balance goes silent.
     If instead the map is overrun (say a mod flooded it), those cooldowns are delayed up to the configured ceiling until the census clears.
 
   Settings (MCM, Smart Balance tab):
@@ -61,7 +67,7 @@ Smart Balance:
     The engine ages the final wait out on its own clock.
     Maximum cooldown remaining (60-1440 game-minutes, default 720): the ceiling the delay direction never pushes past.
     One full vanilla cooldown stays the bound when it is shorter than the ceiling.
-    Full squads for depleted groups (default on): under-target groups spawn squads at their maximum configured size.
+    Refill depleted squads (default on): squads below their own minimum size regain one member per census pass while their group is under target.
 
   Presets:
     Aggressive (one pass = full advancement): correction steps 1, minimum cooldown 60.
@@ -79,18 +85,22 @@ Compatibility:
 
   Conflicts (critical): Warfare. Its population model fights any external balancing; disable AlifeBalance when running Warfare.
 
+  Superseded: Squad Filler. It tops offline stalker squads up to a flat size once per game-day, regardless of how crowded or populated the map is.
+  Smart Balance's refill covers the same squads gated by the population census, skips crowded areas, works for mutants too,
+  and respects each squad's own configured size. Disable Squad Filler when running AlifeBalance.
+
   Affects / coexists (Smart Balance):
-  - Vanilla, ZCP: same cooldown field and gate; compose. ZCP keeps deciding which species or faction actually spawns; Smart Balance only times and sizes recovery.
+  - Vanilla, ZCP: same cooldown field and gate; compose. ZCP keeps deciding which species or faction actually spawns and how squad sizes scale;
+    the population target accounts for that scaling, and Smart Balance only times recovery and repairs depleted squads.
   - Redone, GAMMA NPC Spawns: pure config; that config IS the declared population Smart Balance steers toward.
   - AlifePlus: territory conquest and infestation change what a smart spawns; the census target follows those changes automatically.
   - Night Mutants: engine spawn path; squads are counted by the census.
   - Nocturnal Mutants: spawn outside smart terrains; no interaction.
-  - Dynamic Despawner, AlifeGuard: despawns lower the census like any other loss; recovery follows.
-  - Mods overriding sim_squad_scripted.script: the squad-size lever attaches at runtime and composes with whichever file wins the conflict.
+  - Dynamic Despawner, AlifeGuard: despawns lower the census like any other loss; recovery follows, and the refill skips crowded areas so it never fights a density cull.
 
 
 MCM:
-  Smart Balance tab: enable, correction steps, minimum cooldown remaining, full squads for depleted groups.
+  Smart Balance tab: enable, correction steps, minimum cooldown remaining, maximum cooldown remaining, refill depleted squads.
   Development tab: log level, map markers.
 
   Map markers (Development): green PDA spots appear on every smart terrain that received a cooldown advance or delay.

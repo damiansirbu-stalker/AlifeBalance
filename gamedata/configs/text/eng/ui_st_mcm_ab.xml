@@ -20,7 +20,7 @@
 
     <!-- ==================== SMART BALANCE TAB ==================== -->
     <string id="ui_mcm_ab_smart_balance_desc">
-        <text>Smart Balance keeps each map's population near what the map itself declares. It regularly counts who is actually alive, per faction, with all mutants as one group. Wiped-out groups come back sooner and at full squad size; overgrown groups wait longer. Every correction stays inside the limits below, healthy groups are left completely alone, and the game engine still decides every spawn.</text>
+        <text>Smart Balance keeps each map's population near what the map itself declares. It regularly counts who is actually alive, per faction, with all mutants as one group. Wiped-out groups come back sooner and their depleted squads are gradually refilled; overgrown groups wait longer. Corrections pick their targets: only smart terrains that can spawn the depleted group and still have spawn room, never ones in already-crowded areas, so recovery flows toward the empty parts of a map. Every correction stays inside the limits below, healthy groups are left completely alone, and the game engine still decides every spawn.</text>
     </string>
     <string id="ui_mcm_ab_smart_balance_enabled">
         <text>Enable Smart Balance</text>
@@ -46,16 +46,16 @@
     <string id="ui_mcm_ab_smart_balance_max_minutes_desc">
         <text>The ceiling on remaining cooldown after Smart Balance applies a delay, in game-minutes. Delays stop once a smart terrain's remaining wait reaches this ceiling, even when the installed respawn cooldown is longer. When the respawn cooldown is at or below the ceiling, one full vanilla cooldown stays the bound. Raise to idle overgrown groups longer; lower to keep recovery moving everywhere.</text>
     </string>
-    <string id="ui_mcm_ab_smart_balance_size_bias">
-        <text>Full squads for depleted groups</text>
+    <string id="ui_mcm_ab_smart_balance_refill">
+        <text>Refill depleted squads</text>
     </string>
-    <string id="ui_mcm_ab_smart_balance_size_bias_desc">
-        <text>When a group is below its map's declared capacity, its squads spawn at the maximum size their own squad definition allows, instead of a random draw from the range. Members are only ever added up to that limit, never removed, and squads with fixed rosters or story roles are untouched. Overgrown groups are handled by cooldown delays alone.</text>
+    <string id="ui_mcm_ab_smart_balance_refill_desc">
+        <text>Gradually restores members to squads that dropped below their own minimum size, one member per squad per census pass, while their group is below the map's declared population. Runs only on squads far from the player, skips crowded areas, and never adds beyond the squad's own configured range. Fixed-roster and story squads are untouched. Overgrown groups are handled by cooldown delays alone.</text>
     </string>
 
     <!-- ==================== DEVELOPMENT TAB ==================== -->
     <string id="ui_mcm_ab_development_desc">
-        <text>Diagnostic tools for tuning and troubleshooting. Raise log level for structured tracing of every census pass, capacity model, advance, delay, and squad top-up to alifebalance.log (small performance cost at DEBUG).</text>
+        <text>Diagnostic tools for tuning and troubleshooting. Raise log level for structured tracing of every census pass, capacity model, advance, delay, and squad refill to alifebalance.log (small performance cost at DEBUG).</text>
     </string>
     <string id="ui_mcm_ab_development_btn_reset_all">
         <text>Reset to defaults</text>
@@ -75,7 +75,7 @@
         <text>Log level</text>
     </string>
     <string id="ui_mcm_ab_development_log_level_desc">
-        <text>Controls verbosity of alifebalance.log. ERROR logs crashes only. WARN adds unexpected conditions. INFO adds startup, configuration, and reset events. DEBUG traces every census pass, capacity model, advance, delay, squad top-up, and per-pass summary. Default WARN is silent in normal play; DEBUG is for tuning or bug reports.</text>
+        <text>Controls verbosity of alifebalance.log. ERROR logs crashes only. WARN adds unexpected conditions. INFO adds startup, configuration, and reset events. DEBUG traces every census pass, capacity model, advance, delay, squad refill, and per-pass summary. Default WARN is silent in normal play; DEBUG is for tuning or bug reports.</text>
     </string>
     <string id="ab_development_log_level_lst_error">
         <text>Error</text>

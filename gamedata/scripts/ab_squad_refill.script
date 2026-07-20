@@ -1,0 +1,224 @@
+--- ab_squad_refill: Squad Refill - offline repair of squads below their declared minimum
+---
+--- Rides the census walk: ab_smart_balance._census_squad feeds every counted squad
+--- through consider(). Offline squads accumulate a per-cell body count (level:x:z at
+--- switch_distance granularity, the offline-density cell shape) and squads below their
+--- section's own npc_in_squad minimum become candidates. At pass end (finalize_pass runs
+--- after the pass verdicts are computed) candidates whose (level, bin) is UNDER and
+--- whose cell is not crowded drain through xslice, one squad per frame, one member per
+--- squad per pass, via the engine's add_squad_member at the commander's position
+--- (register_npc + setup_squad_and_group, the vanilla member-add call shape).
+---
+--- Add-only and declared-bounded: refills stop at the section's own npc_in_squad
+--- minimum, never touch online squads (permanent squads and companions are skipped by
+--- the census walk before consider), and never fire on in-band or over-capacity bins.
+
+local pairs, tostring, math_random = pairs, tostring, math.random
+local os_clock = os.clock
+local alife, alife_object = alife, alife_object
+local xlog, xsmart, xslice, xlevel, xprofiler = xlog, xsmart, xslice, xlevel, xprofiler
+local ini_sys = ini_sys
+
+local log = xlog.get_logger("AB.RFIL", { outfile = "alifebalance.log" })
+
+local REFILL_JOB = "ab_refill"
+
+-- A cell (switch_distance-sized, ~350m square) already holding this many offline bodies
+-- is saturated: adding members there feeds local density pressure instead of restoring a
+-- depleted bin. Candidates in crowded cells are skipped and picked up on a later pass
+-- once the area thins out.
+local CROWDED_CELL_BODIES = 60
+
+local _dbg = false
+
+-- Per-pass state, rebuilt by start_pass:
+-- _cells[level:x:z] = offline body count (every offline squad the census walks, not just
+--                     candidates -- the crowd gate needs the full picture).
+-- _candidates       = array of { id, level_id, bin, cell } squads below their declared
+--                     minimum, verdict-filtered at finalize_pass against the SAME pass.
+local _cell_size  = 0
+local _cells      = {}
+local _candidates = {}
+
+-- _pool_cache[section] = parsed npc_random array, or false when the section has none
+-- (fixed roster). Session-lifetime: squad_descr LTX is static.
+local _pool_cache = {}
+
+function set_debug(dbg)
+    _dbg = dbg and true or false
+end
+
+local function _refill_enabled()
+    local mcm = ab_mcm and ab_mcm.cfg
+    return mcm and mcm.enabled and mcm.refill
+end
+
+--- True when the cell holding `position` on `level_id` is at the crowd threshold.
+--- Shared by the refill drain and the advance lever (ab_smart_balance._try_advance):
+--- neither adds bodies to a pile. Counts offline bodies from the current census pass;
+--- false when no pass data yet (fail-open, vanilla behavior). Cell partitioning via
+--- xlevel.cell_key, the same grid the offline density cull uses.
+function is_crowded(level_id, position)
+    local key = xlevel.cell_key(level_id, position, _cell_size)
+    if not key then return false end
+    return (_cells[key] or 0) >= CROWDED_CELL_BODIES
+end
+
+local function _pool_of(section)
+    local cached = _pool_cache[section]
+    if cached ~= nil then return cached or nil end
+    local raw = ini_sys:r_string_ex(section, "npc_random")
+    -- parse_names read via _G at call time: it lives in _g.script, which is not loaded
+    -- yet when this module's top-level chunk runs under the stub-based load test.
+    local pool = raw and parse_names(raw) or nil
+    if not pool or #pool == 0 then
+        _pool_cache[section] = false
+        return nil
+    end
+    _pool_cache[section] = pool
+    return pool
+end
+
+-- ==================== PASS HOOKS (called by ab_smart_balance) ====================
+
+--- Reset the per-pass accumulator. Called from the census _start_pass.
+function start_pass()
+    local sim = alife()
+    _cell_size  = sim and sim:switch_distance() or 0
+    _cells      = {}
+    _candidates = {}
+end
+
+--- Examine one censused squad. Caller (ab_smart_balance._census_squad) has already
+--- skipped empty, permanent, and companion squads and resolved bin + level_id, so this
+--- adds 2 luabind for every offline squad (online flag, position) plus 1 heavy
+--- (section_name) for the depleted check.
+function consider(squad, level_id, bin, npc_count)
+    if _cell_size <= 0 then return end
+    if squad.online then return end
+    local pos = squad.position
+    if not pos then return end
+    local key = xlevel.cell_key(level_id, pos, _cell_size)
+    if not key then return end
+    _cells[key] = (_cells[key] or 0) + npc_count
+    -- Cells accumulate whenever the census runs: the advance lever's crowd gate reads
+    -- them through is_crowded regardless of the refill toggle. Only candidate
+    -- collection below is the refill feature proper.
+    if not _refill_enabled() then return end
+    local section = squad:section_name()
+    local nmin = xsmart.get_section_npc_range(section)
+    if nmin <= npc_count then return end
+    if not _pool_of(section) then return end
+    _candidates[#_candidates + 1] = { id = squad.id, level_id = level_id, bin = bin, cell = key }
+end
+
+-- ==================== DRAIN ====================
+
+-- Refill one candidate squad by one member. State re-verified fresh in the drain frame:
+-- the pass took minutes of real time and the squad may have died, come online, recovered
+-- on its own, or lost its smart assignment since consider() saw it. Every decline path
+-- counts its reason into acc (cheap field ops, always on) so the [DRAIN] completion line
+-- explains the whole batch from the log alone.
+local function _refill_one(squad_id, acc)
+    local squad = alife_object(squad_id)
+    if not squad then acc.gone = acc.gone + 1; return end
+    if squad.online then acc.online = acc.online + 1; return end
+    local npc_count = squad:npc_count()
+    if npc_count == 0 then acc.gone = acc.gone + 1; return end
+    local section = squad:section_name()
+    local nmin = xsmart.get_section_npc_range(section)
+    if nmin <= npc_count then acc.recovered = acc.recovered + 1; return end
+    -- Unassigned squads are traveling; a later pass catches them once they settle.
+    local rec = squad.smart_id and SIMBOARD.smarts[squad.smart_id]
+    local smart = rec and rec.smrt
+    if not smart then acc.no_smart = acc.no_smart + 1; return end
+    local commander = alife_object(squad:commander_id())
+    if not commander then acc.no_commander = acc.no_commander + 1; return end
+    if not xlevel.is_valid_lvid(commander) then acc.bad_lvid = acc.bad_lvid + 1; return end
+    local pool = _pool_of(section)
+    if not pool then acc.no_pool = acc.no_pool + 1; return end
+    local member_id = squad:add_squad_member(pool[math_random(#pool)],
+        commander.position, commander.m_level_vertex_id, commander.m_game_vertex_id)
+    if not member_id then acc.add_failed = acc.add_failed + 1; return end
+    local se_member = alife_object(member_id)
+    if se_member then
+        smart:register_npc(se_member)
+        SIMBOARD:setup_squad_and_group(se_member)
+    end
+    squad:update()
+    acc.added = acc.added + 1
+    if _dbg then
+        log.debug("[REFILL] squad=%d section=%s faction=%s now=%d min=%d",
+            squad.id, section, tostring(squad.player_id), squad:npc_count(), nmin)
+    end
+end
+
+--- Filter this pass's candidates against this pass's verdicts and cell counts, then
+--- drain one squad per frame. Called from ab_smart_balance._finalize_pass AFTER the
+--- verdicts are assigned, so candidates, verdicts, and cells all describe the same pass.
+--- Traces: [QUEUE] (debug) with per-gate skip counts and build time; per-frame [REFILL]
+--- debug lines with frame time; one [DRAIN] info line on completion with decline
+--- reasons, frames, and elapsed wall time -- the log explains the batch without a debugger.
+function finalize_pass()
+    if #_candidates == 0 then return end
+    if xslice.is_active(REFILL_JOB) then
+        log.debug("[QUEUE] previous drain still active, skipping pass")
+        return
+    end
+    local build = xprofiler.new_if(_dbg):start()
+    local work = {}
+    local skipped_verdict, skipped_crowd = 0, 0
+    for i = 1, #_candidates do
+        local cand = _candidates[i]
+        if ab_smart_balance.get_verdict(cand.level_id, cand.bin) <= 0 then
+            skipped_verdict = skipped_verdict + 1
+        elseif (_cells[cand.cell] or 0) >= CROWDED_CELL_BODIES then
+            skipped_crowd = skipped_crowd + 1
+        else
+            work[#work + 1] = cand.id
+        end
+    end
+    build:stop()
+    if _dbg then
+        local cell_count = 0
+        for _ in pairs(_cells) do cell_count = cell_count + 1 end
+        log.debug("[QUEUE] candidates=%d work=%d skipped_verdict=%d skipped_crowd=%d cells=%d [%.2fms]",
+            #_candidates, #work, skipped_verdict, skipped_crowd, cell_count, build:get_ms())
+    end
+    if #work == 0 then return end
+    local total = #work
+    local acc = { added = 0, gone = 0, online = 0, recovered = 0, no_smart = 0,
+                  no_commander = 0, bad_lvid = 0, no_pool = 0, add_failed = 0 }
+    local frames = 0
+    local start_time = os_clock()
+    xslice.start(REFILL_JOB, work, {
+        step = 1,
+        func = function(squad_id)
+            frames = frames + 1
+            local frame_timer = xprofiler.new_if(_dbg):start()
+            _refill_one(squad_id, acc)
+            frame_timer:stop()
+            if _dbg then
+                log.debug("[REFILL] squad=%d added_total=%d [%.2fms frame:%d]",
+                    squad_id, acc.added, frame_timer:get_ms(), frames)
+            end
+            return true
+        end,
+        on_done = function()
+            local elapsed_ms = (os_clock() - start_time) * 1000
+            if acc.added > 0 then ab_smart_balance.count_refills(acc.added) end
+            log.info("[DRAIN] added=%d/%d gone=%d online=%d recovered=%d no_smart=%d no_commander=%d bad_lvid=%d no_pool=%d add_failed=%d [%d frames %.0fms]",
+                acc.added, total, acc.gone, acc.online, acc.recovered, acc.no_smart,
+                acc.no_commander, acc.bad_lvid, acc.no_pool, acc.add_failed, frames, elapsed_ms)
+        end,
+    })
+end
+
+--- Drop pass state and cancel a running drain. Called from ab_smart_balance._reset_state
+--- (save load); the section pool cache survives, squad_descr LTX is static.
+function reset_state()
+    xslice.cancel(REFILL_JOB, true)
+    _cell_size  = 0
+    _cells      = {}
+    _candidates = {}
+end

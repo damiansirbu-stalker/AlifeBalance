@@ -6,8 +6,8 @@
 --- deadband. Under-capacity bins get eligible smarts' cooldowns advanced (subtract,
 --- never leaving less than min_minutes of cooldown); over-capacity bins get them
 --- delayed (bounded add, never leaving more than max_minutes of remaining cooldown,
---- never below age 0, spawns are delayed, never blocked). The size lever
---- (ab_squad_size) reads get_verdict at spawn.
+--- never below age 0, spawns are delayed, never blocked). The refill lever
+--- (ab_squad_refill) rides the census walk and drains at pass end.
 --- The engine keeps owning the spawn itself, recipes, squad selection, and budgets;
 --- this module writes exactly one engine field: last_respawn_update.
 
@@ -85,7 +85,7 @@ local cfg = {
     advances = 4,
     min_minutes = 120,
     max_minutes = 720,
-    size_bias = true,
+    refill = true,
     show_markers = false,
     log_level = "WARN",
 }
@@ -93,9 +93,11 @@ local cfg = {
 local _dbg = false
 
 -- _census                    = staggered pass state: snapshot ids array, total, cursor,
---                              active flag, and the accumulating counts[level_id][bin].
+--                              active flag, the accumulating counts[level_id][bin], and
+--                              walk_ms (per-chunk profiler time accumulated over the pass,
+--                              0 when debug off).
 -- _verdicts[level_id][bin]   = VERDICT_UNDER / VERDICT_OVER from the last completed pass;
---                              absent = in band. Read by ab_squad_size via get_verdict.
+--                              absent = in band. Read by ab_squad_refill via get_verdict.
 -- _last_counts               = counts table of the last completed pass (status display).
 -- _known_levels[level_id]    = true once the census has ever seen a squad there; the
 --                              judged level set (survives model invalidation).
@@ -110,7 +112,7 @@ local _dbg = false
 --       last_before_cooldown,                         -- string snapshot
 --       last_budget,                                  -- string snapshot
 --     }
-local _census       = { ids = {}, total = 0, cursor = 1, active = false, counts = {} }
+local _census       = { ids = {}, total = 0, cursor = 1, active = false, counts = {}, walk_ms = 0 }
 local _verdicts     = {}
 local _last_counts  = {}
 local _known_levels = {}
@@ -124,7 +126,7 @@ local _smart_stats  = {}
 -- the right-click "Show stats" display.
 local _advance_pending = {}
 local _stats           = { censused = 0, skipped = 0, passes = 0,
-                           advances = 0, delays = 0, size_adds = 0,
+                           advances = 0, delays = 0, refills = 0,
                            ticks = 0, spawns = 0, spawns_from_us = 0 }
 
 -- ==================== SMART STATE FORMATTERS ====================
@@ -251,6 +253,9 @@ end
 -- m_time then adds generate_time(1,1,1,h,m,s,0). Two CTimes constructed this way differ
 -- in m_time by exactly the H/M/S delta in ms -- the (year=1, month=1, day=1) base cancels
 -- under operator-. Result is a pure duration usable with xrTime:sub/:add.
+-- Hours above 23 are valid: generate_time_impl is unbounded positional arithmetic
+-- (date_time.cpp:118-140, days*24 + hours before scaling to ms), so deltas past 24h
+-- construct correctly (long respawn_idle values with advances=1).
 local function _make_delta_ctime(seconds)
     local secs    = math_floor(seconds)
     local hours   = math_floor(secs / 3600)
@@ -423,7 +428,7 @@ local function _load_config()
     cfg.advances     = mcm.advances
     cfg.min_minutes  = mcm.min_minutes
     cfg.max_minutes  = mcm.max_minutes
-    cfg.size_bias    = mcm.size_bias
+    cfg.refill       = mcm.refill
     cfg.show_markers = mcm.show_markers
     cfg.log_level    = mcm.log_level
     log.set_level(cfg.log_level)
@@ -434,10 +439,10 @@ local function _load_config()
     _delta_cache = {}
     -- sync DEBUG flag to the sibling modules so their gated log lines respect it.
     ab_smart_recipe.set_debug(_dbg)
-    ab_squad_size.set_debug(_dbg)
-    log.info("[CONFIG] enabled=%s advances=%d min_minutes=%d max_minutes=%d size_bias=%s show_markers=%s log=%s",
+    ab_squad_refill.set_debug(_dbg)
+    log.info("[CONFIG] enabled=%s advances=%d min_minutes=%d max_minutes=%d refill=%s show_markers=%s log=%s",
         tostring(cfg.enabled), cfg.advances, cfg.min_minutes, cfg.max_minutes,
-        tostring(cfg.size_bias), tostring(cfg.show_markers), cfg.log_level)
+        tostring(cfg.refill), tostring(cfg.show_markers), cfg.log_level)
     if was_show_markers and not cfg.show_markers then ab_smart_map.clear_all_markers() end
 end
 
@@ -454,6 +459,8 @@ end
 
 -- Fire one action (advance or delay) on a smart: snapshot state, write the cooldown,
 -- record for the right-click stats display, refresh the marker hint if enabled.
+-- Marks the smart in ctx.acted so a smart serving 2 corrected bins still takes exactly
+-- one step per pass ("one step per smart per pass" across bins, not per bin).
 local function _fire_action(smart, ctx, budget_str, action)
     local before_cooldown = _format_cooldown(smart)
     local push_sec
@@ -463,6 +470,7 @@ local function _fire_action(smart, ctx, budget_str, action)
         push_sec = _delay_smart(smart)
     end
     if push_sec <= 0 then return end
+    ctx.acted[smart.id] = true
     if action == ACTION.ADVANCE then
         _stats.advances = _stats.advances + 1
         _advance_pending[smart.id] = true
@@ -480,9 +488,14 @@ local function _fire_action(smart, ctx, budget_str, action)
     end
 end
 
--- One advance step on a qualifying smart: floor gate + open budget for the bin.
+-- One advance step on a qualifying smart: floor gate + crowd gate + open budget for
+-- the bin. The crowd gate reads the census pass's offline density cells (same data the
+-- refill lever gates on): a spawned squad lands at the smart, so an advance into an
+-- already-crowded cell would feed a body pile instead of recovering the map -- recovery
+-- is steered toward the empty parts of a depleted level.
 local function _try_advance(smart, ctx)
     if not _can_advance(smart) then return end
+    if ab_squad_refill.is_crowded(ctx.level_id, smart.position) then return end
     local matched, budget_str = ab_smart_recipe.evaluate_budget_for_bin(smart, ctx.bin)
     if not matched then return end
     _fire_action(smart, ctx, budget_str, ACTION.ADVANCE)
@@ -540,19 +553,19 @@ end
 
 -- Correct one bin on one level: one step per qualifying eligible smart per pass, so
 -- `advances` passes carry a smart from full cooldown to the floor (and symmetrically
--- back for delays).
+-- back for delays). Smarts that already took a step this pass (ctx.acted, set on fire,
+-- not on a declined try -- a closed budget for one bin must not block another bin's
+-- attempt) are skipped.
 local function _correct_bin(verdict, eligibles, ctx)
     if not eligibles then return end
+    local try = (verdict == VERDICT_UNDER) and _try_advance or _try_delay
     for i = 1, #eligibles do
-        if verdict == VERDICT_UNDER then
-            _try_advance(eligibles[i], ctx)
-        else
-            _try_delay(eligibles[i], ctx)
-        end
+        local smart = eligibles[i]
+        if not ctx.acted[smart.id] then try(smart, ctx) end
     end
 end
 
-local function _correct_level(level_id, verdicts_lv, counts_lv)
+local function _correct_level(level_id, verdicts_lv, counts_lv, acted)
     local model = ab_smart_recipe.get_level_model(level_id)
     for bin, verdict in pairs(verdicts_lv) do
         local ctx = {
@@ -562,6 +575,7 @@ local function _correct_level(level_id, verdicts_lv, counts_lv)
             capacity    = model.capacity[bin] or 0,
             model       = model,
             verdicts_lv = verdicts_lv,
+            acted       = acted,
         }
         _correct_bin(verdict, model.eligible[bin], ctx)
     end
@@ -582,14 +596,16 @@ local function _finalize_pass(counts)
     end
     _verdicts = _next_verdicts
     _last_counts = counts
+    local acted = {}
     for level_id, verdicts_lv in pairs(_next_verdicts) do
-        _correct_level(level_id, verdicts_lv, counts[level_id])
+        _correct_level(level_id, verdicts_lv, counts[level_id], acted)
     end
+    ab_squad_refill.finalize_pass()
     tmr:stop()
     if _dbg then
-        log.debug("[SUMMARY] pass=%d censused=%d skipped=%d advances=%d delays=%d size_adds=%d spawns=%d from_advance=%d [%.2fms]",
+        log.debug("[SUMMARY] pass=%d censused=%d skipped=%d advances=%d delays=%d refills=%d spawns=%d from_advance=%d [walk %.2fms, finalize %.2fms]",
             _passes, _stats.censused, _stats.skipped, _stats.advances, _stats.delays,
-            _stats.size_adds, _stats.spawns, _stats.spawns_from_us, tmr:get_ms())
+            _stats.refills, _stats.spawns, _stats.spawns_from_us, _census.walk_ms, tmr:get_ms())
     end
 end
 
@@ -602,6 +618,8 @@ local function _start_pass()
     _census.total = total
     _census.cursor = 1
     _census.counts = {}
+    _census.walk_ms = 0
+    ab_squad_refill.start_pass()
     return total > 0
 end
 
@@ -631,19 +649,25 @@ local function _census_squad(squad_id)
     end
     counts_lv[bin] = (counts_lv[bin] or 0) + npc_count
     _stats.censused = _stats.censused + 1
+    ab_squad_refill.consider(squad, level_id, bin, npc_count)
 end
 
 -- Walk up to CENSUS_PER_TICK squads from the cursor; on wrap, finalize the pass.
+-- Per-chunk profiler accumulates into _census.walk_ms (reported in [SUMMARY]); noop
+-- when debug off.
 local function _census_chunk()
     if not _census.active then
         if not _start_pass() then return end
         _census.active = true
     end
+    local prof = xprofiler.new_if(_dbg):start()
     local last = _census.cursor + CENSUS_PER_TICK - 1
     if last > _census.total then last = _census.total end
     for i = _census.cursor, last do
         _census_squad(_census.ids[i])
     end
+    prof:stop()
+    _census.walk_ms = _census.walk_ms + prof:get_ms()
     _census.cursor = last + 1
     if _census.cursor > _census.total then
         _census.active = false
@@ -719,16 +743,16 @@ end
 
 --- Verdict for a (level, bin) from the last completed census pass.
 --- 1 = under capacity (boost recovery), -1 = over capacity (delay), 0 = in band.
---- Read by ab_squad_size at squad spawn; 0 for unknown levels/bins keeps it inert.
+--- Read by ab_squad_refill at pass end; 0 for unknown levels/bins keeps it inert.
 function get_verdict(level_id, bin)
     local verdicts_lv = _verdicts[level_id]
     if not verdicts_lv then return 0 end
     return verdicts_lv[bin] or 0
 end
 
---- Stats hook for ab_squad_size: members added by the size lever.
-function count_size_adds(added)
-    _stats.size_adds = _stats.size_adds + added
+--- Stats hook for ab_squad_refill: members added by the refill drain.
+function count_refills(added)
+    _stats.refills = _stats.refills + added
 end
 
 --- Console helper (ab_test): read-only snapshot of one smart's pacing state under the
@@ -839,7 +863,8 @@ end
 local function _reset_state()
     ab_smart_map.clear_all_markers()
     ab_smart_recipe.reset_state()
-    _census          = { ids = {}, total = 0, cursor = 1, active = false, counts = {} }
+    ab_squad_refill.reset_state()
+    _census          = { ids = {}, total = 0, cursor = 1, active = false, counts = {}, walk_ms = 0 }
     _verdicts        = {}
     _last_counts     = {}
     _known_levels    = {}
@@ -849,7 +874,7 @@ local function _reset_state()
     _smart_stats     = {}
     _advance_pending = {}
     _stats           = { censused = 0, skipped = 0, passes = 0,
-                         advances = 0, delays = 0, size_adds = 0,
+                         advances = 0, delays = 0, refills = 0,
                          ticks = 0, spawns = 0, spawns_from_us = 0 }
 end
 

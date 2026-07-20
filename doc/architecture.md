@@ -1,8 +1,8 @@
 # AlifeBalance Architecture
 
-AlifeBalance steers each level's population toward the composition the level's own spawn configs declare. A rolling census counts live NPCs per (level, bin) — a bin is a human faction or the single MUTANTS aggregate — and compares them against the declared capacity computed from the level's `respawn_params`. Under-capacity bins get eligible smarts' `last_respawn_update` advanced (cooldown shortened) and their squads topped up to full size at spawn; over-capacity bins get the cooldown delayed, never beyond one full vanilla cooldown. The engine still owns the spawn itself, the recipe choice, the squad section, and the budgets. AlifeBalance writes exactly one engine field on the timing lever (`last_respawn_update`) and uses the engine's own `add_squad_member` on the strength lever.
+AlifeBalance steers each level's population toward the composition the level's own spawn configs declare. A rolling census counts live NPCs per (level, bin) — a bin is a human faction or the single MUTANTS aggregate — and compares them against the declared capacity computed from the level's `respawn_params`. Under-capacity bins get eligible smarts' `last_respawn_update` advanced (cooldown shortened) and their depleted offline squads gradually refilled; over-capacity bins get the cooldown delayed, never beyond one full vanilla cooldown. The engine still owns the spawn itself, the recipe choice, the squad section, and the budgets. AlifeBalance writes exactly one engine field on the timing lever (`last_respawn_update`) and uses the engine's own `add_squad_member` on the refill lever.
 
-Three MCM knobs shape the timing lever: `advances` (1-8, default 4) sets how many census passes carry one smart from full cooldown to the floor (delays use the same step); `min_minutes` (10-360, default 120) sets the floor on remaining cooldown that the advance direction never pushes below; `max_minutes` (60-1440, default 720) sets the ceiling on remaining cooldown that the delay direction never pushes above. A fourth knob, `size_bias` (default on), toggles the strength lever.
+Three MCM knobs shape the timing lever: `advances` (1-8, default 4) sets how many census passes carry one smart from full cooldown to the floor (delays use the same step); `min_minutes` (10-360, default 120) sets the floor on remaining cooldown that the advance direction never pushes below; `max_minutes` (60-1440, default 720) sets the ceiling on remaining cooldown that the delay direction never pushes above. A fourth knob, `refill` (default on), toggles the refill lever.
 
 Built on xlibs. `_ab_deps` asserts the minimum xlibs version on load.
 
@@ -15,7 +15,7 @@ Part of a three-mod alife family: **AlifePlus** extends A-Life with new behavior
 ## Invariants
 
 - **No steady-state per-frame work.** Ongoing work runs on a throttled tick (a fixed interval) or on a discrete engine event (hit, shot, spawn, option change); it never runs continuously every frame. Full rule and rationale: `doc/standards/code-standards.md` "No Per-Frame Work".
-- **Never a release.** The size lever only adds members (up to the section's own `npc_in_squad` upper bound); over-capacity is handled by the delay lever alone. Release work belongs to AlifeGuard.
+- **Never a release.** The refill lever only adds members (up to the section's own declared `npc_in_squad` minimum); over-capacity is handled by the delay lever alone. Release work belongs to AlifeGuard.
 - **Spawns delayed, never blocked.** The delay direction never leaves more than `max_minutes` of remaining cooldown and clamps age to >= 0 (one full vanilla cooldown is the hard ceiling when it is shorter than `max_minutes`), skips fresh smarts (`last_respawn_update == nil` means the engine gate is already open), and never writes the engine's `on_try_respawn` disable flag.
 
 ---
@@ -38,8 +38,10 @@ Each level's target comes from its own smart terrains' `respawn_params`, not fro
 ```
 eff_num      = spawn_num condlist value (pick_value_readonly) * mirrored pop factor
 per_section  = eff_num / #sections            (engine picks a section uniformly)
-capacity    += per_section * (npc_in_squad min + max) / 2   per section, into its bin
+capacity    += per_section * (npc_in_squad min + max) / 2 * size factor   per section, into its bin
 ```
+
+The size factor mirrors ZCP's post-create squad scaling: `smr_pop.adjust_squad_size` multiplies every common squad's member count by its per-class `squad_size` cvar right after `create_npc` (variance is symmetric, so the expected scale IS the cvar). Without the mirror, declared capacity overstates what survives a spawn and every large bin reads permanently UNDER; with it, the set-point is what the composed stack actually produces. Non-common sections and installs without ZCP take factor 1.
 
 `spawn_num` caps squads CONCURRENTLY alive from that recipe: the engine increments `already_spawned[k].num` at spawn (`smart_terrain.script:1759`) and decrements it when a squad from the recipe unregisters (`sim_squad_scripted.script:1022-1029`). Summed capacity is therefore a genuine concurrent-population target the engine itself enforces per recipe; AlifeBalance only aggregates it per bin per level. Fractional `spawn_num` (a spawn chance in the engine) stays fractional here as an expected value.
 
@@ -53,6 +55,8 @@ The model is cached per level and recomputed every `MODEL_REFRESH_PASSES` (3) ce
 
 A staggered walk over a `xsquad.collect_squad_ids` snapshot, `CENSUS_PER_TICK` (50) squads per 60-second tick; a pass over ~400 squads completes in ~8 minutes of real time. Per squad: resolve, read `npc_count`, classify `player_id` into a bin, read the level, accumulate. Skipped: empty squads, permanent squads (`xsquad.is_permanent_squad`: story, trader, named-NPC garrisons — seeded outside the respawn system, they would permanently distort actual vs respawn-declared capacity), and companions.
 
+Every counted squad also passes through `ab_squad_refill.consider()`: offline squads accumulate a per-cell body count (cells keyed via `xlevel.cell_key` at `switch_distance` granularity — the shared partitioning convention, so density consumers across the mod family agree on what "the same area" means), and squads below their section's declared `npc_in_squad` minimum become refill candidates for the pass. The cells always accumulate while the census runs; the refill toggle gates only candidate collection, because the advance lever's crowd gate reads the same cells.
+
 A level enters the judged set (`_known_levels`) when the census first sees a squad there, and stays for the session. A level with zero squads and no session history recovers at vanilla pace until squads reappear.
 
 ---
@@ -63,14 +67,14 @@ At pass end, per known level, per bin the level's recipes can produce:
 
 ```
 band = max(2, capacity * 0.25)
-capacity - actual > band  ->  UNDER   (advance cooldowns, top up squads at spawn)
+capacity - actual > band  ->  UNDER   (advance cooldowns, refill depleted squads)
 actual - capacity > band  ->  OVER    (delay cooldowns)
 otherwise                 ->  in band (untouched on both levers)
 ```
 
-Bins whose squads roam the level but which no recipe produces have no actuator and are ignored. Verdicts persist until the next pass and are served to the size lever via `get_verdict(level_id, bin)`.
+Bins whose squads roam the level but which no recipe produces have no actuator and are ignored. Verdicts persist until the next pass and are served to the refill lever via `get_verdict(level_id, bin)`.
 
-**Advance** (UNDER): every eligible smart that passes `_can_advance` (floor gate) and has an open recipe budget for the bin (`evaluate_budget_for_bin`) gets one step: `last_respawn_update:sub((resolved_idle - min_minutes*60) / advances)`. One step per smart per pass.
+**Advance** (UNDER): every eligible smart that passes `_can_advance` (floor gate), sits in a non-crowded cell (`ab_squad_refill.is_crowded` — a spawned squad lands at the smart, so an advance into a body pile would feed local density instead of recovering the map), and has an open recipe budget for the bin (`evaluate_budget_for_bin`) gets one step: `last_respawn_update:sub((resolved_idle - min_minutes*60) / advances)`. One step per smart per pass, enforced across bins (a smart serving 2 corrected bins takes 1 step total; a declined try does not consume the slot).
 
 **Delay** (OVER): every eligible smart that passes `_can_delay` gets one step in the opposite direction: `last_respawn_update:add(step)`, clamped so remaining cooldown never exceeds `max_minutes` (`delay_age_floor` in `_get_advance_params`) and age never goes below 0. A smart whose recipes also serve an under- or in-band bin is never delayed (`smart_bins` check) — no cross-bin punishment at mixed smarts. Fresh smarts are skipped in both directions.
 
@@ -90,11 +94,13 @@ ceiling  = age 0        = one full 6-hour vanilla cooldown (delay direction;
 
 ---
 
-## The size lever (ab_squad_size)
+## The refill lever (ab_squad_refill)
 
-Function-level patch of `sim_squad_scripted:create_npc`, applied at `on_game_start` (the patched body is byte-identical across vanilla unpacked, the demonized overlay, and ZCP's slot, so one wrap serves all installs). After the base draw, a squad whose bin is UNDER on its level is topped up to its section's own `npc_in_squad` upper bound via the engine's `add_squad_member` (registers the member, fires `squad_on_add_npc`; the caller's post-`create_npc` member loop in `sim_board:create_squad` sets the added members up like the drawn ones).
+Repairs the engine's structural blind spot: `already_spawned[k].num` decrements only when a whole squad unregisters (`sim_squad_scripted.script:1028`), so a squad attrited to 1 member holds its respawn budget slot indefinitely and the engine can never spawn a replacement. Vanilla has no refill of existing squads. The refill lever gradually restores those squads instead: candidates collected during the census walk drain at pass end through xslice, one squad per frame, one member per squad per pass, via the engine's `add_squad_member` at the commander's position followed by `smart:register_npc` and `SIMBOARD:setup_squad_and_group` (the vanilla member-add call shape).
 
-Add-only: members are never removed. Skipped: fixed-roster sections (no `npc_random`), story squads, spawns without a smart (named-location path), unknown bins, and any verdict other than UNDER. Added members spawn at the smart's center — the engine's own fallback position when a squad declares no `spawn_vid`/`spawn_point` (`create_npc:678-682`); base members that used a patrol point spawn there instead, and positions reconcile on online switch.
+Gate chain, all against the same pass's data: offline, below the section's own declared `npc_in_squad` minimum, has `npc_random`, (level, bin) verdict UNDER, and the squad's density cell (`xlevel.cell_key` at `switch_distance` granularity) holds fewer than `CROWDED_CELL_BODIES` (60) offline bodies — re-inflating a body pile would feed density pressure instead of restoring a depleted bin. The same `is_crowded` read gates the advance lever (see Verdicts and corrections). Permanent squads and companions never reach the lever (census-walk skips). Squad state is re-verified fresh in the drain frame: a squad that died, came online, recovered, or lost its smart assignment since collection is skipped.
+
+Add-only: members are never removed, and the refill stops at the declared minimum — it never pushes a squad toward its maximum.
 
 ---
 
@@ -105,25 +111,29 @@ TICK (every 60 wall-seconds via CreateTimeEvent)
   |
   v
 _census_chunk()
-  - pass start: snapshot squad ids (xsquad.collect_squad_ids)
+  - pass start: snapshot squad ids (xsquad.collect_squad_ids), refill start_pass
   - walk 50 squads: skip empty/permanent/companion, counts[level][bin] += npc_count
+      -> ab_squad_refill.consider: offline cells[level:x:z] += npc_count,
+         below declared npc_in_squad min -> candidate
   - on wrap: _finalize_pass(counts)
       - every 3rd pass: ab_smart_recipe.invalidate_models()
       - per known level: model = get_level_model(level)
           per producible bin: verdict = UNDER / OVER / in-band   [PASS]
       - per (level, bin) verdict:
-          UNDER: per eligible smart: _can_advance + evaluate_budget_for_bin
+          UNDER: per eligible smart: _can_advance + cell not crowded
+                 + evaluate_budget_for_bin
                  -> lru:sub(step)                                [ADVANCE]
           OVER:  per eligible smart: _can_delay + all its bins OVER
                  -> lru:add(step), age clamped >= 0              [DELAY]
+      - ab_squad_refill.finalize_pass: candidates with verdict UNDER
+        and cell not crowded -> xslice drain, 1 squad per frame,
+        +1 member via add_squad_member at the commander           [REFILL]
 
 SPAWN (engine, its own alife tick at any smart whose gate opens)
   - se_smart_terrain:update -> try_respawn
   - cooldown gate: diff > resolved idle ? proceed : skip
   - recipe budget gates, recipe + section picked at random
   - SIMBOARD:create_squad -> squad:create_npc
-      -> ab_squad_size wrap: bin UNDER on this level?
-         top up to npc_in_squad max via add_squad_member         [SIZE]
   - already_spawned[k].num += 1
 ```
 
@@ -152,7 +162,8 @@ One engine semantic worth knowing: on every cooldown-gate pass the engine resets
 
 The controller converges each level toward its declared composition, bounded on every side by engine-owned limits:
 
-- **Refill bound**: spawns only happen through the engine's own recipes, so refill can never exceed the per-recipe `spawn_num` caps (concurrent squads) regardless of how many advances accumulate. An advance only moves WHEN the engine reads its own gate, never past the `min_minutes` floor.
+- **Spawn bound**: spawns only happen through the engine's own recipes, so recovery can never exceed the per-recipe `spawn_num` caps (concurrent squads) regardless of how many advances accumulate. An advance only moves WHEN the engine reads its own gate, never past the `min_minutes` floor.
+- **Member bound**: the refill lever stops at each section's own declared `npc_in_squad` minimum, adds one member per squad per pass, and skips crowded cells — it can only walk a depleted squad back to the floor of its declared range, never inflate one.
 - **Suppression bound**: a delay moves age toward the `delay_age_floor` and stops; the worst case for an over-capacity bin is `max_minutes` of remaining cooldown (default 12 game-hours), or one full vanilla cooldown when that is shorter. Spawns are never blocked.
 - **Massacre response**: a wiped bin reads actual 0 against full declared capacity — the strongest possible correction on both levers. Uniform depletion of a whole level reads every bin UNDER (absolute comparison, not shares), so the level as a whole recovers faster.
 - **In band, silence**: on a healthy level every bin sits inside the deadband and AlifeBalance does nothing at all.
@@ -174,18 +185,20 @@ Owned state, all in-memory, reset on game load:
 | Owner | State | Purpose |
 |---|---|---|
 | ab_smart_balance | `_census` | staggered pass: id snapshot, cursor, accumulating counts |
-| ab_smart_balance | `_verdicts[level_id][bin]` | UNDER/OVER from the last pass; read by ab_squad_size via `get_verdict` |
+| ab_smart_balance | `_verdicts[level_id][bin]` | UNDER/OVER from the last pass; read by ab_squad_refill via `get_verdict` |
 | ab_smart_balance | `_last_counts` | last pass counts (status display) |
 | ab_smart_balance | `_known_levels[level_id]` | judged level set, survives model refresh |
 | ab_smart_balance | `_delta_cache[smart_id]` | cached `{ delta, advance, usable, delay_age_floor }`, invalidated on option change or reset |
 | ab_smart_balance | `_smart_stats[smart_id]` | per-smart advance/delay bookkeeping for the right-click "Show stats" tip |
 | ab_smart_balance | `_advance_pending[smart_id]` | set on advance, consumed on next spawn at the smart; drives `from_us` in `[SPAWN]` |
 | ab_smart_balance | `_seen_squads[squad.id]` | dedup set for spawn tracing (DEBUG only) |
-| ab_smart_balance | `_stats` | diagnostic counters (censused, skipped, passes, advances, delays, size_adds, spawns, ...) |
+| ab_smart_balance | `_stats` | diagnostic counters (censused, skipped, passes, advances, delays, refills, spawns, ...) |
 | ab_smart_recipe | `_models[level_id]` | capacity + eligibility + smart_bins per level, recomputed on cadence |
+| ab_squad_refill | `_cells`, `_candidates` | per-pass offline density cells and refill candidates, rebuilt each pass |
+| ab_squad_refill | `_pool_cache[section]` | parsed `npc_random` pool per section (session-lifetime, LTX is static) |
 | ab_smart_map | `_markers[smart_id]` | linger expiry per marked smart |
 
-Callbacks: `squad_on_npc_creation`, `on_option_change`, `load_state`, `actor_on_first_update`, `on_try_respawn`, `map_spot_menu_add_property`, `map_spot_menu_property_clicked`. One `CreateTimeEvent` timer at 60-second wall interval. One function-level patch: `sim_squad_scripted:create_npc` (ab_squad_size).
+Callbacks: `squad_on_npc_creation`, `on_option_change`, `load_state`, `actor_on_first_update`, `on_try_respawn`, `map_spot_menu_add_property`, `map_spot_menu_property_clicked`. One `CreateTimeEvent` timer at 60-second wall interval. One xslice job (`ab_refill`, one squad per frame at pass end). No function-level patches.
 
 No persistence for AlifeBalance state. Advanced or delayed `last_respawn_update` values survive in the engine's own save data via `utils_data.w_CTime / r_CTime`.
 
@@ -201,7 +214,7 @@ Not owned by AlifeBalance: which recipe the engine picks (random over open-budge
 | `gamedata/scripts/ab_mcm.script` | MCM defaults, UI definition, button handlers |
 | `gamedata/scripts/ab_smart_balance.script` | Census walk, verdicts, advance/delay actuators, per-smart CTime delta cache, public `get_verdict` + `marker_label` + `show_smart_stats` |
 | `gamedata/scripts/ab_smart_recipe.script` | Per-level capacity/eligibility model, bin classification, single-pass budget evaluation, side-effect-free condlist walker |
-| `gamedata/scripts/ab_squad_size.script` | `create_npc` fn-patch: add-only squad top-up for under-capacity bins |
+| `gamedata/scripts/ab_squad_refill.script` | Offline repair of squads below their declared minimum: census-riding collection, xslice drain |
 | `gamedata/scripts/ab_smart_map.script` | PDA marker render-state, right-click menu (teleport, show stats) |
 | `gamedata/scripts/ab_test.script` | Console probes (`census()`, `status()`) plus the `ab_test_smart_balance()` flow test: pacing arithmetic vs MCM limits, forced census pass, advance-to-floor / delay-to-ceiling on one smart with cooldown restore |
 | `gamedata/configs/text/eng/ui_st_mcm_ab.xml` | MCM strings (English) |
@@ -218,12 +231,12 @@ Not owned by AlifeBalance: which recipe the engine picks (random over open-budge
 | `advances` | Smart Balance | track | 4 | 1-8 | Census passes from full cooldown to the floor; delay step is the same size |
 | `min_minutes` | Smart Balance | track | 120 | 10-360 | Minimum cooldown remaining after every advance, in game minutes |
 | `max_minutes` | Smart Balance | track | 720 | 60-1440 | Maximum cooldown remaining after every delay, in game minutes; one full vanilla cooldown binds when shorter |
-| `size_bias` | Smart Balance | check | true | - | Top up under-capacity squads to their section max at spawn |
+| `refill` | Smart Balance | check | true | - | Gradually restore offline squads below their declared minimum while their bin is UNDER |
 | `log_level` | Development | list | WARN | - | ERROR / WARN / INFO / DEBUG |
 | `show_markers` | Development | check | false | - | Green PDA marker on every corrected smart, 5-min linger, right-click teleport / stats |
 | `btn_reset_all` | Development | button | - | - | Restore all MCM settings to factory defaults (closes via On_Cancel, see ab_mcm.script comment) |
 
-Deadband width, census chunk size, and model refresh cadence are tuning constants (`BAND_FRAC`, `BAND_MIN`, `CENSUS_PER_TICK`, `MODEL_REFRESH_PASSES`), not knobs.
+Deadband width, census chunk size, model refresh cadence, and the refill crowd gate are tuning constants (`BAND_FRAC`, `BAND_MIN`, `CENSUS_PER_TICK`, `MODEL_REFRESH_PASSES`, `CROWDED_CELL_BODIES`), not knobs.
 
 ---
 
@@ -236,7 +249,8 @@ Deadband width, census chunk size, and model refresh cadence are tuning constant
 | `evaluate_budget_for_bin`, per UNDER bin per eligible smart per pass | O(R * Q); 1 `pick_value_readonly` per recipe |
 | `_get_advance_params`, first call per smart | 2 CTime constructions + 2 `setHMSms` + 1 operator-. Cached |
 | Per advance / delay | 3 luabind: `last_respawn_update` read, `:sub`/`:add` with cached delta, write back |
-| Size top-up, per under-capacity spawn | `add_squad_member` per added NPC (engine's own member-add path); zero cost for in-band/over bins |
+| Refill consider, per censused offline squad | 2 luabind (online flag, position) + 1 heavy (`section_name`); cached `npc_range`/pool reads |
+| Refill drain, per qualifying squad | 1 frame via xslice: squad re-resolve + 1 `add_squad_member` + `register_npc` + `setup_squad_and_group`; nothing runs when no candidates |
 | Pass cadence | corrections run once per completed pass (~8 min real time at ~400 squads), not per tick |
 
 ---
@@ -245,13 +259,13 @@ Deadband width, census chunk size, and model refresh cadence are tuning constant
 
 | Mod | Interaction |
 |-----|-------------|
-| Vanilla `try_respawn` | Reads `last_respawn_update` inside the cooldown gate; both levers move the same field. Capacity and budget eval mirror the engine's per-recipe factor selection verbatim (`smart_terrain.script:1675-1686`). |
-| ZCP (forked `try_respawn`) | Gates against `smr_amain_mcm.get_config("respawn_idle")`; `_resolve_idle` reads the same cvar so steps size against ZCP's actual gate. Division of labor: ZCP owns which section/species spawns (`smr_handle_spawn` substitutes BEFORE `create_npc`, so the size lever classifies the final section) and global size factors (`adjust_squad_size` scales AFTER `create_npc`, multiplicative, so the top-up carries through). AlifeBalance owns only the per-bin correction. |
+| Vanilla `try_respawn` | Reads `last_respawn_update` inside the cooldown gate; both timing directions move the same field. Capacity and budget eval mirror the engine's per-recipe factor selection verbatim (`smart_terrain.script:1675-1686`). |
+| ZCP (forked `try_respawn`) | Gates against `smr_amain_mcm.get_config("respawn_idle")`; `_resolve_idle` reads the same cvar so steps size against ZCP's actual gate. Division of labor: ZCP owns which section/species spawns (`smr_handle_spawn`) and global size factors (`adjust_squad_size`, mirrored into the capacity set-point so verdicts match what actually survives a spawn). AlifeBalance owns only the per-bin correction; the refill lever restores squads only toward their declared minimum, below anything ZCP's scaling produces at spawn. |
 | ZCP `smr_handle_spawn` | Substitution ignores which smart was advanced, so per-bin targeting degrades to a statistical tendency; the census sees the post-substitution population and self-corrects. Documented, not fought. |
+| Squad-strength scaling below declared min | ZCP's `adjust_squad_size` can leave fresh common squads under their section minimum; the refill lever would slowly walk them back up while the bin is UNDER. With the mirrored set-point the bin reads in band at saturation, so steady-state refills stop; only genuine depletion triggers them. |
 | AlifePlus smart mutator | Conquest/swarm/infest inject entries into the same `respawn_params` the capacity model reads: the set-point follows AP's mutations (AlifeBalance populates a conquest, and unwinds it after decay) with no coordination code. AP never writes `last_respawn_update`. |
-| AlifeGuard | Density cull and this controller are spatially orthogonal and both saturate (cull stops at its density target, advance stops at capacity/floor). Despawns lower the census like any other loss; no event coupling. |
+| AlifeGuard | Density cull and this controller both saturate (cull stops at its density target, advance stops at capacity/floor). Despawns lower the census like any other loss; no event coupling. The refill lever computes its own offline density cells (same `switch_distance` cell shape) and skips crowded ones, so re-inflation never feeds a cell a density cull is thinning. |
 | Redone Collection, GAMMA NPC Spawns | Pure LTX configuration — exactly what the capacity model reads as the target. No conflict. |
 | Night Mutants | Parallel `SIMBOARD:create_squad` path; spawned squads are censused normally. |
 | Nocturnal Mutants | Raw `alife_create`, bypasses smart terrains; censused if squads register, otherwise independent. |
 | Warfare | Not supported alongside Smart Balance; toggle AlifeBalance off when running Warfare (see readme Compatibility). |
-| Mods patching `sim_squad_scripted:create_npc` | ab_squad_size wraps the function at `on_game_start`; other fn-patches compose (each wraps the previous). A full-file override of `sim_squad_scripted.script` that wins the MO2 conflict still composes — the wrap applies to whatever body won. |

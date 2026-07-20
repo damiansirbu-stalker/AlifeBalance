@@ -1,13 +1,18 @@
 next
-  Summary: Per-map population balance, full squads for depleted groups, Inventory Balance moved to AlifeGuard
+  Summary: Per-map population balance, squad refill, Inventory Balance moved to AlifeGuard
 
   Smart Balance
     - Changed Smart Balance from kill-counting to a per-map population balance. A rolling census counts live NPCs per map
       for every faction the map can spawn, mutants as one group, and compares them against the population the map's own spawn configs declare.
       Depleted groups get respawn cooldowns advanced, overgrown groups get them delayed, up to one full vanilla cooldown and never blocking a spawn.
-      Wipe out a faction and it returns first and strongest, while healthy maps are left completely alone.
-    - Added full squads for depleted groups: a group below its map's declared population spawns squads at their maximum configured size.
-      Members are only ever added up to the squad's own limit, never removed. Toggle in MCM, on by default.
+      Wipe out a faction and it returns first, while healthy maps are left completely alone.
+    - Added squad refill: squads that fell below their own minimum size regain one member per census pass while their group is below the map's declared population.
+      Nothing in the game repairs a squad once it loses members, and a surviving remnant blocks its respawn slot forever, so maps fill with one-man ghost squads.
+      The refill runs only on squads far from the player, skips crowded areas, and stops at the squad's own configured minimum. Toggle in MCM, on by default.
+    - The population target now accounts for squad-size scaling from spawn-control mods (ZCP),
+      so depleted and overgrown verdicts match what actually spawns instead of reading permanently depleted.
+    - Cooldown advances now skip smart terrains in already-crowded areas, steering recovery toward the empty parts
+      of a depleted map instead of feeding existing body piles.
     - Territory changes from other mods (conquest, infestation) now shift the balance target automatically,
       so a captured smart terrain gets populated by its new owner and drifts back after the effect expires.
     - Added a ceiling on delayed cooldowns: a delay never leaves a smart terrain waiting longer than the configured maximum (default 12 game-hours),

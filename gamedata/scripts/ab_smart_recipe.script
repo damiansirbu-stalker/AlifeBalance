@@ -12,7 +12,7 @@
 local pairs, ipairs, tonumber, tostring, type = pairs, ipairs, tonumber, tostring, type
 local string_format, table_concat, string_find = string.format, table.concat, string.find
 local math_floor, math_random = math.floor, math.random
-local xlog, xsmart, xlevel, xcreature = xlog, xsmart, xlevel, xcreature
+local xlog, xsmart, xlevel, xcreature, xprofiler = xlog, xsmart, xlevel, xcreature, xprofiler
 local ini_sys = ini_sys
 
 --- Bin key for the mutant aggregate. Every squad whose faction is a monster faction
@@ -35,6 +35,30 @@ local function _stalker_pop_factor()
         return smr_amain_mcm.get_config("stalker_pop_factor") or 1
     end
     return ui_options.get("alife/general/alife_stalker_pop") or 1
+end
+
+-- ZCP's post-create squad-size scaling (smr_pop.adjust_squad_size, called from ZCP's
+-- sim_board:create_squad for every common squad regardless of the smr_enabled cvar):
+-- npc_count is multiplied by squad_size + uniform(-variance, variance), so the EXPECTED
+-- member count per squad scales by squad_size (variance is symmetric). Mirrored into
+-- expected squad size so declared capacity matches what actually survives a spawn --
+-- without it every large bin reads permanently UNDER (GAMMA seeds squad_size 0.55 for
+-- both classes). Presence-gated, not smr_enabled-gated, because ZCP's sim_board file
+-- applies the scale whenever it wins the script slot. ZCP selects the class via
+-- is_squad_monster on the section faction, which matches bin == MUTANTS exactly
+-- (zombied is a stalker-class bin in both).
+local function _monster_size_factor()
+    if smr_mutants_mcm and smr_mutants_mcm.get_config then
+        return smr_mutants_mcm.get_config("squad_size") or 1
+    end
+    return 1
+end
+
+local function _stalker_size_factor()
+    if smr_stalkers_mcm and smr_stalkers_mcm.get_config then
+        return smr_stalkers_mcm.get_config("squad_size") or 1
+    end
+    return 1
 end
 
 -- Mirror the engine's per-recipe factor selection verbatim (smart_terrain.script:1675-1686):
@@ -269,8 +293,11 @@ end
 local function _recipe_effective_num(recipe, k, smart, monster_factor, stalker_factor)
     local spawned = smart.already_spawned and smart.already_spawned[k]
     if not (recipe.num and spawned and spawned.num) then return nil end
+    -- try_respawn seeds self.faction from default_faction before the gate
+    -- (smart_terrain.script:1648-1650); mirrored as a read, never written.
+    local faction = smart.faction or smart.default_faction
     if smart.faction_controlled ~= nil
-       and not (smart.faction ~= nil and recipe.faction == smart.faction) then
+       and not (faction ~= nil and recipe.faction == faction) then
         return nil
     end
     if not recipe.squads or #recipe.squads == 0 then return nil end
@@ -280,16 +307,21 @@ local function _recipe_effective_num(recipe, k, smart, monster_factor, stalker_f
 end
 
 -- Fold one recipe's sections into capacity and the smart's bin set.
--- Capacity per section = per_section * (npc_in_squad min+max)/2: the engine picks one
--- recipe at random from the open ones, one section uniformly at random from the recipe
--- (smart_terrain.script:1707,1716), and draws squad size uniformly from npc_in_squad
--- (sim_squad_scripted.script:704-722), so this is the expected concurrent NPC count.
-local function _add_recipe_to_model(recipe, per_section, model, bins_here)
+-- Capacity per section = per_section * (npc_in_squad min+max)/2 * ZCP size factor:
+-- the engine picks one recipe at random from the open ones, one section uniformly at
+-- random from the recipe (smart_terrain.script:1707,1716), draws squad size uniformly
+-- from npc_in_squad (sim_squad_scripted.script:704-722), and ZCP then scales common
+-- squads by its per-class squad_size (see _monster_size_factor), so this is the
+-- expected concurrent NPC count that actually survives a spawn.
+local function _add_recipe_to_model(recipe, per_section, model, bins_here, size_factors)
     for _, section in ipairs(recipe.squads) do
         local bin = bin_of_section(section)
         if bin then
             local nmin, nmax = xsmart.get_section_npc_range(section)
-            model.capacity[bin] = (model.capacity[bin] or 0) + per_section * (nmin + nmax) / 2
+            local size_mult = ini_sys:r_bool_ex(section, "common")
+                and ((bin == MUTANTS) and size_factors.monster or size_factors.stalker) or 1
+            model.capacity[bin] = (model.capacity[bin] or 0)
+                + per_section * (nmin + nmax) / 2 * size_mult
             bins_here[bin] = true
         end
     end
@@ -308,12 +340,12 @@ local function _register_smart_bins(smart, model, bins_here)
 end
 
 -- Fold one smart's recipes into the level model (capacity + eligibility + smart_bins).
-local function _add_smart_to_model(smart, model, monster_factor, stalker_factor)
+local function _add_smart_to_model(smart, model, monster_factor, stalker_factor, size_factors)
     local bins_here = {}
     for k, recipe in pairs(smart.respawn_params) do
         local eff_num = _recipe_effective_num(recipe, k, smart, monster_factor, stalker_factor)
         if eff_num then
-            _add_recipe_to_model(recipe, eff_num / #recipe.squads, model, bins_here)
+            _add_recipe_to_model(recipe, eff_num / #recipe.squads, model, bins_here, size_factors)
         end
     end
     _register_smart_bins(smart, model, bins_here)
@@ -325,10 +357,11 @@ local function _build_model(level_id, model)
     if not board or not board.smarts then return end
     local monster_factor = _monster_pop_factor()
     local stalker_factor = _stalker_pop_factor()
+    local size_factors = { monster = _monster_size_factor(), stalker = _stalker_size_factor() }
     for _, rec in pairs(board.smarts) do
         local smart = rec.smrt
         if smart and smart.respawn_params and xlevel.get_level_id(smart) == level_id then
-            _add_smart_to_model(smart, model, monster_factor, stalker_factor)
+            _add_smart_to_model(smart, model, monster_factor, stalker_factor, size_factors)
         end
     end
 end
@@ -341,7 +374,9 @@ function get_level_model(level_id)
     if model then return model end
     _log_inventory(level_id)
     model = { capacity = {}, eligible = {}, smart_bins = {} }
+    local prof = xprofiler.new_if(_dbg):start()
     _build_model(level_id, model)
+    prof:stop()
     _models[level_id] = model
     if _dbg then
         local parts = {}
@@ -349,7 +384,8 @@ function get_level_model(level_id)
             parts[#parts + 1] = string_format("%s=%.1f/%d",
                 tostring(bin), cap, model.eligible[bin] and #model.eligible[bin] or 0)
         end
-        log.debug("[MODEL] level=%d capacity/eligibles [%s]", level_id, table_concat(parts, ", "))
+        log.debug("[MODEL] level=%d capacity/eligibles [%s] [%.2fms]",
+            level_id, table_concat(parts, ", "), prof:get_ms())
     end
     return model
 end
@@ -368,9 +404,12 @@ local function _eval_recipe(recipe, k, smart, bin, monster_factor, stalker_facto
     local spawned = smart.already_spawned and smart.already_spawned[k]
     if not (recipe.num and spawned and spawned.num) then return nil end
     -- Engine faction_controlled gate (smart_terrain.script:1667): a faction_controlled
-    -- smart only spawns recipes whose faction matches its own.
+    -- smart only spawns recipes whose faction matches its own. try_respawn seeds
+    -- self.faction from default_faction first (smart_terrain.script:1648-1650);
+    -- mirrored as a read, never written.
+    local faction = smart.faction or smart.default_faction
     if smart.faction_controlled ~= nil
-       and not (smart.faction ~= nil and recipe.faction == smart.faction) then
+       and not (faction ~= nil and recipe.faction == faction) then
         return nil
     end
     local cur = spawned.num
