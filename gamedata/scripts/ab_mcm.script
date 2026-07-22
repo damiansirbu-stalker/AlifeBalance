@@ -1,40 +1,42 @@
 --- ab_mcm: MCM configuration for AlifeBalance (Smart Balance)
 
--- ==================== DEFAULTS ====================
-
 defaults = {
     enabled = true,
-    advances = 4,
+    crowd_threshold = 60,
+    pacing = true,
+    advances = 6,
     min_minutes = 120,
     max_minutes = 720,
+    spawn_size = true,
+    spawn_size_strength = 50,
     refill = true,
     show_markers = false,
     log_level = "WARN",
 }
 
--- ==================== CONFIG ====================
-
 local RegisterScriptCallback = RegisterScriptCallback
 
 local _key_to_tab = {
-    enabled       = "smart_balance",
-    advances      = "smart_balance",
-    min_minutes   = "smart_balance",
-    max_minutes   = "smart_balance",
-    refill        = "smart_balance",
-    show_markers  = "development",
-    log_level     = "development",
-    btn_reset_all = "development",
+    enabled             = "general",
+    crowd_threshold     = "general",
+    pacing              = "pacing",
+    advances            = "pacing",
+    min_minutes         = "pacing",
+    max_minutes         = "pacing",
+    spawn_size          = "spawn_size",
+    spawn_size_strength = "spawn_size",
+    refill              = "squad_refill",
+    show_markers        = "development",
+    log_level           = "development",
+    btn_reset_all       = "development",
 }
 
 local function path_builder(key)
-    local tab = _key_to_tab[key] or "smart_balance"
+    local tab = _key_to_tab[key] or "general"
     return "ab/" .. tab .. "/" .. key
 end
 
 cfg, get_config, load_config = xmcm.create_config("ab", defaults, path_builder)
-
--- ==================== BUTTON HANDLERS ====================
 
 -- functor_ui receives the UI_MCM instance as trailing arg (ui_mcm.script:1435).
 -- functor would receive nothing. MCM 1.7.2fix leaves the file-local GUI nil on fresh opens
@@ -77,43 +79,65 @@ function btn_reset_all(gui)
     _apply_defaults(gui, "AlifeBalance: all settings restored to defaults.")
 end
 
--- ==================== MCM DEFINITION ====================
+local function _tab_header(desc_id)
+    return {
+        { id = "title", type = "slide", link = "ab_mcm_banner",
+            text = "ui_mcm_ab_title", size = {512, 50}, spacing = 20 },
+        { id = "desc", type = "desc", text = desc_id },
+        { id = "div_top", type = "line" },
+    }
+end
+
+local function _with_header(desc_id, entries)
+    local gr = _tab_header(desc_id)
+    for i = 1, #entries do gr[#gr + 1] = entries[i] end
+    return gr
+end
 
 function on_mcm_load()
     return {
         id = "ab",
         gr = {
-            -- ============ SMART BALANCE TAB ============
             {
-                id = "smart_balance",
+                id = "general",
                 sh = true,
-                gr = {
-                    { id = "title", type = "slide", link = "ab_mcm_banner",
-                        text = "ui_mcm_ab_title", size = {512, 50}, spacing = 20 },
-                    { id = "desc", type = "desc", text = "ui_mcm_ab_smart_balance_desc" },
-                    { id = "div_pacing", type = "line" },
+                gr = _with_header("ui_mcm_ab_general_desc", {
                     { id = "enabled", type = "check", val = 1, def = true },
-                    { id = "advances", type = "track", val = 2, min = 1, max = 8, step = 1, def = 4 },
-                    { id = "min_minutes", type = "track", val = 2, min = 10, max = 360, step = 5, def = 120 },
-                    { id = "max_minutes", type = "track", val = 2, min = 60, max = 1440, step = 30, def = 720 },
-                    { id = "refill", type = "check", val = 1, def = true },
-
-                    -- Platform footer (self-contained builder in _ab_deps, not xlibs)
+                    { id = "crowd_threshold", type = "track", val = 2, min = 20, max = 200, step = 10, def = 60 },
                     { id = "div_footer", type = "line" },
                     { id = "platform", type = "desc", text = "ui_mcm_xmcm_footer",
-                        ui_hook_functor = { _ab_deps.platform_functor() }, clr = {255, 212, 201, 168} },                },
+                        ui_hook_functor = { _ab_deps.platform_functor() }, clr = {255, 212, 201, 168} },
+                }),
             },
-            -- ============ DEVELOPMENT TAB ============
+            {
+                id = "pacing",
+                sh = true,
+                gr = _with_header("ui_mcm_ab_pacing_desc", {
+                    { id = "pacing", type = "check", val = 1, def = true },
+                    { id = "advances", type = "track", val = 2, min = 2, max = 8, step = 1, def = 6 },
+                    { id = "min_minutes", type = "track", val = 2, min = 30, max = 360, step = 5, def = 120 },
+                    { id = "max_minutes", type = "track", val = 2, min = 120, max = 1440, step = 30, def = 720 },
+                }),
+            },
+            {
+                id = "spawn_size",
+                sh = true,
+                gr = _with_header("ui_mcm_ab_spawn_size_desc", {
+                    { id = "spawn_size", type = "check", val = 1, def = true },
+                    { id = "spawn_size_strength", type = "track", val = 2, min = 0, max = 100, step = 5, def = 50 },
+                }),
+            },
+            {
+                id = "squad_refill",
+                sh = true,
+                gr = _with_header("ui_mcm_ab_squad_refill_desc", {
+                    { id = "refill", type = "check", val = 1, def = true },
+                }),
+            },
             {
                 id = "development",
                 sh = true,
-                gr = {
-                    { id = "title", type = "slide", link = "ab_mcm_banner",
-                        text = "ui_mcm_ab_title", size = {512, 50}, spacing = 20 },
-                    { id = "desc", type = "desc", text = "ui_mcm_ab_development_desc" },
-
-                    -- Logging
-                    { id = "div_logging", type = "line" },
+                gr = _with_header("ui_mcm_ab_development_desc", {
                     { id = "hdr_logging", type = "desc", text = "ui_mcm_ab_hdr_logging", clr = {255, 200, 200, 200} },
                     { id = "log_level", type = "list", val = 0, def = "WARN",
                         content = {
@@ -123,18 +147,13 @@ function on_mcm_load()
                             {"DEBUG", "debug"},
                         },
                     },
-
-                    -- Diagnostics
                     { id = "div_diagnostics", type = "line" },
                     { id = "hdr_diagnostics", type = "desc", text = "ui_mcm_ab_hdr_diagnostics", clr = {255, 200, 200, 200} },
                     { id = "show_markers", type = "check", val = 1, def = false },
-
-                    -- Reset
                     { id = "div_reset", type = "line" },
                     { id = "warn_reset", type = "desc", text = "ui_mcm_ab_development_reset_warning", clr = {255, 240, 200, 80} },
                     { id = "btn_reset_all", type = "button", functor_ui = { btn_reset_all } },
-
-                },
+                }),
             },
         },
     }

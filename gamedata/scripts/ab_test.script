@@ -4,6 +4,8 @@
 ---   run_string ab_test.census()  -- force one full census pass now (synchronous)
 ---   run_string ab_test.status()  -- per-level "bin alive/declared" lines to tips + log
 ---   run_string ab_test.ab_test_smart_balance()  -- census pipeline + lever limits flow test
+---   run_string ab_test.ab_test_system()  -- staged end-to-end system test (SYNTHETIC
+---     MASSACRE: releases real NPCs; run on a throwaway save, do not keep saves after)
 ---
 --- status() marks a bin with "+" when under capacity (recovery boosted) and "-" when
 --- over (recovery delayed); unmarked bins are inside the deadband. census() is the
@@ -11,6 +13,10 @@
 
 local ipairs, pairs, tostring, xlog, xtime = ipairs, pairs, tostring, xlog, xtime
 local string_format, math_abs = string.format, math.abs
+local alife_object, alife_release = alife_object, alife_release
+local xsquad, xlevel = xsquad, xlevel
+local ini_sys = ini_sys
+-- NOTE: never cache CreateTimeEvent/RemoveTimeEvent as locals (doc/library/xray/internals/globals.md:208-219).
 
 local log = xlog.get_logger("AB.TEST", { outfile = "alifebalance.log" })
 
@@ -176,4 +182,216 @@ function ab_test_smart_balance()
         _flow_tip(string_format("[FAIL] %s\n%s\n%s", TEST, summary, reason), 30000)
     end
     _log_info("[TEARDOWN] smart=%s cooldown restored (%s)", name, saved and "original CTime" or "fresh nil")
+end
+
+-- ==================== SYSTEM TEST (synthetic massacre, staged) ====================
+-- End-to-end accelerated exercise of the whole homeostat on a THROWAWAY save: it
+-- releases real NPCs. Stage 1 picks the most-populated (level, bin), thins several
+-- offline squads to 1 member (manufactures refill candidates) and wipes several whole
+-- squads (manufactures a population deficit), then forces a pass and asserts the
+-- verdict flips UNDER and advances fire. Stage 2 (after the xslice drain had frames)
+-- asserts refills landed. Stage 3 opens one advanced smart's cooldown gate
+-- (last_respawn_update = nil, the engine's own "ready" state) and waits for the
+-- engine's alife tick; the final pass asserts recovery began (spawns and/or actual up).
+
+local SYS_EV = "ab_test_system"
+-- Massacre shape: SYS_THIN_N squads thinned to 1 member (refill candidates),
+-- SYS_WIPE_N squads fully released (population deficit). Waits in real seconds:
+-- SYS_DRAIN_WAIT for the refill xslice to drain, SYS_SPAWN_WAIT for the engine
+-- alife tick to reach the opened smart.
+local SYS_THIN_N = 4
+local SYS_WIPE_N = 3
+local SYS_DRAIN_WAIT = 4
+local SYS_SPAWN_WAIT = 45
+
+local _sys = nil
+
+-- Squad qualifies as massacre fodder: offline (the massacre must not despawn things in
+-- front of the player, and the refill under test is offline-only), right bin, right
+-- level, not permanent/companion, and its section declares a random pool (so thinned
+-- squads are refillable -- the property under test).
+local function _sys_fodder(squad, level_id, bin)
+    local online = squad.online
+    if online then return false end
+    if ab_smart_recipe.bin_of_faction(squad.player_id) ~= bin then return false end
+    if xlevel.get_level_id(squad) ~= level_id then return false end
+    if xsquad.is_permanent_squad(squad) or xsquad.is_companion(squad) then return false end
+    if not ini_sys:r_string_ex(squad:section_name(), "npc_random") then return false end
+    return true
+end
+
+-- Wipes must free respawn slots, so only respawn-born squads (respawn_point_id set)
+-- qualify; thins repair-test any fodder squad.
+local function _sys_wipe_fodder(squad, level_id, bin)
+    if not squad.respawn_point_id then return false end
+    return _sys_fodder(squad, level_id, bin)
+end
+
+-- Release members via alife_release (_g wrapper -> squad:remove_npc, the detach-safe
+-- path). keep = members left alive; keep 0 deletes the squad when the last member goes.
+local function _sys_bleed_squad(squad, keep)
+    local ids = {}
+    for member_id in xsquad.iter_member_ids(squad) do
+        ids[#ids + 1] = member_id
+    end
+    local released = 0
+    for index = #ids, keep + 1, -1 do
+        local se = alife_object(ids[index])
+        if se then
+            alife_release(se)
+            released = released + 1
+        end
+    end
+    return released
+end
+
+-- Pick the (level, bin) with the highest actual count from the last pass: the most
+-- fodder, and offline squads guaranteed on big maps.
+-- Pick the (level, bin) with the most OCCUPIED slots (live ledger): wiping its
+-- respawn-born squads frees slots, guaranteeing the UNDER verdict the test asserts.
+local function _sys_best_in_level(level_id, best)
+    local state = ab_smart_balance.debug_level_state(level_id)
+    for bin, bin_state in pairs(state) do
+        local eligibles = ab_smart_balance.debug_eligible_smarts(level_id, bin)
+        if eligibles and #eligibles > 0
+           and (not best.actual or bin_state.actual > best.actual) then
+            best.level_id, best.bin, best.actual = level_id, bin, bin_state.actual
+        end
+    end
+end
+
+local function _sys_pick_target()
+    local best = {}
+    for level_id in pairs(ab_smart_recipe.get_respawn_level_ids()) do
+        _sys_best_in_level(level_id, best)
+    end
+    return best.level_id, best.bin, best.actual
+end
+
+local function _sys_log(msg, ...)
+    _log_info(msg, ...)
+end
+
+-- Stage 3: final pass, verdict on the whole chain.
+local function _sys_stage3()
+    local run = _sys
+    _sys = nil
+    ab_smart_balance.debug_force_pass()
+    local stats = ab_smart_balance.debug_get_stats()
+    local state = ab_smart_balance.debug_level_state(run.level_id)[run.bin]
+    local actual_now = state and state.actual or 0
+    local spawns_delta = stats.spawns - run.spawns0
+    local ok_recovery = actual_now > run.actual_after_massacre or spawns_delta > 0
+    local summary = string_format(
+        "level=%d bin=%s slots %d -> massacre %d -> now %d | verdict_under=%s advances=+%d refills=+%d spawns=+%d size_adds=+%d world_deficit=%.2f",
+        run.level_id, tostring(run.bin), run.actual0, run.actual_after_massacre, actual_now,
+        tostring(run.ok_verdict), stats.advances - run.advances0, stats.refills - run.refills0,
+        spawns_delta, stats.spawn_size_adds - (run.size_adds0 or 0),
+        ab_smart_balance.get_world_deficit(run.bin))
+    _sys_log("[SYS-SUMMARY] %s", summary)
+    if run.ok_verdict and run.ok_refill and ok_recovery then
+        _sys_log("[PASS] system | %s", summary)
+        _flow_tip(string_format("[PASS] system test\n%s", summary), 30000)
+    else
+        local reason = string_format("verdict=%s refill=%s recovery=%s",
+            tostring(run.ok_verdict), tostring(run.ok_refill), tostring(ok_recovery))
+        _sys_log("[FAIL] system | %s | %s", summary, reason)
+        _flow_tip(string_format("[FAIL] system test\n%s\n%s", summary, reason), 30000)
+    end
+end
+
+-- Stage 2: drain has had frames; assert refills, open one advanced smart's gate.
+local function _sys_stage2()
+    local run = _sys
+    local stats = ab_smart_balance.debug_get_stats()
+    local refills_delta = stats.refills - run.refills0
+    run.ok_refill = (run.thinned == 0) or (refills_delta > 0)
+    _sys_log("[SYS-STAGE2] refills=+%d (thinned %d squads) ok=%s",
+        refills_delta, run.thinned, tostring(run.ok_refill))
+    -- Advance game time past the min_minutes floor the advances left, so EVERY
+    -- advanced smart's gate opens naturally on the engine's next alife ticks (vanilla
+    -- sleep API, xr_effects.script:4514). No timestamp forgery.
+    -- 7h clears the full ZCP 6h idle regardless of how much cooldown the proportional
+    -- pushes left, so every gate is open, not merely closer.
+    level.change_game_time(0, 7, 0)
+    _sys_log("[SYS-STAGE2] advanced game time by 7h; engine gates open naturally")
+    CreateTimeEvent(SYS_EV, "stage3", SYS_SPAWN_WAIT, function()
+        _sys_stage3()
+        return true
+    end)
+end
+
+--- Staged end-to-end system test. SYNTHETIC MASSACRE: releases real NPCs offline.
+--- Run on a throwaway save with log_level DEBUG; results as tips + test log + alifebalance.log.
+--- @export console
+--- One-shot alias: the system test IS the full end-to-end test.
+--- @export console
+function ab_test_full()
+    ab_test_system()
+end
+
+--- @export console
+function ab_test_system()
+    if _sys then
+        _flow_tip("[SKIP] system test already running")
+        return
+    end
+    local TEST = "system"
+    _log_info("[BEGIN] %s", TEST)
+    -- Pass 1: baseline.
+    ab_smart_balance.debug_force_pass()
+    local level_id, bin, actual0 = _sys_pick_target()
+    if not level_id then
+        _log_info("[FAIL] %s: no correctable (level, bin) with offline squads found", TEST)
+        _flow_tip("[FAIL] system test: no target found")
+        return
+    end
+    local stats = ab_smart_balance.debug_get_stats()
+    local run = {
+        level_id = level_id, bin = bin, actual0 = actual0,
+        advances0 = stats.advances, refills0 = stats.refills, spawns0 = stats.spawns,
+        size_adds0 = stats.spawn_size_adds,
+        thinned = 0, wiped = 0, released = 0,
+    }
+    _sys = run
+    _sys_log("[SYS-STAGE1] target level=%d bin=%s actual=%d", level_id, tostring(bin), actual0)
+    -- Massacre: thin SYS_THIN_N squads to 1 member, wipe SYS_WIPE_N whole squads.
+    local function massacre_one(squad)
+        if not (squad and squad.npc_count) then return end
+        if run.wiped < SYS_WIPE_N and _sys_wipe_fodder(squad, level_id, bin) then
+            run.released = run.released + _sys_bleed_squad(squad, 0)
+            run.wiped = run.wiped + 1
+        elseif run.thinned < SYS_THIN_N and _sys_fodder(squad, level_id, bin)
+               and squad:npc_count() >= 2 then
+            run.released = run.released + _sys_bleed_squad(squad, 1)
+            run.thinned = run.thinned + 1
+        end
+    end
+    local ids = select(1, xsquad.collect_squad_ids({}))
+    for i = 1, #ids do
+        if run.thinned >= SYS_THIN_N and run.wiped >= SYS_WIPE_N then break end
+        massacre_one(alife_object(ids[i]))
+    end
+    _sys_log("[SYS-STAGE1] massacre: thinned=%d wiped=%d released=%d NPCs",
+        run.thinned, run.wiped, run.released)
+    if run.released == 0 then
+        _sys = nil
+        _log_info("[FAIL] %s: massacre released nothing (no fodder squads)", TEST)
+        _flow_tip("[FAIL] system test: no fodder squads to release")
+        return
+    end
+    -- Pass 2: react. Verdict must flip UNDER; the refill drain starts inside.
+    ab_smart_balance.debug_force_pass()
+    run.ok_verdict = ab_smart_balance.get_verdict(level_id, bin) > 0
+    local state = ab_smart_balance.debug_level_state(level_id)[bin]
+    run.actual_after_massacre = state and state.actual or 0
+    _sys_log("[SYS-STAGE1] post-massacre actual=%d capacity=%.1f verdict_under=%s advances=+%d",
+        run.actual_after_massacre, state and state.capacity or 0, tostring(run.ok_verdict),
+        ab_smart_balance.debug_get_stats().advances - run.advances0)
+    CreateTimeEvent(SYS_EV, "stage2", SYS_DRAIN_WAIT, function()
+        _sys_stage2()
+        return true
+    end)
+    _flow_tip(string_format("system test running: massacred %d NPCs of %s on level %d, stages follow in ~%ds",
+        run.released, tostring(bin), level_id, SYS_DRAIN_WAIT + SYS_SPAWN_WAIT))
 end

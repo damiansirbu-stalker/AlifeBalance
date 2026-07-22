@@ -1,73 +1,102 @@
 <?xml version="1.0" encoding="windows-1251"?>
 <string_table>
-    <!-- ==================== MAIN MENU ==================== -->
     <string id="ui_mcm_menu_ab">
         <text>AlifeBalance</text>
     </string>
 
-    <!-- ==================== TAB NAMES ==================== -->
-    <string id="ui_mcm_menu_smart_balance">
-        <text>Smart Balance</text>
+    <string id="ui_mcm_menu_general">
+        <text>General</text>
+    </string>
+    <string id="ui_mcm_menu_pacing">
+        <text>Respawn Pacing</text>
+    </string>
+    <string id="ui_mcm_menu_spawn_size">
+        <text>Spawn Size</text>
+    </string>
+    <string id="ui_mcm_menu_squad_refill">
+        <text>Squad Refill</text>
     </string>
     <string id="ui_mcm_menu_development">
         <text>Development</text>
     </string>
 
-    <!-- ==================== SHARED ==================== -->
     <string id="ui_mcm_ab_title">
         <text>AlifeBalance</text>
     </string>
 
-    <!-- ==================== SMART BALANCE TAB ==================== -->
-    <string id="ui_mcm_ab_smart_balance_desc">
-        <text>Smart Balance keeps each map's population near what the map itself declares. It regularly counts who is actually alive, per faction, with all mutants as one group. Wiped-out groups come back sooner and their depleted squads are gradually refilled; overgrown groups wait longer. Corrections pick their targets: only smart terrains that can spawn the depleted group and still have spawn room, never ones in already-crowded areas, so recovery flows toward the empty parts of a map. Every correction stays inside the limits below, healthy groups are left completely alone, and the game engine still decides every spawn.</text>
+    <string id="ui_mcm_ab_general_desc">
+        <text>Smart Balance keeps each map's population near what the map itself declares. It reads the game's own spawner records: how many squads each spawner is allowed and how many are alive right now, per faction, per map, with all mutants as one group. Wiped-out groups come back sooner and arrive stronger, weakened squads are repaired, overgrown groups wait longer. Corrections avoid already-crowded areas, healthy groups are left completely alone, and the game engine still decides every spawn.</text>
     </string>
-    <string id="ui_mcm_ab_smart_balance_enabled">
+    <string id="ui_mcm_ab_general_enabled">
         <text>Enable Smart Balance</text>
     </string>
-    <string id="ui_mcm_ab_smart_balance_enabled_desc">
-        <text>Master toggle for Smart Balance. When off, no census and no cooldown corrections.</text>
+    <string id="ui_mcm_ab_general_enabled_desc">
+        <text>Master toggle. When off, nothing is measured and nothing is corrected.</text>
     </string>
-    <string id="ui_mcm_ab_smart_balance_advances">
-        <text>Correction steps to floor</text>
+    <string id="ui_mcm_ab_general_crowd_threshold">
+        <text>Crowded area threshold</text>
     </string>
-    <string id="ui_mcm_ab_smart_balance_advances_desc">
-        <text>How many census passes it takes to carry one smart terrain from full cooldown to the floor while its group stays depleted (a pass covers all tracked squads, several minutes of real time). Delays use the same step size in the opposite direction. At 1, a single pass pushes a smart all the way. At 4 (default), four passes step it through at 25% per pass. At 8, eight passes at 12.5% per pass. Higher values correct more gradually.</text>
+    <string id="ui_mcm_ab_general_crowd_threshold_desc">
+        <text>How many off-screen NPCs an area must hold before it counts as crowded. Crowded areas receive no accelerated respawns and no squad repairs, and their spawners are delayed, so recovery flows toward the empty parts of a map instead of feeding existing piles. Lower values spread the population harder; higher values allow denser hotspots.</text>
     </string>
-    <string id="ui_mcm_ab_smart_balance_min_minutes">
+
+    <string id="ui_mcm_ab_pacing_desc">
+        <text>Respawn Pacing advances or delays each spawner's cooldown in proportion to how far its faction is from the map's declared squad count. A wiped faction returns at full speed, a slightly depleted one gets a nudge, an overgrown one idles. Spawns are never blocked and never created directly; only the timing of the game's own respawns moves, inside the limits below.</text>
+    </string>
+    <string id="ui_mcm_ab_pacing_pacing">
+        <text>Enable Respawn Pacing</text>
+    </string>
+    <string id="ui_mcm_ab_pacing_pacing_desc">
+        <text>Toggle for the cooldown corrections. When off, verdicts are still measured (Spawn Size and Squad Refill keep using them) but no cooldown is touched.</text>
+    </string>
+    <string id="ui_mcm_ab_pacing_advances">
+        <text>Correction passes</text>
+    </string>
+    <string id="ui_mcm_ab_pacing_advances_desc">
+        <text>How many measurement passes carry one spawner from full cooldown to the floor at maximum depletion (a pass covers all tracked squads, several minutes of real time). At 1 a single pass applies the full correction; higher values spread it out. Partial depletion scales each push down proportionally. Delays use the same step in the opposite direction.</text>
+    </string>
+    <string id="ui_mcm_ab_pacing_min_minutes">
         <text>Minimum cooldown remaining (game minutes)</text>
     </string>
-    <string id="ui_mcm_ab_smart_balance_min_minutes_desc">
-        <text>The minimum cooldown that must always remain on a smart terrain after Smart Balance applies an acceleration, in game-minutes. The engine ages the final wait out on its own clock and fires the respawn from there. A smart already within this margin of firing naturally is skipped. Default 120 minutes (two game-hours). Raise to leave more delay between depletion and refill; lower for snappier turnover.</text>
+    <string id="ui_mcm_ab_pacing_min_minutes_desc">
+        <text>The cooldown that must always remain after an acceleration, in game-minutes. The engine ages the final wait out on its own clock and fires the respawn from there. A spawner already within this margin of firing naturally is skipped. Raise to leave more delay between depletion and refill; lower for snappier turnover.</text>
     </string>
-    <string id="ui_mcm_ab_smart_balance_max_minutes">
+    <string id="ui_mcm_ab_pacing_max_minutes">
         <text>Maximum cooldown remaining (game minutes)</text>
     </string>
-    <string id="ui_mcm_ab_smart_balance_max_minutes_desc">
-        <text>The ceiling on remaining cooldown after Smart Balance applies a delay, in game-minutes. Delays stop once a smart terrain's remaining wait reaches this ceiling, even when the installed respawn cooldown is longer. When the respawn cooldown is at or below the ceiling, one full vanilla cooldown stays the bound. Raise to idle overgrown groups longer; lower to keep recovery moving everywhere.</text>
-    </string>
-    <string id="ui_mcm_ab_smart_balance_refill">
-        <text>Refill depleted squads</text>
-    </string>
-    <string id="ui_mcm_ab_smart_balance_refill_desc">
-        <text>Gradually restores members to squads that dropped below their own minimum size, one member per squad per census pass, while their group is below the map's declared population. Runs only on squads far from the player, skips crowded areas, and never adds beyond the squad's own configured range. Fixed-roster and story squads are untouched. Overgrown groups are handled by cooldown delays alone.</text>
+    <string id="ui_mcm_ab_pacing_max_minutes_desc">
+        <text>The ceiling on remaining cooldown after a delay, in game-minutes. Delays stop at this ceiling even when the installed respawn cooldown is longer; one full vanilla cooldown stays the bound when it is shorter. Raise to idle overgrown factions longer; lower to keep recovery moving everywhere.</text>
     </string>
 
-    <!-- ==================== DEVELOPMENT TAB ==================== -->
+    <string id="ui_mcm_ab_spawn_size_desc">
+        <text>Spawn Size makes new squads of a faction that is losing across the whole Zone arrive with more members, up to their own configured maximum. A faction merely dented on one map spawns normal squads; Zone-wide collapse brings reinforcements at strength. Never beyond a squad's own range, never on a map where that faction is overgrown, never into a crowded area.</text>
+    </string>
+    <string id="ui_mcm_ab_spawn_size_spawn_size">
+        <text>Enable Spawn Size</text>
+    </string>
+    <string id="ui_mcm_ab_spawn_size_spawn_size_desc">
+        <text>Toggle for the spawn-strength response. When off, every squad spawns at its vanilla random size.</text>
+    </string>
+    <string id="ui_mcm_ab_spawn_size_spawn_size_strength">
+        <text>Strength</text>
+    </string>
+    <string id="ui_mcm_ab_spawn_size_spawn_size_strength_desc">
+        <text>Scales how strongly Zone-wide depletion raises new squad sizes. At 100 a fully collapsed faction spawns squads at their configured maximum; at 50 halfway up their range; at 0 the response is off.</text>
+    </string>
+
+    <string id="ui_mcm_ab_squad_refill_desc">
+        <text>Squad Refill repairs squads that lost members and fell below their own minimum size. Nothing in the game restores a weakened squad, and a lone survivor blocks its spawner's slot forever. The refill returns one member per pass, only while the squad is off-screen, only up to the squad's own configured minimum, and never in crowded areas. Fixed-roster and story squads are untouched.</text>
+    </string>
+    <string id="ui_mcm_ab_squad_refill_refill">
+        <text>Enable Squad Refill</text>
+    </string>
+    <string id="ui_mcm_ab_squad_refill_refill_desc">
+        <text>Toggle for the squad repairs. When off, weakened squads stay at whatever size combat left them.</text>
+    </string>
+
     <string id="ui_mcm_ab_development_desc">
-        <text>Diagnostic tools for tuning and troubleshooting. Raise log level for structured tracing of every census pass, capacity model, advance, delay, and squad refill to alifebalance.log (small performance cost at DEBUG).</text>
+        <text>Diagnostic tools for tuning and troubleshooting. Raise log level for structured tracing of every pass, verdict, advance, delay, refill, and spawn-size raise to alifebalance.log (small performance cost at DEBUG).</text>
     </string>
-    <string id="ui_mcm_ab_development_btn_reset_all">
-        <text>Reset to defaults</text>
-    </string>
-    <string id="ui_mcm_ab_development_btn_reset_all_desc">
-        <text>Restore all AlifeBalance MCM settings to factory defaults. Use after upgrading from a version with different MCM structure (the old settings remain as orphaned keys in the MCM storage file but no longer apply).</text>
-    </string>
-    <string id="ui_mcm_ab_development_reset_warning">
-        <text>Warning: save or discard pending MCM changes first; otherwise they override the reset on the next Accept.</text>
-    </string>
-
-    <!-- Development - Logging -->
     <string id="ui_mcm_ab_hdr_logging">
         <text>Logging</text>
     </string>
@@ -75,7 +104,7 @@
         <text>Log level</text>
     </string>
     <string id="ui_mcm_ab_development_log_level_desc">
-        <text>Controls verbosity of alifebalance.log. ERROR logs crashes only. WARN adds unexpected conditions. INFO adds startup, configuration, and reset events. DEBUG traces every census pass, capacity model, advance, delay, squad refill, and per-pass summary. Default WARN is silent in normal play; DEBUG is for tuning or bug reports.</text>
+        <text>Controls verbosity of alifebalance.log. ERROR logs crashes only. WARN adds unexpected conditions. INFO adds startup, configuration, and reset events. DEBUG traces every pass, verdict, correction, refill, and spawn-size raise. Default WARN is silent in normal play; DEBUG is for tuning or bug reports.</text>
     </string>
     <string id="ab_development_log_level_lst_error">
         <text>Error</text>
@@ -89,8 +118,6 @@
     <string id="ab_development_log_level_lst_debug">
         <text>Debug</text>
     </string>
-
-    <!-- Development - Diagnostics -->
     <string id="ui_mcm_ab_hdr_diagnostics">
         <text>Diagnostics</text>
     </string>
@@ -98,10 +125,18 @@
         <text>Show map markers</text>
     </string>
     <string id="ui_mcm_ab_development_show_markers_desc">
-        <text>Drops a green PDA map marker on every smart terrain that receives a cooldown advance or delay. The marker lingers for five real-time minutes and then clears itself. Right-click any marker to teleport to that smart or display its full correction history. Independent of log level, so you can run with markers on and logging off for a clean session view.</text>
+        <text>Drops a green PDA map marker on every smart terrain that receives a cooldown advance or delay. The marker lingers for five real-time minutes and then clears itself. Right-click any marker to teleport to that smart or display its full correction history. Independent of log level.</text>
+    </string>
+    <string id="ui_mcm_ab_development_btn_reset_all">
+        <text>Reset to defaults</text>
+    </string>
+    <string id="ui_mcm_ab_development_btn_reset_all_desc">
+        <text>Restore all AlifeBalance MCM settings to factory defaults. Use after upgrading from a version with different MCM structure (the old settings remain as orphaned keys in the MCM storage file but no longer apply).</text>
+    </string>
+    <string id="ui_mcm_ab_development_reset_warning">
+        <text>Warning: save or discard pending MCM changes first; otherwise they override the reset on the next Accept.</text>
     </string>
 
-    <!-- Map menu actions -->
     <string id="st_ab_smart_map_teleport_to">
         <text>Teleport to</text>
     </string>

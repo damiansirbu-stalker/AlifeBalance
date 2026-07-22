@@ -1,41 +1,35 @@
 --- ab_squad_refill: Squad Refill - offline repair of squads below their declared minimum
 ---
---- Rides the census walk: ab_smart_balance._census_squad feeds every counted squad
---- through consider(). Offline squads accumulate a per-cell body count (level:x:z at
---- switch_distance granularity, the offline-density cell shape) and squads below their
---- section's own npc_in_squad minimum become candidates. At pass end (finalize_pass runs
---- after the pass verdicts are computed) candidates whose (level, bin) is UNDER and
---- whose cell is not crowded drain through xslice, one squad per frame, one member per
---- squad per pass, via the engine's add_squad_member at the commander's position
---- (register_npc + setup_squad_and_group, the vanilla member-add call shape).
+--- Owns the staggered squad sweep (the mod's only squad walk): each tick walks a chunk
+--- of a SIMBOARD id snapshot, accumulating per-cell offline body counts (xlevel.cell_key
+--- at switch_distance granularity -- the crowded-area check every system reads) and
+--- collecting squads below their section's own npc_in_squad minimum as candidates.
+--- At pass end candidates whose (level, bin) is not OVER and whose cell is not crowded
+--- drain through xslice, one squad per frame, one member per squad per pass, via the
+--- engine's add_squad_member at the commander's position (register_npc +
+--- setup_squad_and_group, the vanilla member-add call shape).
 ---
 --- Add-only and declared-bounded: refills stop at the section's own npc_in_squad
---- minimum, never touch online squads (permanent squads and companions are skipped by
---- the census walk before consider), and never fire on in-band or over-capacity bins.
+--- minimum and never touch online, permanent, or companion squads.
 
 local pairs, tostring, math_random = pairs, tostring, math.random
 local os_clock = os.clock
 local alife, alife_object = alife, alife_object
-local xlog, xsmart, xslice, xlevel, xprofiler = xlog, xsmart, xslice, xlevel, xprofiler
+local xlog, xsmart, xsquad, xslice, xlevel, xprofiler = xlog, xsmart, xsquad, xslice, xlevel, xprofiler
 local ini_sys = ini_sys
 
 local log = xlog.get_logger("AB.RFIL", { outfile = "alifebalance.log" })
 
 local REFILL_JOB = "ab_refill"
-
--- A cell (switch_distance-sized, ~350m square) already holding this many offline bodies
--- is saturated: adding members there feeds local density pressure instead of restoring a
--- depleted bin. Candidates in crowded cells are skipped and picked up on a later pass
--- once the area thins out.
-local CROWDED_CELL_BODIES = 60
+local DEFAULT_CROWD_THRESHOLD = 60
 
 local _dbg = false
 
--- Per-pass state, rebuilt by start_pass:
--- _cells[level:x:z] = offline body count (every offline squad the census walks, not just
---                     candidates -- the crowd gate needs the full picture).
--- _candidates       = array of { id, level_id, bin, cell } squads below their declared
---                     minimum, verdict-filtered at finalize_pass against the SAME pass.
+-- Sweep state: SIMBOARD id snapshot + cursor. Per-pass accumulators, rebuilt each pass:
+-- _cells[key] = offline body count per xlevel.cell_key (all offline squads, not just
+-- candidates -- the crowded-area check needs the full picture); _candidates = array of
+-- { id, level_id, bin, cell } squads below their declared minimum.
+local _sweep      = { ids = {}, total = 0, cursor = 1, active = false }
 local _cell_size  = 0
 local _cells      = {}
 local _candidates = {}
@@ -53,15 +47,31 @@ local function _refill_enabled()
     return mcm and mcm.enabled and mcm.refill
 end
 
---- True when the cell holding `position` on `level_id` is at the crowd threshold.
---- Shared by the refill drain and the advance lever (ab_smart_balance._try_advance):
---- neither adds bodies to a pile. Counts offline bodies from the current census pass;
---- false when no pass data yet (fail-open, vanilla behavior). Cell partitioning via
---- xlevel.cell_key, the same grid the offline density cull uses.
+local function _crowd_threshold()
+    local mcm = ab_mcm and ab_mcm.cfg
+    return (mcm and mcm.crowd_threshold) or DEFAULT_CROWD_THRESHOLD
+end
+
+--- True when the area holding `position` on `level_id` is crowded: its own cell is at
+--- the threshold, or its 3x3 neighborhood holds double (catches piles straddling a
+--- cell border). Shared gate: refill drain, advance lever, crowd delay. Counts offline
+--- bodies from the current pass; false before the first pass (fail-open, vanilla).
 function is_crowded(level_id, position)
+    if _cell_size <= 0 or not position then return false end
+    local threshold = _crowd_threshold()
     local key = xlevel.cell_key(level_id, position, _cell_size)
     if not key then return false end
-    return (_cells[key] or 0) >= CROWDED_CELL_BODIES
+    if (_cells[key] or 0) >= threshold then return true end
+    local sum = 0
+    for dx = -1, 1 do
+        for dz = -1, 1 do
+            local neighbor = xlevel.cell_key(level_id,
+                { x = position.x + dx * _cell_size, z = position.z + dz * _cell_size },
+                _cell_size)
+            sum = sum + (neighbor and _cells[neighbor] or 0)
+        end
+    end
+    return sum >= threshold * 2
 end
 
 local function _pool_of(section)
@@ -79,32 +89,40 @@ local function _pool_of(section)
     return pool
 end
 
--- ==================== PASS HOOKS (called by ab_smart_balance) ====================
-
---- Reset the per-pass accumulator. Called from the census _start_pass.
-function start_pass()
+-- Snapshot SIMBOARD squad ids and reset the pass accumulators. False when no squads.
+local function _start_pass()
+    local ids, total = xsquad.collect_squad_ids(_sweep.ids)
+    _sweep.ids = ids
+    _sweep.total = total
+    _sweep.cursor = 1
     local sim = alife()
     _cell_size  = sim and sim:switch_distance() or 0
     _cells      = {}
     _candidates = {}
+    return total > 0
 end
 
---- Examine one censused squad. Caller (ab_smart_balance._census_squad) has already
---- skipped empty, permanent, and companion squads and resolved bin + level_id, so this
---- adds 2 luabind for every offline squad (online flag, position) plus 1 heavy
---- (section_name) for the depleted check.
-function consider(squad, level_id, bin, npc_count)
-    if _cell_size <= 0 then return end
-    if squad.online then return end
+-- Examine one squad: cells for every offline squad (accumulated regardless of the
+-- refill toggle -- the pacing crowd gates read them), candidacy for squads below their
+-- declared minimum with a random pool. Skips: gone, empty, permanent, companion.
+local function _sweep_squad(squad_id)
+    local squad = alife_object(squad_id)
+    if not squad or not squad.npc_count then return end
+    local npc_count = squad:npc_count()
+    if npc_count == 0 then return end
+    if xsquad.is_permanent_squad(squad) or xsquad.is_companion(squad) then return end
+    local online = squad.online
+    if online then return end
     local pos = squad.position
     if not pos then return end
+    local level_id = xlevel.get_level_id(squad)
+    if not level_id then return end
     local key = xlevel.cell_key(level_id, pos, _cell_size)
     if not key then return end
     _cells[key] = (_cells[key] or 0) + npc_count
-    -- Cells accumulate whenever the census runs: the advance lever's crowd gate reads
-    -- them through is_crowded regardless of the refill toggle. Only candidate
-    -- collection below is the refill feature proper.
     if not _refill_enabled() then return end
+    local bin = ab_smart_recipe.bin_of_faction(squad.player_id)
+    if not bin then return end
     local section = squad:section_name()
     local nmin = xsmart.get_section_npc_range(section)
     if nmin <= npc_count then return end
@@ -112,7 +130,34 @@ function consider(squad, level_id, bin, npc_count)
     _candidates[#_candidates + 1] = { id = squad.id, level_id = level_id, bin = bin, cell = key }
 end
 
--- ==================== DRAIN ====================
+--- Walk up to `per_tick` squads; true when the pass wrapped (caller finalizes then).
+function sweep_chunk(per_tick)
+    if not _sweep.active then
+        if not _start_pass() then return false end
+        _sweep.active = true
+    end
+    local last = _sweep.cursor + per_tick - 1
+    if last > _sweep.total then last = _sweep.total end
+    for i = _sweep.cursor, last do
+        _sweep_squad(_sweep.ids[i])
+    end
+    _sweep.cursor = last + 1
+    if _sweep.cursor > _sweep.total then
+        _sweep.active = false
+        return true
+    end
+    return false
+end
+
+--- Console helper (ab_test): run one full sweep synchronously, return squads walked.
+function debug_force_sweep()
+    if not _start_pass() then return 0 end
+    for i = 1, _sweep.total do
+        _sweep_squad(_sweep.ids[i])
+    end
+    _sweep.active = false
+    return _sweep.total
+end
 
 -- Refill one candidate squad by one member. State re-verified fresh in the drain frame:
 -- the pass took minutes of real time and the squad may have died, come online, recovered
@@ -166,13 +211,14 @@ function finalize_pass()
         return
     end
     local build = xprofiler.new_if(_dbg):start()
+    local threshold = _crowd_threshold()
     local work = {}
     local skipped_verdict, skipped_crowd = 0, 0
     for i = 1, #_candidates do
         local cand = _candidates[i]
-        if ab_smart_balance.get_verdict(cand.level_id, cand.bin) <= 0 then
+        if ab_smart_balance.get_verdict(cand.level_id, cand.bin) < 0 then
             skipped_verdict = skipped_verdict + 1
-        elseif (_cells[cand.cell] or 0) >= CROWDED_CELL_BODIES then
+        elseif (_cells[cand.cell] or 0) >= threshold then
             skipped_crowd = skipped_crowd + 1
         else
             work[#work + 1] = cand.id
@@ -218,6 +264,7 @@ end
 --- (save load); the section pool cache survives, squad_descr LTX is static.
 function reset_state()
     xslice.cancel(REFILL_JOB, true)
+    _sweep      = { ids = {}, total = 0, cursor = 1, active = false }
     _cell_size  = 0
     _cells      = {}
     _candidates = {}
