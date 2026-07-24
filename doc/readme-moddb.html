@@ -1,6 +1,5 @@
-<h3>Version: 1.1.2 (xlibs 1.8.2, demonized 20250908)</h3>
+<h3>Version: 1.1.3 (xlibs 1.8.3, demonized 20250908)</h3>
 <h3><a href="https://github.com/damiansirbu-stalker/AlifeBalance">GitHub</a> | <a href="https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/changelog">Changelog</a> | <a href="https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/architecture.md">Architecture</a> | <a href="https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/readme_ru.txt">Russian / Na russkom</a> | <a href="https://github.com/damiansirbu-stalker/AlifeBalance/issues">Bugs, suggestions</a></h3>
-
 <h2>Alife Collection</h2>
 <ul>
 <li><a href="https://www.moddb.com/mods/stalker-anomaly/addons/alifeplus-v1-0-01">AlifePlus</a></li>
@@ -8,119 +7,69 @@
 <li><a href="https://www.moddb.com/mods/stalker-anomaly/addons/alifeguard-1001">AlifeGuard</a></li>
 <li><a href="https://www.moddb.com/mods/stalker-anomaly/addons/alifetactics">AlifeTactics</a></li>
 </ul>
-
 <p><b>! Reset MCM settings to defaults after updating !</b></p>
-
 <p>AlifeBalance is a balance layer for vanilla A-Life:</p>
 <ul>
-<li><b>Smart Balance:</b> shortens respawn cooldowns only where combat actually happened.</li>
+<li><b>Smart Balance</b>: keeps each map's population near what the map's own spawn configs declare.</li>
 </ul>
-<p>It runs alongside the engine without rewriting it. Inventory bounding (formerly Inventory Balance) now lives in AlifeGuard as Inventory Guard.</p>
-
-<p>Built as a companion to <a href="https://www.moddb.com/mods/stalker-anomaly/addons/alifeplus-v1-0-01">AlifePlus</a>, which adds reactive A-Life behavior across the Zone. More activity means more deaths, and AlifeBalance scales refill to match. Both mods are independent and can be used separately.</p>
-
+<p>It runs alongside the engine without rewriting it.<br />Inventory bounding (formerly Inventory Balance) now lives in AlifeGuard as Inventory Guard.</p>
+<p>Built as a companion to AlifePlus, which adds reactive A-Life behavior across the Zone. More activity means more losses, and AlifeBalance steers recovery back to each map's designed population. Both mods are independent and can be used separately.</p>
 <h2>Smart Balance</h2>
-
-<p>Vanilla respawn cooldowns run on a fixed schedule that ignores combat pressure. Regions you fight through empty out while quieter parts of the map drift toward overcrowding.</p>
-
-<p>Smart Balance counts deaths by level and faction. Once enough have accumulated, it shortens the cooldown at one matching smart terrain on that level. The threshold is the largest possible squad size for that faction's spawn pool. The next respawn there gets pulled closer in time, but never all the way to immediate. The picker chooses the smart terrain farthest from you so the refill lands off-screen.</p>
-
-<h3>Why not just shorten the global cooldown to 1h or 2h?</h3>
-<p>The engine's <i>respawn_idle</i> is one number shared by every smart terrain in the entire Zone. Shorten it and the world cycles faster everywhere at once, including maps you will never visit this session. The actor-distance gate blocks the spawn only while you stand inside a smart's radius. The moment you walk out, the overdue cooldown fires and the squad lands at your back. Smart Balance instead applies one targeted advance per threshold of deaths, on the level where the kills happened. The picker chooses the eligible smart farthest from you, so refills land away from your current combat, one squad at a time.</p>
-
+<p>Vanilla respawn cooldowns run on a fixed schedule that ignores the state of the world. A faction you wipe out waits its full turn while an untouched faction keeps cycling, and maps drift away from how they were designed.</p>
+<p>Smart Balance reads the game's own spawner records: every smart terrain already tracks how many squads it is allowed and how many are alive right now. Summed per faction per map, with all mutants as one group, that is the declared population and the actual one, in the engine's own numbers. A faction below its declared count gets its respawn cooldowns advanced in proportion to how depleted it is: wiped means full speed, dented means a nudge. A faction losing across the whole Zone additionally spawns fuller squads, up to their own configured maximum (Spawn Size). Squads that fell below their own minimum size regain one member per pass, far from the player (Squad Refill). A faction above its declared count, and any spawner sitting in an already-crowded area, gets its cooldowns delayed, never past a configurable ceiling (default 12 game-hours; one full vanilla cooldown binds when shorter), and spawns are never blocked. Corrections only go to spawners the game will actually fire, never into crowded areas, so recovery flows toward the empty parts of a map. Factions near their declared count are left completely alone.</p>
 <h3>What you'll notice</h3>
 <ul>
-<li>Active regions recover faster after heavy firefights.</li>
-<li>Inactive regions stop drifting toward overcrowding.</li>
-<li>Mutant lairs and stalker bases repopulate at a pace closer to the kill rate.</li>
-<li>Refills land at the far end of the level, off-screen, one squad at a time.</li>
+<li>Massacre a faction and it returns first, while overgrown factions idle.</li>
+<li>Squads ground down to lone survivors regain their members instead of wandering the map forever as one-man ghosts.</li>
+<li>Mutant maps stay mutant-heavy and war zones stay contested; each map drifts back to its designed character.</li>
+<li>A depleted map as a whole recovers faster; a healthy map behaves exactly like vanilla.</li>
 <li>Vanilla A-Life still owns every spawn.</li>
 </ul>
-
 <h3>Important</h3>
-<p>Smart Balance never creates NPCs. It shifts a timestamp the engine was always going to read on its next alife tick. The engine still owns spawning, recipes, squad selection, and budget caps.</p>
-
-<h3>Example</h3>
-<p>A firefight kills 30 bandits on Cordon in one minute. Cordon bandit squads max out at 3, so 10 separate adjustments are available. Smart Balance picks up to 10 different bandit-spawning Cordon smart terrains and shortens each one's wait. The refills land over the next couple of game-hours as the engine reaches each smart's now-shorter wait. If every eligible smart is already at population cap or already at the floor, the adjustments are held and the kills carry over to the next check.</p>
-
-<h3>Settings (MCM, Smart Balance tab)</h3>
 <ul>
-<li><b>Advance count</b> (1-8, default 4): how many combat bursts it takes to fully accelerate one smart terrain. Lower means each burst matters more, higher paces acceleration across longer combat.</li>
-<li><b>Minimum cooldown remaining</b> (10-360 game-minutes, default 120): the floor Smart Balance never pushes below. The engine ages the final wait out on its own clock. Higher leaves more delay between combat and refill.</li>
+<li>Smart Balance never blocks a spawn and never removes an NPC.</li>
+<li>The pacing shifts a timestamp the engine was always going to read on its next alife tick.</li>
+<li>Spawn Size and Squad Refill only add members inside a squad's own configured range, never beyond it.</li>
+<li>Populations the spawners do not own (the starting population, event and mod spawns) are neither boosted nor suppressed.</li>
+<li>The engine still owns spawning, recipes, squad selection, and budget caps.</li>
 </ul>
-
+<h3>Example</h3>
+<p>A firefight wipes the bandits on Cordon. The next pass sees Cordon's bandit spawner slots freed and far below their declared count. Every Cordon smart terrain that can spawn bandits gets its cooldown advanced at full strength, surviving bandit squads that dropped below their minimum size regain a member each pass, and if bandits are collapsing Zone-wide, the replacements arrive at fuller squad sizes. Recovery arrives over the next game-hours as the engine reaches each shortened wait; once bandits are back near their declared count, Smart Balance goes silent. If instead a faction holds more spawner-born squads than currently allowed, those cooldowns are delayed up to the configured ceiling until the excess clears.</p>
+<h3>Settings (MCM, Respawn Pacing tab)</h3>
+<p><b>Correction passes</b> (2-8, default 6): how many passes carry one smart terrain from full cooldown to the floor at maximum depletion. Lower corrects harder per pass; higher corrects more gradually. Partial depletion scales each push down; delays use the same step size.<br /><b>Minimum cooldown remaining</b> (30-360 game-minutes, default 120): the floor the advance direction never pushes below. The engine ages the final wait out on its own clock.<br /><b>Maximum cooldown remaining</b> (120-1440 game-minutes, default 720): the ceiling the delay direction never pushes past. One full vanilla cooldown stays the bound when it is shorter than the ceiling.<br /><b>Spawn Size</b> (own tab, default on): Zone-wide depleted factions spawn fuller squads; strength slider scales the response.<br /><b>Squad Refill</b> (own tab, default on): squads below their own minimum size regain one member per pass.<br /><b>Crowded area threshold</b> (General tab): how many off-screen NPCs make an area count as crowded.</p>
 <h3>Presets</h3>
 <ul>
-<li><b>Aggressive</b> (one burst = full advancement): advance count 1, minimum cooldown 60.</li>
-<li><b>Default</b> (one burst = 25% advancement): advance count 4, minimum cooldown 120.</li>
-<li><b>Conservative</b> (one burst = 12.5% advancement): advance count 8, minimum cooldown 360.</li>
+<li>Aggressive: correction passes 2, minimum cooldown 30, spawn size strength 100.</li>
+<li>Default (mild): correction passes 6, minimum cooldown 120 (2 game-hours), maximum 720 (12 game-hours), spawn size strength 50.</li>
+<li>Conservative: correction passes 8, minimum cooldown 360, spawn size strength 25.</li>
 </ul>
-
 <h2>Compatibility</h2>
-
 <ul>
 <li>Requires xlibs.</li>
 <li>Runs on themrdemonized modded exes 2025.9.10 or newer, or AOEngine v0.55 or newer.</li>
 <li>The full feature set needs the latest demonized build. A feature that needs a newer build stays inactive on older exes.</li>
 </ul>
-<p>Tested with vanilla Anomaly 1.5.3, GAMMA, ZCP, Redone, Warfare, AlifeGuard, AlifePlus. Also tested with Night Mutants, Nocturnal Mutants, GAMMA Dynamic Despawner, Guards Spawner.</p>
-
-<h3>Conflicts (critical)</h3>
-<p>None. Vanilla and ZCP share the respawn-cooldown field Smart Balance writes; they compose.</p>
-
-<h3>Affects / coexists (Smart Balance)</h3>
-<ul>
-<li>Vanilla, ZCP: same cooldown field; compose.</li>
-<li>Redone, GAMMA NPC Spawns: pure config; Smart Balance writes runtime state on a different layer.</li>
-<li>Night Mutants: engine spawn path; squads register against their origin smart.</li>
-<li>Nocturnal Mutants: spawn outside smart terrains; no interaction.</li>
-<li>ReSpawn Mutant Collection: composes if squads register against an origin smart.</li>
-<li>Dynamic Despawner, AlifeGuard: despawn without firing death; never trigger advances.</li>
-</ul>
-
+<p>Tested with vanilla Anomaly 1.5.3, GAMMA, ZCP, Redone, AlifeGuard, AlifePlus. Also tested with Night Mutants, Nocturnal Mutants, GAMMA Dynamic Despawner, Guards Spawner.</p>
+<p><b>Conflicts (critical):</b> Warfare. Its population model fights any external balancing; disable AlifeBalance when running Warfare.</p>
+<p><b>Superseded:</b> Squad Filler. It tops offline stalker squads up to a flat size once per game-day, regardless of how crowded or populated the map is. Smart Balance's refill covers the same squads gated by the spawner-record verdicts, skips crowded areas, works for mutants too, and respects each squad's own configured size. Disable Squad Filler when running AlifeBalance.</p>
+<p><b>Affects / coexists (Smart Balance):</b><br />Vanilla, ZCP: same cooldown field, gate, and spawner records; compose. ZCP keeps deciding which species or faction actually spawns and how squad sizes scale after spawning; Smart Balance counts squads, not members, so that scaling cannot skew its verdicts.<br />Redone, GAMMA NPC Spawns: pure config; that config IS the declared population Smart Balance steers toward.<br />AlifePlus: territory conquest and infestation change what a smart spawns; the balance target follows those changes automatically.<br />Night Mutants: engine spawn path outside the spawner records; neither boosted nor suppressed.<br />Nocturnal Mutants: spawn outside smart terrains; no interaction.<br />Dynamic Despawner, AlifeGuard: despawns free spawner slots like any other loss; recovery follows, and the refill skips crowded areas so it never fights a density cull.</p>
 <h2>MCM</h2>
-<ul>
-<li><b>Smart Balance tab:</b> enable, advance count, minimum cooldown remaining.</li>
-<li><b>Development tab:</b> log level, map markers.</li>
-</ul>
-<p>Map markers (Development): green PDA spots appear on every smart terrain that received an advance. They linger 5 real-time minutes. Right-click any marker to teleport to that smart or display its full advance history. Independent of log level.</p>
-
+<p>General tab: master enable, crowded area threshold.<br />Respawn Pacing tab: enable, correction passes, minimum cooldown remaining, maximum cooldown remaining.<br />Spawn Size tab: enable, strength.<br />Squad Refill tab: enable.<br />Development tab: log level, map markers, reset to defaults.</p>
+<p>Map markers (Development): green PDA spots appear on every smart terrain that received a cooldown advance or delay. They linger 5 real-time minutes. Right-click any marker to teleport to that smart or display its full correction history. Independent of log level.</p>
 <h2>Requirements</h2>
-<ul>
-<li>Anomaly 1.5.3</li>
-<li><a href="https://www.moddb.com/mods/stalker-anomaly/addons/xlibs-1001">xlibs</a> 1.7.0+</li>
-<li>MCM</li>
-</ul>
-
+<p>Anomaly 1.5.3<br /><a href="https://www.moddb.com/mods/stalker-anomaly/addons/xlibs-1001">xlibs 1.8.3+</a><br />MCM</p>
 <h2>Install (MO2)</h2>
-<ol>
-<li>Install xlibs</li>
-<li>Install AlifeBalance</li>
-<li>Load order does not matter</li>
-<li>Configure via MCM</li>
-</ol>
-
+<p>1. Install xlibs<br />2. Install AlifeBalance<br />3. Load order does not matter<br />4. Configure via MCM</p>
 <h2>Uninstall (MO2)</h2>
 <p>Disable or remove in MO2.</p>
-
 <h2>Architecture and validation</h2>
-<p>Runs on xlibs over the X-Ray engine, using runtime callbacks only and leaving base scripts and the engine binary untouched. See <i>doc/architecture.md</i> for the full design and the multi-stage validation pipeline (luacheck, selene, AST analysis, contract rules, integration tests).</p>
-
+<p>Runs on xlibs over the X-Ray engine, using runtime callbacks only and leaving base scripts and the engine binary untouched. See doc/architecture.md for the full design and the multi-stage validation pipeline (luacheck, selene, AST analysis, contract rules, integration tests).</p>
 <h2>FAQ</h2>
 <p><b>Do I need modded exes?</b><br />Yes. AlifeBalance needs themrdemonized modded exes (2025.9.10 or newer) or AOEngine (v0.55 or newer). Vanilla Anomaly does not expose the APIs it relies on.</p>
-<h2>Credits</h2>
-<p>Altogolik &mdash; support, ideas, source materials.</p>
-
+<p>Credits:<br />Altogolik - support, ideas, source materials.</p>
 <h2>Usage and License</h2>
-<ul>
-<li>Modpacks: allowed and encouraged. Keep the readme and license files.</li>
-<li>Addons, patches, integrations: allowed. Credit "AlifeBalance by Damian Sirbu" visibly on your mod page.</li>
-<li>Reproducing the implementation in other software: not allowed, even with credit.</li>
-<li>Full license in LICENSE file and on GitHub.</li>
-</ul>
-
-<p>Keep the Zone alive while letting vanilla A-Life remain vanilla.</p>
-
+<p>Modpacks: allowed and encouraged. Keep the readme and license files.<br />Addons, patches, integrations: allowed. Credit "AlifeBalance by Damian Sirbu" visibly on your mod page.<br />Reproducing the implementation in other software: not allowed, even with credit.<br />Full license in LICENSE file and on GitHub.</p>
+<p><i>Keep the Zone alive while letting vanilla A-Life remain vanilla.</i></p>
 <h2>Reporting issues and suggestions</h2>
 <p>Open a <a href="https://github.com/damiansirbu-stalker/AlifeBalance/issues/new/choose">bug report or a suggestion on GitHub</a>.<br />Also discussed on the GAMMA, EFP, Anomaly, and Zona Discord servers.</p>
 <p>Before posting, read this readme and the MCM options.</p>

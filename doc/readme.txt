@@ -1,5 +1,5 @@
 AlifeBalance: A-Life balance layer for STALKER Anomaly, by Damian
-Version: 1.1.2 (xlibs 1.8.2, demonized 20250908)
+Version: 1.1.3 (xlibs 1.8.3, demonized 20250908)
 GitHub: https://github.com/damiansirbu-stalker/AlifeBalance
 Changelog: https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/changelog
 Architecture: https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/architecture.md
@@ -117,7 +117,7 @@ MCM:
 
 Requirements:
 Anomaly 1.5.3
-xlibs 1.8.2+ (https://www.moddb.com/mods/stalker-anomaly/addons/xlibs-1001)
+xlibs 1.8.3+ (https://www.moddb.com/mods/stalker-anomaly/addons/xlibs-1001)
 MCM
 
 
