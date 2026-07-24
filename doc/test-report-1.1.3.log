@@ -1,5 +1,5 @@
 STALKER Mod Validation Report
-Generated: 2026-07-15 21:48:49
+Generated: 2026-07-24 21:46:27
 Validator: stalker-manager validate
 Mods: 1
 
@@ -9,21 +9,22 @@ AlifeBalance
 
 Files:
   gamedata/scripts/_ab_deps.script
-  gamedata/scripts/ab_inventory_balance.script
   gamedata/scripts/ab_mcm.script
   gamedata/scripts/ab_smart_balance.script
   gamedata/scripts/ab_smart_map.script
   gamedata/scripts/ab_smart_recipe.script
+  gamedata/scripts/ab_spawn_size.script
+  gamedata/scripts/ab_squad_refill.script
   gamedata/scripts/ab_test.script
 
 [1/4] luacheck - static analysis (PASS)
   Checks: syntax errors, undefined globals, unused variables, type mismatches
-  Files checked: 7
+  Files checked: 8
   Errors: 0
 
 [2/4] selene - advanced linting (PASS)
   Checks: shadowing, deprecated API, misused variables, style violations
-  Files checked: 7
+  Files checked: 8
   Errors: 0, Warnings: 0
 
 [3/4] contract - project rules (PASS (S+))
@@ -285,54 +286,53 @@ Files:
 [4/4] load - runtime loading (PASS)
   Test: lua54 interpreter + X-Ray engine stubs
   Load test: AlifeBalance
-  LOAD: _ab_deps
-  LOAD: ab_smart_balance
-  LOAD: xlevel
-  LOAD: xevent
-  LOAD: ab_mcm
-  LOAD: xdata
-  LOAD: xpda
-  LOAD: xobject
-  LOAD: ab_smart_map
   LOAD: xactor
-  LOAD: xconst
-  LOAD: xsound
   LOAD: xslice
-  LOAD: xcombat
-  LOAD: xinventory
-  LOAD: xpp
-  LOAD: xbus
-  LOAD: xprofiler
-  LOAD: ab_smart_recipe
-  LOAD: xmcm
-  LOAD: xstash
-  LOAD: ab_inventory_balance
-  LOAD: xttltable
-  LOAD: xtrace
-  LOAD: xtime
+  LOAD: xevent
   LOAD: xinspect
-  LOAD: xtable
-  LOAD: xsmart_spawn
-  LOAD: ab_test
-  LOAD: xlog
+  LOAD: xinventory
+  LOAD: xpda
+  LOAD: xpp
+  LOAD: ab_squad_refill
+  LOAD: xdata
   LOAD: xsquad
-  LOAD: xsmart
-  LOAD: xlibs_mcm
-  LOAD: xchange
-  LOAD: xstring
-  LOAD: xlibs
+  LOAD: xtrace
   LOAD: xmath
   LOAD: xcreature
-  START: ab_inventory_balance.on_game_start
+  LOAD: xconst
+  LOAD: xlibs_mcm
+  LOAD: xsmart_spawn
+  LOAD: xlog
+  LOAD: ab_smart_recipe
+  LOAD: xtable
+  LOAD: xbus
+  LOAD: xlibs
+  LOAD: xstash
+  LOAD: xlevel
+  LOAD: ab_test
+  LOAD: _ab_deps
+  LOAD: ab_smart_map
+  LOAD: ab_smart_balance
+  LOAD: xsmart
+  LOAD: xstring
+  LOAD: xtime
+  LOAD: xttltable
+  LOAD: xsound
+  LOAD: xprofiler
+  LOAD: xcombat
+  LOAD: ab_mcm
+  LOAD: xobject
+  LOAD: xmcm
+  LOAD: xchange
   START: xsound.on_game_start
-  START: xpp.on_game_start
   START: ab_smart_map.on_game_start
-  START: ab_mcm.on_game_start
-  START: xtime.on_game_start
   START: xlog.on_game_start
-  START: ab_smart_balance.on_game_start
+  START: xpp.on_game_start
+  START: xtime.on_game_start
   START: _ab_deps.on_game_start
-  OK: 38 loaded, 9 on_game_start
+  START: ab_smart_balance.on_game_start
+  START: ab_mcm.on_game_start
+  OK: 38 loaded, 8 on_game_start
 
 ========================================================================
 RESULT: PASS | Grade: S+ | Score: 0

@@ -35,8 +35,8 @@
     - Disable the Squad Filler addon if you use it. Its flat once-a-day squad top-up fights Squad Refill, which fills the same squads on the balance verdicts and stops at each squad's own configured size.
 
   Inventory Balance
-    - Removed Inventory Balance. The system moved to AlifeGuard, where it is called Inventory Guard, with identical behavior.
-      Configure it in AlifeGuard's MCM. Reset MCM settings after updating.
+    - Removed Inventory Balance, the NPC inventory bounding. It moved to AlifeGuard, now called Inventory Guard, with identical behavior.
+      To keep bounding NPC inventories, install or update AlifeGuard and configure it there under Inventory Guard. Reset MCM settings after updating.
       DLTX overrides of configs/alifebalance/ab_inventory_policy.ltx must repoint to configs/alifeguard/ag_inventory_policy.ltx.
 
 1.1.2
