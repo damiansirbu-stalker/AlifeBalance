@@ -32,6 +32,7 @@
 
   Compatibility
     - Warfare is no longer supported alongside Smart Balance. Its population model fights any external balancing. Disable AlifeBalance when running Warfare.
+    - Disable the Squad Filler addon if you use it. Its flat once-a-day squad top-up fights Squad Refill, which fills the same squads on the balance verdicts and stops at each squad's own configured size.
 
   Inventory Balance
     - Removed Inventory Balance. The system moved to AlifeGuard, where it is called Inventory Guard, with identical behavior.

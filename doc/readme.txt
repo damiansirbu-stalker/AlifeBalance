@@ -13,6 +13,7 @@ AlifeGuard: https://www.moddb.com/mods/stalker-anomaly/addons/alifeguard-1001
 AlifeTactics: https://www.moddb.com/mods/stalker-anomaly/addons/alifetactics
 
 ! Reset MCM settings to defaults after updating !
+! Disable the Squad Filler addon if you use it, its flat squad top-up fights Squad Refill !
 
 AlifeBalance is a balance layer for vanilla A-Life:
   - Smart Balance: keeps each map's population near what the map's own spawn configs declare.
