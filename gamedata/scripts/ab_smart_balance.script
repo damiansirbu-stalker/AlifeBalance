@@ -703,7 +703,9 @@ local function _on_try_respawn(smart, _flags)
 end
 
 -- One refill sweep chunk per tick; verdicts and corrections fire in _finalize_pass
--- when the sweep wraps. ResetTimeEvent FIRST per doc/library/xray/internals/globals.md:194-202.
+-- when the sweep wraps. ResetTimeEvent FIRST: a nil return without a reset refires the event
+-- NEXT FRAME (doc/library/xray/internals/globals.md:188-191), and this body has early nil
+-- returns (the disabled gate), so the reset must precede them.
 local function _periodic_tick()
     ResetTimeEvent(TIMER_EV, TIMER_TICK, TICK_INTERVAL_SEC)
     if not cfg.enabled then return end
