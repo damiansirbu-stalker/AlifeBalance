@@ -1,6 +1,11 @@
 1.1.3
   Summary: Spawner-record balance, spawn size, squad refill, crowded-area steering, Inventory Balance moved to AlifeGuard
 
+  General
+    - Added a crowded area threshold: areas already holding many off-screen NPCs receive no accelerated respawns and no squad repairs,
+      and their spawners are delayed, steering recovery toward the empty parts of a map instead of feeding existing piles.
+    - MCM restructured into one page per system: General, Respawn Pacing, Spawn Size, Squad Refill, Development. Reset MCM settings after updating.
+
   Respawn Pacing
     - Changed Smart Balance from kill-counting to a per-map balance over the game's own spawner records:
       how many squads each spawner is allowed versus how many are alive right now, per faction, mutants as one group.
@@ -24,11 +29,6 @@
     - Added Squad Refill: squads that fell below their own minimum size regain one member per pass.
       Nothing in the game repairs a squad once it loses members, and a surviving remnant blocks its respawn slot forever, so maps fill with one-man ghost squads.
       The refill runs only on squads far from the player, skips crowded areas and overgrown factions, and stops at the squad's own configured minimum. Toggle in MCM, on by default.
-
-  General
-    - Added a crowded area threshold: areas already holding many off-screen NPCs receive no accelerated respawns and no squad repairs,
-      and their spawners are delayed, steering recovery toward the empty parts of a map instead of feeding existing piles.
-    - MCM restructured into one page per system: General, Respawn Pacing, Spawn Size, Squad Refill, Development. Reset MCM settings after updating.
 
   Compatibility
     - Warfare is no longer supported alongside Smart Balance. Its population model fights any external balancing. Disable AlifeBalance when running Warfare.
