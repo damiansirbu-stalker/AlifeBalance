@@ -143,4 +143,7 @@
     <string id="st_ab_smart_map_show_stats">
         <text>Show stats for</text>
     </string>
+    <string id="st_ab_reset_all_done">
+        <text>AlifeBalance: all settings restored to defaults.</text>
+    </string>
 </string_table>

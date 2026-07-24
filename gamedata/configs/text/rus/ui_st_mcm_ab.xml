@@ -142,4 +142,7 @@
   <string id="ui_mcm_menu_squad_refill">
     <text>Squad Refill</text>
   </string>
+  <string id="st_ab_reset_all_done">
+    <text>AlifeBalance: все настройки сброшены к значениям по умолчанию.</text>
+  </string>
 </string_table>
