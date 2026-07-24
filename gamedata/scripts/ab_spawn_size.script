@@ -34,7 +34,7 @@ end
 local function _spawn_size_cfg()
     local mcm = ab_mcm and ab_mcm.cfg
     if not (mcm and mcm.enabled and mcm.spawn_size) then return nil end
-    return (mcm.spawn_size_strength or 100) / 100
+    return mcm.spawn_size_strength / 100
 end
 
 -- Raise one just-created squad toward its deficit-scaled member target. Guard order,
