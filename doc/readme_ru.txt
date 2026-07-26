@@ -1,5 +1,5 @@
 AlifeBalance: слой балансировки A-Life для STALKER Anomaly, автор Damian
-Версия: 1.1.3 (xlibs 1.8.3, demonized 20250908)
+Версия: next (xlibs 1.8.3, demonized 20250908)
 GitHub: https://github.com/damiansirbu-stalker/AlifeBalance
 Changelog: https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/changelog
 Architecture: https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/architecture.md
