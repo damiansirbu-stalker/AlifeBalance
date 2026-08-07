@@ -82,6 +82,9 @@ Smart Balance:
     Conservative: correction passes 8, minimum cooldown 360, spawn size strength 25.
 
 
+Performance:
+  Performance comes first, ahead of any feature. AlifeBalance modulates rates the engine already owns and adds no work of its own beyond a throttled tick; when something cannot fit the budget it is reworked, replaced, or removed with an X-Ray engine modification rather than allowed to slow the game. It is measured on the engine built from the latest source with no multithreading and no optimizations, so the timings are worst-case; the optimized multithreaded build you run is always faster.
+
 Compatibility:
   Requires xlibs.
   Runs on themrdemonized modded exes 2025.9.10 or newer, or AOEngine v0.55 or newer.
