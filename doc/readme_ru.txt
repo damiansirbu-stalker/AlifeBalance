@@ -7,10 +7,18 @@ English: https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/readm
 Bugs, suggestions: https://github.com/damiansirbu-stalker/AlifeBalance/issues
 
 Alife Collection:
+AlifeAmbience: https://github.com/damiansirbu-stalker/AlifeAmbience
 AlifeBalance: https://www.moddb.com/mods/stalker-anomaly/addons/alifebalance
+AlifeCompanions: https://github.com/damiansirbu-stalker/AlifeCompanions
+AlifeDiegetic: https://www.moddb.com/mods/stalker-anomaly/addons/diegetic-audio-control-100
 AlifeGuard: https://www.moddb.com/mods/stalker-anomaly/addons/alifeguard-1001
 AlifePlus: https://www.moddb.com/mods/stalker-anomaly/addons/alifeplus-v1-0-01
+AlifeSpooks: https://github.com/damiansirbu-stalker/AlifeSpooks
 AlifeTactics: https://www.moddb.com/mods/stalker-anomaly/addons/alifetactics
+FurnitureFuel: https://github.com/damiansirbu-stalker/FurnitureFuel
+JitProfiler: https://github.com/damiansirbu-stalker/JitProfiler
+TestZone: https://github.com/damiansirbu-stalker/TestZone
+xlibs: https://www.moddb.com/mods/stalker-anomaly/addons/xlibs-1001
 
 ! Сбросьте настройки MCM к значениям по умолчанию после обновления !
 ! Отключите аддон Squad Filler, если он у вас есть: его плоское пополнение отрядов конфликтует с Squad Refill !
