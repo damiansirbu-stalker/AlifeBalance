@@ -85,7 +85,7 @@ function reset_state()
     _inventoried = {}
 end
 
--- ==================== HELPERS ====================
+-- HELPERS
 
 --- Classify a squad section into a bin: MUTANTS for monster factions, the faction
 --- name for human factions, nil when the section has no faction field.
@@ -160,7 +160,7 @@ local function _log_inventory(level_id)
     log.debug("[INVENTORY] level=%d total_smarts=%d", level_id, total)
 end
 
--- ==================== CONDLIST WALKER ====================
+-- CONDLIST WALKER
 
 -- Info-portion condition (cond type 1 = positive, 2 = negative). Dispatch:
 --   infop[3] truthy -> npc-side (npc_info reads has_info; nil means actor was passed as npc)
@@ -258,7 +258,7 @@ function pick_value_readonly(condlist, obj, npc)
     return nil
 end
 
--- ==================== LEVEL MODEL ====================
+-- LEVEL MODEL
 
 -- Effective concurrent-squad SLOT cap for one recipe, nil when the engine would skip
 -- it. Mirrors the try_respawn gates (smart_terrain.script:1665-1702): missing
@@ -418,7 +418,7 @@ function get_level_model(level_id)
     return model
 end
 
--- ==================== BUDGET EVAL ====================
+-- BUDGET EVAL
 
 -- Evaluate one recipe slot. Returns (cur, raw_max, open, eligible_for_match), or nil when
 -- the engine would skip this recipe entirely (missing already_spawned bookkeeping, or a

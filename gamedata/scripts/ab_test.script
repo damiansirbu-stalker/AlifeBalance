@@ -50,7 +50,7 @@ function status()
     end
 end
 
--- ==================== FLOW TEST ====================
+-- FLOW TEST
 -- Self-contained @export console test, same conventions as ag_test: setup / action /
 -- assert / teardown in one synchronous call, per-session log file with explicit flush,
 -- PASS / FAIL as a yellow tip. The lever phase mutates one real smart's cooldown through
@@ -184,7 +184,7 @@ function ab_test_smart_balance()
     _log_info("[TEARDOWN] smart=%s cooldown restored (%s)", name, saved and "original CTime" or "fresh nil")
 end
 
--- ==================== SYSTEM TEST (synthetic massacre, staged) ====================
+-- SYSTEM TEST (synthetic massacre, staged)
 -- End-to-end accelerated exercise of the whole homeostat on a THROWAWAY save: it
 -- releases real NPCs. Stage 1 picks the most-populated (level, bin), thins several
 -- offline squads to 1 member (manufactures refill candidates) and wipes several whole
