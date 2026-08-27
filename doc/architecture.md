@@ -8,12 +8,12 @@ Part of a three-mod alife family: **AlifePlus** extends A-Life with new behavior
 
 ## Invariants
 
-- **No steady-state per-frame work.** Throttled tick (60s) or discrete engine events only; the refill drain frame-spreads a bounded batch via xslice and stops. Full rule: `doc/standards/code-standards.md` "No Per-Frame Work".
+- **No steady-state per-frame work.** Throttled tick (60s) or discrete engine events only; the refill drain frame-spreads a bounded batch via xslice and stops. Full rule: `doc/standards/stalker-code.md` "No Per-Frame Work".
 - **Never a release.** Spawn Size and Squad Refill only add members, inside each section's own `npc_in_squad` range. Release work belongs to AlifeGuard.
 - **Spawns delayed, never blocked.** Delays never leave more than `max_minutes` remaining, clamp age >= 0, skip fresh smarts, never write the `on_try_respawn` disable flag.
 - **Only the controllable population.** The slot ledger excludes what the spawners do not own (the starting population from `fill_start_position`, event and mod spawns — none set `respawn_point_id`, `sim_board.script:352` vs `smart_terrain.script:1720`). The mod neither boosts nor suppresses population no lever can replace.
-- **Performance first.** Performance is the top priority and outranks features. A feature that cannot meet the budget is reworked, replaced, dropped, or removed with an X-Ray engine modification — never kept at the cost of the budget. Only correctness and "never break base gameplay" rank above it. See `doc/standards/code-standards.md` "Performance is the priority".
-- **Use the engine, don't work around it.** Every capability comes from the engine and the Anomaly layer first, always through xlibs; our own code enters only where stock behavior falls short, escalating nudge / correct then, as a last resort, changing the layer itself (an engine modification or a full-file override). Never reimplement in script what the engine already does. See `doc/standards/code-standards.md` "Use the engine, don't work around it".
+- **Performance first.** Performance is the top priority and outranks features. A feature that cannot meet the budget is reworked, replaced, dropped, or removed with an X-Ray engine modification — never kept at the cost of the budget. Only correctness and "never break base gameplay" rank above it. See `doc/standards/stalker-code.md` "Performance is the priority".
+- **Use the engine, don't work around it.** Every capability comes from the engine and the Anomaly layer first, always through xlibs; our own code enters only where stock behavior falls short, escalating nudge / correct then, as a last resort, changing the layer itself (an engine modification or a full-file override). Never reimplement in script what the engine already does. See `doc/standards/stalker-code.md` "Use the engine, don't work around it".
 
 ## The sensor: slot verdicts
 
