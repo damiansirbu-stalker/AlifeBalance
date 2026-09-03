@@ -62,7 +62,7 @@ end
 local function _on_map_spot_menu_add(property_ui, id, _level_name)
     if not _show_markers_enabled() then return end
     if not id or not _markers[id] then return end
-    local se_obj = xobject.se(id)
+    local se_obj = xobject.get_se(id)
     if not se_obj or se_obj:clsid() ~= clsid.smart_terrain then return end
     local name = se_obj:name()
     property_ui:AddItem(_teleport_menu_label(name))
@@ -73,7 +73,7 @@ end
 local function _on_map_spot_menu_clicked(_property_ui, id, _level_name, prop)
     if not _show_markers_enabled() then return end
     if not id or not _markers[id] then return end
-    local se_obj = xobject.se(id)
+    local se_obj = xobject.get_se(id)
     if not se_obj or se_obj:clsid() ~= clsid.smart_terrain then return end
     local name = se_obj:name()
     if prop == _teleport_menu_label(name) then

@@ -150,7 +150,7 @@ function ab_test_smart_balance()
     -- Phase 3: levers on one real smart, cooldown restored afterwards.
     local original_lru = smart.last_respawn_update
     local saved = original_lru and game.CTime(original_lru) or nil
-    smart.last_respawn_update = xtime.game_time()
+    smart.last_respawn_update = xtime.get_game_time()
 
     local adv_steps, adv_moved = _drive_lever(smart, ab_smart_balance.debug_advance_step)
     local after_adv = ab_smart_balance.debug_probe_smart(smart)

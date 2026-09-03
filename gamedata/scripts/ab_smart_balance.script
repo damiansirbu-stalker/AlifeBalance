@@ -153,7 +153,7 @@ end
 local function _format_cooldown(smart)
     local lru = smart.last_respawn_update
     if lru == nil then return "fresh" end
-    local now = xtime.game_time()
+    local now = xtime.get_game_time()
     if not now then return "?" end
     local age  = now:diffSec(lru)
     local idle = _resolve_idle(smart)
@@ -304,7 +304,7 @@ local function _can_advance(smart)
     if params.advance <= 0 then return false end
     local lru = smart.last_respawn_update
     if lru == nil then return false end
-    local now = xtime.game_time()
+    local now = xtime.get_game_time()
     if not now then return false end
     local age = now:diffSec(lru)
     if age < 0 then return false end
@@ -324,7 +324,7 @@ local function _advance_smart(smart, push_sec)
     local lru = smart.last_respawn_update
     if lru == nil then return 0 end
     local params = _get_advance_params(smart)
-    local now = xtime.game_time()
+    local now = xtime.get_game_time()
     if not now then return 0 end
     local age      = now:diffSec(lru)
     local max_push = params.usable - age
@@ -349,7 +349,7 @@ local function _can_delay(smart)
     if params.advance <= 0 then return false end
     local lru = smart.last_respawn_update
     if lru == nil then return false end
-    local now = xtime.game_time()
+    local now = xtime.get_game_time()
     if not now then return false end
     return now:diffSec(lru) > params.delay_age_floor
 end
@@ -362,7 +362,7 @@ local function _delay_smart(smart, push_sec)
     local lru = smart.last_respawn_update
     if lru == nil then return 0 end
     local params = _get_advance_params(smart)
-    local now = xtime.game_time()
+    local now = xtime.get_game_time()
     if not now then return 0 end
     local age  = now:diffSec(lru)
     local room = age - params.delay_age_floor
@@ -392,7 +392,7 @@ function marker_label(smart)
         lines[#lines + 1] = "refills: " .. table_concat(refills, ", ")
     end
     local entry = _smart_stats[smart.id]
-    local now   = xtime.game_time()
+    local now   = xtime.get_game_time()
     local lru   = smart.last_respawn_update
     if entry and now and lru then
         local age  = now:diffSec(lru)
@@ -753,7 +753,7 @@ end
 --- current config: resolved idle, cooldown age, step sizing, delay age floor, both gates.
 function debug_probe_smart(smart)
     local params = _get_advance_params(smart)
-    local now = xtime.game_time()
+    local now = xtime.get_game_time()
     local lru = smart.last_respawn_update
     return {
         idle            = _resolve_idle(smart),

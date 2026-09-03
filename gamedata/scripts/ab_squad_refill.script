@@ -58,13 +58,13 @@ end
 function is_crowded(level_id, position)
     if _cell_size <= 0 or not position then return false end
     local threshold = _crowd_threshold()
-    local key = xlevel.cell_key(level_id, position, _cell_size)
+    local key = xlevel.build_cell_key(level_id, position, _cell_size)
     if not key then return false end
     if (_cells[key] or 0) >= threshold then return true end
     local sum = 0
     for dx = -1, 1 do
         for dz = -1, 1 do
-            local neighbor = xlevel.cell_key(level_id,
+            local neighbor = xlevel.build_cell_key(level_id,
                 { x = position.x + dx * _cell_size, z = position.z + dz * _cell_size },
                 _cell_size)
             sum = sum + (neighbor and _cells[neighbor] or 0)
@@ -105,7 +105,7 @@ end
 -- refill toggle -- the pacing crowd gates read them), candidacy for squads below their
 -- declared minimum with a random pool. Skips: gone, empty, permanent, companion.
 local function _sweep_squad(squad_id)
-    local squad = xobject.se(squad_id)
+    local squad = xobject.get_se(squad_id)
     if not squad or not squad.npc_count then return end
     local npc_count = squad:npc_count()
     if npc_count == 0 then return end
@@ -116,7 +116,7 @@ local function _sweep_squad(squad_id)
     if not pos then return end
     local level_id = xlevel.get_level_id(squad)
     if not level_id then return end
-    local key = xlevel.cell_key(level_id, pos, _cell_size)
+    local key = xlevel.build_cell_key(level_id, pos, _cell_size)
     if not key then return end
     _cells[key] = (_cells[key] or 0) + npc_count
     if not _refill_enabled() then return end
@@ -164,7 +164,7 @@ end
 -- counts its reason into acc (cheap field ops, always on) so the [DRAIN] completion line
 -- explains the whole batch from the log alone.
 local function _refill_one(squad_id, acc)
-    local squad = xobject.se(squad_id)
+    local squad = xobject.get_se(squad_id)
     if not squad then acc.gone = acc.gone + 1; return end
     if squad.online then acc.online = acc.online + 1; return end
     local npc_count = squad:npc_count()
@@ -176,7 +176,7 @@ local function _refill_one(squad_id, acc)
     local rec = squad.smart_id and SIMBOARD.smarts[squad.smart_id]
     local smart = rec and rec.smrt
     if not smart then acc.no_smart = acc.no_smart + 1; return end
-    local commander = xobject.se(squad:commander_id())
+    local commander = xobject.get_se(squad:commander_id())
     if not commander then acc.no_commander = acc.no_commander + 1; return end
     if not xlevel.is_valid_lvid(commander) then acc.bad_lvid = acc.bad_lvid + 1; return end
     local pool = _pool_of(section)
@@ -184,7 +184,7 @@ local function _refill_one(squad_id, acc)
     local member_id = squad:add_squad_member(pool[math_random(#pool)],
         commander.position, commander.m_level_vertex_id, commander.m_game_vertex_id)
     if not member_id then acc.add_failed = acc.add_failed + 1; return end
-    local se_member = xobject.se(member_id)
+    local se_member = xobject.get_se(member_id)
     if se_member then
         smart:register_npc(se_member)
         SIMBOARD:setup_squad_and_group(se_member)
