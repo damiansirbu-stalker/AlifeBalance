@@ -90,7 +90,7 @@ end
 --- Classify a squad section into a bin: MUTANTS for monster factions, the faction
 --- name for human factions, nil when the section has no faction field.
 function bin_of_section(section)
-    local faction = xsmart.section_faction(section)
+    local faction = xsmart.get_section_faction(section)
     if not faction then return nil end
     if xcreature.is_monster_faction(faction) then return MUTANTS end
     return faction
@@ -108,7 +108,7 @@ local function _recipe_factions_str(recipe)
     if not recipe.squads then return "?" end
     local seen = {}
     for _, section in ipairs(recipe.squads) do
-        local faction = xsmart.section_faction(section)
+        local faction = xsmart.get_section_faction(section)
         if faction then seen[faction] = true end
     end
     local out = {}

@@ -196,13 +196,13 @@ end
 local function _gather_recipe_factions(recipe, seen)
     if not recipe.squads then return end
     for _, section in ipairs(recipe.squads) do
-        local faction = xsmart.section_faction(section)
+        local faction = xsmart.get_section_faction(section)
         if faction then seen[faction] = true end
     end
 end
 
 -- Set of factions a smart's recipes can actually spawn. Recipe-content derived (via
--- xsmart.section_faction per squad section), not routing-prop derived -- props govern
+-- xsmart.get_section_faction per squad section), not routing-prop derived -- props govern
 -- where a squad can move, not what a smart's recipes produce.
 local function _smart_recipe_factions(smart)
     local seen = {}
