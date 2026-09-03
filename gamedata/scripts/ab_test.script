@@ -231,7 +231,7 @@ end
 -- path). keep = members left alive; keep 0 deletes the squad when the last member goes.
 local function _sys_bleed_squad(squad, keep)
     local ids = {}
-    for member_id in xsquad.iter_member_ids(squad) do
+    for member_id in xsquad.iterate_member_ids(squad) do
         ids[#ids + 1] = member_id
     end
     local released = 0
