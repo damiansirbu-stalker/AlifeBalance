@@ -22,7 +22,7 @@ local log = xlog.get_logger("AB.TEST", { outfile = "alifebalance.log" })
 
 local STATUS_TIP_MS = 8000
 
---- @export console
+--- @novalidate(code.unused_export, reason:"console command")
 function census()
     local actor = db and db.actor
     if not actor then return end
@@ -33,7 +33,7 @@ function census()
         nil, nil, STATUS_TIP_MS)
 end
 
---- @export console
+--- @novalidate(code.unused_export, reason:"console command")
 function status()
     local actor = db and db.actor
     if not actor then return end
@@ -111,7 +111,7 @@ end
 --- pacing params. Phase 2 forces a full census pass and asserts data flowed. Phase 3
 --- zeroes one smart's cooldown age, advances to the floor (remaining >= min_minutes)
 --- and delays to the ceiling (remaining <= max_minutes), then restores the cooldown.
---- @export console
+--- @novalidate(code.unused_export, reason:"console command")
 function ab_test_smart_balance()
     local TEST = "smart_balance"
     _log_info("[BEGIN] %s", TEST)
@@ -323,14 +323,14 @@ end
 
 --- Staged end-to-end system test. SYNTHETIC MASSACRE: releases real NPCs offline.
 --- Run on a throwaway save with log_level DEBUG; results as tips + test log + alifebalance.log.
---- @export console
+--- @novalidate(code.unused_export, reason:"console command")
 --- One-shot alias: the system test IS the full end-to-end test.
---- @export console
+--- @novalidate(code.unused_export, reason:"console command")
 function ab_test_full()
     ab_test_system()
 end
 
---- @export console
+--- @novalidate(code.unused_export, reason:"console command")
 function ab_test_system()
     if _sys then
         _flow_tip("[SKIP] system test already running")

@@ -1,21 +1,4 @@
 --- ab_spawn_size: Spawn Size - deficit-proportional member draw for new squads
--- @override
--- The @override marker is the stalker-manager tag for vanilla-interfacing patch code:
--- on_game_start references the vanilla sim_squad_scripted module, absent from test stubs.
----
---- Function-level patch of sim_squad_scripted:create_npc (the patched body is
---- byte-identical across vanilla unpacked, the demonized overlay, and ZCP's slot, so
---- one wrap serves all installs). After the base draw, a squad of a faction below its
---- WORLD slot capacity (ab_smart_balance.get_world_deficit past the shared band) is
---- raised toward min + strength * deficit * (max - min) of its own npc_in_squad range
---- via the engine's add_squad_member. World scope by design: a faction merely dented
---- on one map spawns vanilla squads (pacing alone covers the local hole); a faction
---- losing Zone-wide arrives stronger wherever it still spawns.
----
---- Never past the section's own max, never below the engine's draw, never on a map
---- where the faction is OVER, never into a crowded area, never for fixed-roster or
---- story squads. Verdicts are member-blind (slot units), so this lever cannot feed
---- back into the sensor that drives it.
 
 local tostring, math_random, math_floor = tostring, math.random, math.floor
 local parse_names, get_object_story_id = parse_names, get_object_story_id
@@ -27,20 +10,13 @@ local log = xlog.get_logger("AB.SIZE", { outfile = "alifebalance.log" })
 local _dbg = false
 local _base_create_npc
 
-function set_debug(dbg)
-    _dbg = dbg and true or false
-end
-
 local function _spawn_size_cfg()
     local mcm = ab_mcm and ab_mcm.cfg
     if not (mcm and mcm.enabled and mcm.spawn_size) then return nil end
     return mcm.spawn_size_strength / 100
 end
 
--- Raise one just-created squad toward its deficit-scaled member target. Guard order,
--- cheapest first: MCM off, no smart (named-location spawns pass spawn_smart = nil),
--- fixed roster, story squad, unknown bin/level, local OVER, world deficit inside the
--- band, crowded area, already at or above target.
+-- Raise one just-created squad toward its deficit-scaled member target.
 local function _try_raise(squad, spawn_smart)
     local strength = _spawn_size_cfg()
     if not strength or strength <= 0 then return end
@@ -89,8 +65,15 @@ local function _create_npc(self, spawn_smart, pos, lvid, gvid)
     return result
 end
 
+--- Toggle debug logging for the spawn-size wrap.
+function set_debug(dbg)
+    _dbg = dbg and true or false
+end
+
 function on_game_start()
     if _base_create_npc then return end
-    _base_create_npc = sim_squad_scripted.sim_squad_scripted.create_npc
-    sim_squad_scripted.sim_squad_scripted.create_npc = _create_npc
+    local squad_class = sim_squad_scripted and sim_squad_scripted.sim_squad_scripted
+    if not squad_class then return end
+    _base_create_npc = squad_class.create_npc
+    squad_class.create_npc = _create_npc
 end
