@@ -1,7 +1,7 @@
 --- ab_squad_refill: Squad Refill - offline repair of squads below their declared minimum
 ---
 --- Owns the staggered squad sweep (the mod's only squad walk): each tick walks a chunk
---- of a SIMBOARD id snapshot, accumulating per-cell offline body counts (xlevel.cell_key
+--- of a SIMBOARD id snapshot, accumulating per-cell offline body counts (xlevel.build_cell_key
 --- at switch_distance granularity -- the crowded-area check every system reads) and
 --- collecting squads below their section's own npc_in_squad minimum as candidates.
 --- At pass end candidates whose (level, bin) is not OVER and whose cell is not crowded
@@ -25,7 +25,7 @@ local DEFAULT_CROWD_THRESHOLD = 60
 local _dbg = false
 
 -- Sweep state: SIMBOARD id snapshot + cursor. Per-pass accumulators, rebuilt each pass:
--- _cells[key] = offline body count per xlevel.cell_key (all offline squads, not just
+-- _cells[key] = offline body count per xlevel.build_cell_key (all offline squads, not just
 -- candidates -- the crowded-area check needs the full picture); _candidates = array of
 -- { id, level_id, bin, cell } squads below their declared minimum.
 local _sweep      = { ids = {}, total = 0, cursor = 1, active = false }
