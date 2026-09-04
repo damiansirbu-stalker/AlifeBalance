@@ -28,18 +28,18 @@ end
 function mark_smart_with_linger(smart)
     if not smart then return end
     local label = ab_smart_balance.marker_label(smart)
-    xpda.mark_entity(smart.id, { marker_type = MARKER_TYPE, label = label })
+    xpda.add_entity_marker(smart.id, { marker_type = MARKER_TYPE, label = label })
     _markers[smart.id] = os_clock() + MARKER_LINGER_SEC
 end
 
 function unmark_smart(smart_id)
-    xpda.unmark_entity(smart_id, MARKER_TYPE)
+    xpda.remove_entity_marker(smart_id, MARKER_TYPE)
     _markers[smart_id] = nil
 end
 
 function clear_all_markers()
     for smart_id in pairs(_markers) do
-        xpda.unmark_entity(smart_id, MARKER_TYPE)
+        xpda.remove_entity_marker(smart_id, MARKER_TYPE)
     end
     _markers = {}
 end

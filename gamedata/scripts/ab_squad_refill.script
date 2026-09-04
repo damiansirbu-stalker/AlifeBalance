@@ -262,7 +262,7 @@ end
 --- Drop pass state and cancel a running drain. Called from ab_smart_balance._reset_state
 --- (save load); the section pool cache survives, squad_descr LTX is static.
 function reset_state()
-    xslice.cancel(REFILL_JOB, true)
+    xslice.stop_queue(REFILL_JOB, true)
     _sweep      = { ids = {}, total = 0, cursor = 1, active = false }
     _cell_size  = 0
     _cells      = {}
