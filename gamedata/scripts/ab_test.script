@@ -10,6 +10,18 @@ local ini_sys = ini_sys
 local log = xlog.get_logger("AB.TEST", { outfile = "alifebalance.log" })
 
 local STATUS_TIP_MS = 8000
+local MOD = "alifebalance"
+-- Cumulative float steps + whole-second CTime deltas drift by <1s per step; 8 steps max.
+local TOLERANCE_SEC = 10
+local STEP_LOOP_CAP = 12
+local SYS_EV = "ab_test_system"
+-- Massacre shape: SYS_THIN_N squads thinned to 1 member, SYS_WIPE_N fully released; SYS_DRAIN_WAIT/SYS_SPAWN_WAIT are real-second waits.
+local SYS_THIN_N = 4
+local SYS_WIPE_N = 3
+local SYS_DRAIN_WAIT = 4
+local SYS_SPAWN_WAIT = 45
+
+local _sys = nil
 
 --- @novalidate(code.unused_export, reason:"console command")
 function census()
@@ -45,12 +57,6 @@ end
 -- PASS / FAIL as a yellow tip. The lever phase mutates one real smart's cooldown through
 -- the gated debug actuators and restores the original value before returning, all inside
 -- a single Lua call, so the engine never observes the intermediate states.
-
-local MOD = "alifebalance"
-
--- Cumulative float steps + whole-second CTime deltas drift by <1s per step; 8 steps max.
-local TOLERANCE_SEC = 10
-local STEP_LOOP_CAP = 12
 
 local _flow_log
 local function _get_flow_log()
@@ -166,15 +172,6 @@ function ab_test_smart_balance()
 end
 
 -- System test: staged end-to-end homeostat exercise on a throwaway save (releases real NPCs); see ab_test_system.
-
-local SYS_EV = "ab_test_system"
--- Massacre shape: SYS_THIN_N squads thinned to 1 member, SYS_WIPE_N fully released; SYS_DRAIN_WAIT/SYS_SPAWN_WAIT are real-second waits.
-local SYS_THIN_N = 4
-local SYS_WIPE_N = 3
-local SYS_DRAIN_WAIT = 4
-local SYS_SPAWN_WAIT = 45
-
-local _sys = nil
 
 -- Squad qualifies as massacre fodder: offline (refill under test is offline-only), right bin, right level, not permanent/companion.
 -- Its section must declare a random pool, so thinned squads are refillable (the property under test).

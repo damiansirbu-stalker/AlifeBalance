@@ -38,18 +38,6 @@ local VERDICT_OVER = -1
 
 local ACTION = { ADVANCE = "advance", DELAY = "delay" }
 
--- Resolve the respawn_idle the engine actually gates on: ZCP's cvar when smr_enabled or at its 86400 default, else the smart's own field.
--- @src smr_pop.script:1246-1249: mirrors ZCP's gate selection; cvar -1 = respawns disabled -> advance 0 -> _can_advance/_can_delay false, AB no-ops.
-local function _resolve_idle(smart)
-    if smr_amain_mcm and smr_amain_mcm.get_config then
-        local idle = smr_amain_mcm.get_config("respawn_idle")
-        if smr_amain_mcm.get_config("smr_enabled") or idle == ZCP_DEFAULT_RESPAWN_IDLE_SEC then
-            if idle then return idle end
-        end
-    end
-    return smart.respawn_idle or DEFAULT_RESPAWN_IDLE_SEC
-end
-
 local CALLBACK = {
     SQUAD_ON_NPC_CREATION = "squad_on_npc_creation",
     ON_OPTION_CHANGE      = "on_option_change",
@@ -83,6 +71,18 @@ local _advance_pending = {}
 local _stats           = { passes = 0, advances = 0, delays = 0, crowd_delays = 0,
                            refills = 0, spawn_size_adds = 0,
                            ticks = 0, spawns = 0, spawns_from_us = 0 }
+
+-- Resolve the respawn_idle the engine actually gates on: ZCP's cvar when smr_enabled or at its 86400 default, else the smart's own field.
+-- @src smr_pop.script:1246-1249: mirrors ZCP's gate selection; cvar -1 = respawns disabled -> advance 0 -> _can_advance/_can_delay false, AB no-ops.
+local function _resolve_idle(smart)
+    if smr_amain_mcm and smr_amain_mcm.get_config then
+        local idle = smr_amain_mcm.get_config("respawn_idle")
+        if smr_amain_mcm.get_config("smr_enabled") or idle == ZCP_DEFAULT_RESPAWN_IDLE_SEC then
+            if idle then return idle end
+        end
+    end
+    return smart.respawn_idle or DEFAULT_RESPAWN_IDLE_SEC
+end
 
 -- Format game-time seconds as compact hours. <10h shows one decimal, >=10h shows int.
 local function _format_hours(seconds)

@@ -9,6 +9,11 @@ local ini_sys = ini_sys
 --- Bin key for the mutant aggregate: every monster-faction squad bins here; humans bin under their own faction name.
 MUTANTS = "__mutants"
 
+local _dbg = false
+-- _models[level_id] = { capacity[bin], eligible[bin]=smarts, smart_bins[smart_id]=bins, readers, smarts }; _inventoried[level_id] gates the DEBUG dump.
+local _models      = {}
+local _inventoried = {}
+
 -- Population factors, ZCP-aware: engine reads alife_stalker_pop / alife_mutant_pop, ZCP replaces them with its MCM cvars (GAMMA seeds both 0.5).
 -- @src smart_terrain.script:try_respawn: split into stalker/monster getters so the per-recipe classifier mirrors the engine's factor selection.
 local function get_monster_pop_factor()
@@ -41,12 +46,6 @@ local function _compute_recipe_factor(recipe, monster_factor, stalker_factor)
 end
 
 local log = xlog.get_logger("AB.SREC", { outfile = "alifebalance.log" })
-
-local _dbg = false
-
--- _models[level_id] = { capacity[bin], eligible[bin]=smarts, smart_bins[smart_id]=bins, readers, smarts }; _inventoried[level_id] gates the DEBUG dump.
-local _models      = {}
-local _inventoried = {}
 
 function set_debug(dbg)
     _dbg = dbg and true or false
