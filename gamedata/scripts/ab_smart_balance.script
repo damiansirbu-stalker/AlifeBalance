@@ -291,39 +291,6 @@ local function _apply_delay(smart, push_sec)
     return push_sec
 end
 
---- Hover hint for ab_smart_map markers: smart name + recipe-derived factions + advances/delays applied + cooldown remaining before the engine fires.
---- Exposed for ab_smart_map.add_marker; reads pacing-side _smart_stats directly.
-function build_marker_label(smart)
-    local name       = smart:name() or "?"
-    local translated = game.translate_string(name)
-    local display    = (translated ~= name and translated) or name
-    local refills    = {}
-    for faction in pairs(_get_smart_recipe_factions(smart)) do
-        refills[#refills + 1] = faction
-    end
-    local lines = { "Smart Balance: " .. display }
-    if #refills > 0 then
-        lines[#lines + 1] = "refills: " .. table_concat(refills, ", ")
-    end
-    local entry = _smart_stats[smart.id]
-    local now   = xtime.get_game_time()
-    local lru   = smart.last_respawn_update
-    if entry and now and lru then
-        local age  = now:diffSec(lru)
-        local idle = _resolve_idle(smart)
-        local left = idle - age
-        lines[#lines + 1] = string_format("advances: %d, delays: %d", entry.advances, entry.delays)
-        if idle <= 0 then
-            lines[#lines + 1] = "engine respawns disabled"
-        elseif left > 0 then
-            lines[#lines + 1] = "engine spawns in " .. _format_hours(left) .. " of game time"
-        else
-            lines[#lines + 1] = "engine spawns on next alife tick"
-        end
-    end
-    return table_concat(lines, "\\n")
-end
-
 local function _load_config()
     local mcm = ab_mcm and ab_mcm.cfg
     if not mcm then return end
@@ -587,6 +554,76 @@ local function _run_tick()
     ab_smart_map.remove_expired_markers()
 end
 
+local function _reset_state()
+    ab_smart_map.clear_all_markers()
+    ab_smart_recipe.reset_state()
+    ab_squad_refill.reset_state()
+    _verdicts        = {}
+    _world           = {}
+    _last_actual     = {}
+    _passes          = 0
+    _delta_cache     = {}
+    _seen_squads     = {}
+    _smart_stats     = {}
+    _advance_pending = {}
+    _stats           = { passes = 0, advances = 0, delays = 0, crowd_delays = 0,
+                         refills = 0, spawn_size_adds = 0,
+                         ticks = 0, spawns = 0, spawns_from_us = 0 }
+end
+
+local function _on_load_state(_m_data)
+    _reset_state()
+    log.info("[LOAD] state reset")
+end
+
+local function _on_option_change()
+    _load_config()
+end
+
+local function _on_first_update()
+    _load_config()
+    _reset_state()
+    RegisterScriptCallback(CALLBACK.SQUAD_ON_NPC_CREATION, _on_npc_creation)
+    RegisterScriptCallback(CALLBACK.ON_OPTION_CHANGE, _on_option_change)
+    RegisterScriptCallback(CALLBACK.LOAD_STATE, _on_load_state)
+    RegisterScriptCallback(CALLBACK.ON_TRY_RESPAWN, _on_try_respawn)
+    RemoveTimeEvent(TIMER_EV, TIMER_TICK)
+    CreateTimeEvent(TIMER_EV, TIMER_TICK, TICK_INTERVAL_SEC, _run_tick)
+end
+
+--- Hover hint for ab_smart_map markers: smart name + recipe-derived factions + advances/delays applied + cooldown remaining before the engine fires.
+--- Exposed for ab_smart_map.add_marker; reads pacing-side _smart_stats directly.
+function build_marker_label(smart)
+    local name       = smart:name() or "?"
+    local translated = game.translate_string(name)
+    local display    = (translated ~= name and translated) or name
+    local refills    = {}
+    for faction in pairs(_get_smart_recipe_factions(smart)) do
+        refills[#refills + 1] = faction
+    end
+    local lines = { "Smart Balance: " .. display }
+    if #refills > 0 then
+        lines[#lines + 1] = "refills: " .. table_concat(refills, ", ")
+    end
+    local entry = _smart_stats[smart.id]
+    local now   = xtime.get_game_time()
+    local lru   = smart.last_respawn_update
+    if entry and now and lru then
+        local age  = now:diffSec(lru)
+        local idle = _resolve_idle(smart)
+        local left = idle - age
+        lines[#lines + 1] = string_format("advances: %d, delays: %d", entry.advances, entry.delays)
+        if idle <= 0 then
+            lines[#lines + 1] = "engine respawns disabled"
+        elseif left > 0 then
+            lines[#lines + 1] = "engine spawns in " .. _format_hours(left) .. " of game time"
+        else
+            lines[#lines + 1] = "engine spawns on next alife tick"
+        end
+    end
+    return table_concat(lines, "\\n")
+end
+
 --- Verdict sign for a (level, bin) from the last completed pass.
 --- 1 = under slot capacity, -1 = over, 0 = in band or unknown (inert).
 function get_verdict(level_id, bin)
@@ -739,43 +776,6 @@ function show_smart_stats(se_obj)
     news_manager.send_tip(db.actor, string_format(
         "produces: %s", table_concat(entry.factions, ", ")),
         nil, nil, STATUS_TIP_MS)
-end
-
-local function _reset_state()
-    ab_smart_map.clear_all_markers()
-    ab_smart_recipe.reset_state()
-    ab_squad_refill.reset_state()
-    _verdicts        = {}
-    _world           = {}
-    _last_actual     = {}
-    _passes          = 0
-    _delta_cache     = {}
-    _seen_squads     = {}
-    _smart_stats     = {}
-    _advance_pending = {}
-    _stats           = { passes = 0, advances = 0, delays = 0, crowd_delays = 0,
-                         refills = 0, spawn_size_adds = 0,
-                         ticks = 0, spawns = 0, spawns_from_us = 0 }
-end
-
-local function _on_load_state(_m_data)
-    _reset_state()
-    log.info("[LOAD] state reset")
-end
-
-local function _on_option_change()
-    _load_config()
-end
-
-local function _on_first_update()
-    _load_config()
-    _reset_state()
-    RegisterScriptCallback(CALLBACK.SQUAD_ON_NPC_CREATION, _on_npc_creation)
-    RegisterScriptCallback(CALLBACK.ON_OPTION_CHANGE, _on_option_change)
-    RegisterScriptCallback(CALLBACK.LOAD_STATE, _on_load_state)
-    RegisterScriptCallback(CALLBACK.ON_TRY_RESPAWN, _on_try_respawn)
-    RemoveTimeEvent(TIMER_EV, TIMER_TICK)
-    CreateTimeEvent(TIMER_EV, TIMER_TICK, TICK_INTERVAL_SEC, _run_tick)
 end
 
 function on_game_start()
