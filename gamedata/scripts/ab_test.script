@@ -23,34 +23,6 @@ local SYS_SPAWN_WAIT = 45
 
 local _sys = nil
 
---- @novalidate(code.unused_export, reason:"console command")
-function census()
-    local actor = db and db.actor
-    if not actor then return end
-    local walked = ab_smart_balance.run_full_pass()
-    log.info("[TEST] forced census pass: %d squads walked", walked)
-    news_manager.send_tip(actor,
-        "AlifeBalance: census pass complete (" .. walked .. " squads)",
-        nil, nil, STATUS_TIP_MS)
-end
-
---- @novalidate(code.unused_export, reason:"console command")
-function status()
-    local actor = db and db.actor
-    if not actor then return end
-    local lines = ab_smart_balance.get_status_lines()
-    if #lines == 0 then
-        news_manager.send_tip(actor,
-            "AlifeBalance: no census data yet (run ab_test.census() or wait for a pass)",
-            nil, nil, STATUS_TIP_MS)
-        return
-    end
-    for _, line in ipairs(lines) do
-        log.info("[TEST] %s", line)
-        news_manager.send_tip(actor, line, nil, nil, STATUS_TIP_MS)
-    end
-end
-
 -- FLOW TEST
 -- Self-contained @export console test, same conventions as ag_test: setup / action /
 -- assert / teardown in one synchronous call, per-session log file with explicit flush,
@@ -99,76 +71,43 @@ local function _drive_lever(smart, step_fn)
     return steps, moved
 end
 
---- Smart Balance flow test: config wiring, census pipeline, and both pacing levers against their limits.
---- Phase 1 asserts the min/max arithmetic; phase 2 forces a census pass; phase 3 drives one smart to floor and ceiling, then restores its cooldown.
---- @novalidate(code.unused_export, reason:"console command")
-function ab_test_smart_balance()
-    local TEST = "smart_balance"
-    _log_info("[BEGIN] %s", TEST)
+-- MCM value for a key, or its packaged default.
+local function _cfg(key)
+    return ab_mcm.get_config(key) or ab_mcm.defaults[key]
+end
 
-    local smart = _pick_balance_smart()
-    if not smart then
-        _log_info("[FAIL] %s: no smart with respawn_params on SIMBOARD", TEST)
-        _flow_tip("[FAIL] " .. TEST .. ": no respawn smart found")
-        return
-    end
-    local name = smart:name() or "?"
-    local min_sec = (ab_mcm.get_config("min_minutes") or ab_mcm.defaults.min_minutes) * 60
-    local max_sec = (ab_mcm.get_config("max_minutes") or ab_mcm.defaults.max_minutes) * 60
-    local advances_cfg = ab_mcm.get_config("advances") or ab_mcm.defaults.advances
-
-    local probe = ab_smart_balance.get_smart_state(smart)
-    _log_info("[SETUP] smart=%s idle=%.0f usable=%.0f advance=%.1f delay_age_floor=%.0f (min=%.0f max=%.0f advances=%.0f)",
-        name, probe.idle, probe.usable, probe.advance, probe.delay_age_floor, min_sec, max_sec, advances_cfg)
-    if probe.advance <= 0 then
-        _log_info("[SKIP] %s: respawns disabled or degenerate config (advance step 0)", TEST)
-        _flow_tip("[SKIP] " .. TEST .. ": respawns disabled, lever test not applicable")
-        return
-    end
-
-    local ok_wiring = math_abs(probe.usable - (probe.idle - min_sec)) <= 1
+-- Phase 1: pacing params reflect the MCM min/max arithmetic.
+local function _check_wiring(probe, min_sec, max_sec, advances_cfg)
+    return math_abs(probe.usable - (probe.idle - min_sec)) <= 1
         and math_abs(probe.advance * advances_cfg - probe.usable) <= 1
         and probe.delay_age_floor == ((probe.idle > max_sec) and (probe.idle - max_sec) or 0)
+end
 
+-- Phase 2: force a full census pass; returns squads walked, status lines, and whether data flowed.
+local function _run_census()
     local walked = ab_smart_balance.run_full_pass()
     local lines = ab_smart_balance.get_status_lines()
-    local ok_census = walked > 0 and #lines > 0
-    _log_info("[CENSUS] walked=%d status_lines=%d", walked, #lines)
+    return walked, lines, walked > 0 and #lines > 0
+end
 
-    local original_lru = smart.last_respawn_update
-    local saved = original_lru and game.CTime(original_lru) or nil
+-- Phase 3: zero the cooldown, drive both levers to their limits, restore it; returns the lever record.
+local function _drive_levers(smart, advances_cfg, min_sec, max_sec)
+    local saved = smart.last_respawn_update and game.CTime(smart.last_respawn_update) or nil
     smart.last_respawn_update = xtime.get_game_time()
-
     local adv_steps, adv_moved = _drive_lever(smart, ab_smart_balance.apply_advance_step)
     local after_adv = ab_smart_balance.get_smart_state(smart)
     local remaining_floor = after_adv.idle - (after_adv.age or 0)
-    local ok_floor = adv_steps >= 1 and adv_steps <= advances_cfg
-        and remaining_floor >= min_sec - TOLERANCE_SEC
-
+    local ok_floor = adv_steps >= 1 and adv_steps <= advances_cfg and remaining_floor >= min_sec - TOLERANCE_SEC
     local del_steps, del_moved = _drive_lever(smart, ab_smart_balance.apply_delay_step)
     local after_del = ab_smart_balance.get_smart_state(smart)
     local remaining_ceiling = after_del.idle - (after_del.age or 0)
     local ok_ceiling = del_steps >= 1 and remaining_ceiling <= max_sec + TOLERANCE_SEC
-
     smart.last_respawn_update = saved
-
-    local summary = string_format(
-        "smart=%s idle=%.0f | wiring ok=%s | census walked=%d lines=%d | advance %d steps %.0fs -> remaining %.0fs (floor %.0f) | delay %d steps %.0fs -> remaining %.0fs (ceiling %.0f)",
-        name, probe.idle, tostring(ok_wiring), walked, #lines,
-        adv_steps, adv_moved, remaining_floor, min_sec,
-        del_steps, del_moved, remaining_ceiling, max_sec)
-    _log_info("[SUMMARY] %s", summary)
-
-    if ok_wiring and ok_census and ok_floor and ok_ceiling then
-        _log_info("[PASS] %s | %s", TEST, summary)
-        _flow_tip(string_format("[PASS] %s\n%s", TEST, summary), 30000)
-    else
-        local reason = string_format("wiring=%s census=%s floor=%s ceiling=%s",
-            tostring(ok_wiring), tostring(ok_census), tostring(ok_floor), tostring(ok_ceiling))
-        _log_info("[FAIL] %s | %s | %s", TEST, summary, reason)
-        _flow_tip(string_format("[FAIL] %s\n%s\n%s", TEST, summary, reason), 30000)
-    end
-    _log_info("[TEARDOWN] smart=%s cooldown restored (%s)", name, saved and "original CTime" or "fresh nil")
+    return {
+        adv_steps = adv_steps, adv_moved = adv_moved, del_steps = del_steps, del_moved = del_moved,
+        remaining_floor = remaining_floor, remaining_ceiling = remaining_ceiling,
+        ok_floor = ok_floor, ok_ceiling = ok_ceiling, saved = saved,
+    }
 end
 
 -- System test: staged end-to-end homeostat exercise on a throwaway save (releases real NPCs); see ab_test_system.
@@ -277,6 +216,98 @@ local function _sys_stage2()
     end)
 end
 
+-- Massacre one squad: wipe (free a slot) if respawn-born and under quota, else thin to 1 member; tallies into run.
+local function _massacre_squad(squad, run, level_id, bin)
+    if not (squad and squad.npc_count) then return end
+    if run.wiped < SYS_WIPE_N and _sys_wipe_fodder(squad, level_id, bin) then
+        run.released = run.released + _sys_bleed_squad(squad, 0)
+        run.wiped = run.wiped + 1
+    elseif run.thinned < SYS_THIN_N and _sys_fodder(squad, level_id, bin)
+           and squad:npc_count() >= 2 then
+        run.released = run.released + _sys_bleed_squad(squad, 1)
+        run.thinned = run.thinned + 1
+    end
+end
+
+--- @novalidate(code.unused_export, reason:"console command")
+function census()
+    local actor = db and db.actor
+    if not actor then return end
+    local walked = ab_smart_balance.run_full_pass()
+    log.info("[TEST] forced census pass: %d squads walked", walked)
+    news_manager.send_tip(actor,
+        "AlifeBalance: census pass complete (" .. walked .. " squads)",
+        nil, nil, STATUS_TIP_MS)
+end
+
+--- @novalidate(code.unused_export, reason:"console command")
+function status()
+    local actor = db and db.actor
+    if not actor then return end
+    local lines = ab_smart_balance.get_status_lines()
+    if #lines == 0 then
+        news_manager.send_tip(actor,
+            "AlifeBalance: no census data yet (run ab_test.census() or wait for a pass)",
+            nil, nil, STATUS_TIP_MS)
+        return
+    end
+    for _, line in ipairs(lines) do
+        log.info("[TEST] %s", line)
+        news_manager.send_tip(actor, line, nil, nil, STATUS_TIP_MS)
+    end
+end
+
+--- Smart Balance flow test: config wiring, census pipeline, and both pacing levers against their limits.
+--- Phase 1 asserts the min/max arithmetic; phase 2 forces a census pass; phase 3 drives one smart to floor and ceiling, then restores its cooldown.
+--- @novalidate(code.unused_export, reason:"console command")
+function ab_test_smart_balance()
+    local TEST = "smart_balance"
+    _log_info("[BEGIN] %s", TEST)
+
+    local smart = _pick_balance_smart()
+    if not smart then
+        _log_info("[FAIL] %s: no smart with respawn_params on SIMBOARD", TEST)
+        _flow_tip("[FAIL] " .. TEST .. ": no respawn smart found")
+        return
+    end
+    local name = smart:name() or "?"
+    local min_sec = _cfg("min_minutes") * 60
+    local max_sec = _cfg("max_minutes") * 60
+    local advances_cfg = _cfg("advances")
+
+    local probe = ab_smart_balance.get_smart_state(smart)
+    _log_info("[SETUP] smart=%s idle=%.0f usable=%.0f advance=%.1f delay_age_floor=%.0f (min=%.0f max=%.0f advances=%.0f)",
+        name, probe.idle, probe.usable, probe.advance, probe.delay_age_floor, min_sec, max_sec, advances_cfg)
+    if probe.advance <= 0 then
+        _log_info("[SKIP] %s: respawns disabled or degenerate config (advance step 0)", TEST)
+        _flow_tip("[SKIP] " .. TEST .. ": respawns disabled, lever test not applicable")
+        return
+    end
+
+    local ok_wiring = _check_wiring(probe, min_sec, max_sec, advances_cfg)
+    local walked, lines, ok_census = _run_census()
+    _log_info("[CENSUS] walked=%d status_lines=%d", walked, #lines)
+    local lever = _drive_levers(smart, advances_cfg, min_sec, max_sec)
+
+    local summary = string_format(
+        "smart=%s idle=%.0f | wiring ok=%s | census walked=%d lines=%d | advance %d steps %.0fs -> remaining %.0fs (floor %.0f) | delay %d steps %.0fs -> remaining %.0fs (ceiling %.0f)",
+        name, probe.idle, tostring(ok_wiring), walked, #lines,
+        lever.adv_steps, lever.adv_moved, lever.remaining_floor, min_sec,
+        lever.del_steps, lever.del_moved, lever.remaining_ceiling, max_sec)
+    _log_info("[SUMMARY] %s", summary)
+
+    if ok_wiring and ok_census and lever.ok_floor and lever.ok_ceiling then
+        _log_info("[PASS] %s | %s", TEST, summary)
+        _flow_tip(string_format("[PASS] %s\n%s", TEST, summary), 30000)
+    else
+        local reason = string_format("wiring=%s census=%s floor=%s ceiling=%s",
+            tostring(ok_wiring), tostring(ok_census), tostring(lever.ok_floor), tostring(lever.ok_ceiling))
+        _log_info("[FAIL] %s | %s | %s", TEST, summary, reason)
+        _flow_tip(string_format("[FAIL] %s\n%s\n%s", TEST, summary, reason), 30000)
+    end
+    _log_info("[TEARDOWN] smart=%s cooldown restored (%s)", name, lever.saved and "original CTime" or "fresh nil")
+end
+
 --- One-shot alias: the system test IS the full end-to-end test.
 --- @novalidate(code.unused_export, reason:"console command")
 function ab_test_full()
@@ -308,22 +339,10 @@ function ab_test_system()
     }
     _sys = run
     _sys_log("[SYS-STAGE1] target level=%d bin=%s actual=%d", level_id, tostring(bin), actual0)
-    -- Massacre: thin SYS_THIN_N squads to 1 member, wipe SYS_WIPE_N whole squads.
-    local function massacre_one(squad)
-        if not (squad and squad.npc_count) then return end
-        if run.wiped < SYS_WIPE_N and _sys_wipe_fodder(squad, level_id, bin) then
-            run.released = run.released + _sys_bleed_squad(squad, 0)
-            run.wiped = run.wiped + 1
-        elseif run.thinned < SYS_THIN_N and _sys_fodder(squad, level_id, bin)
-               and squad:npc_count() >= 2 then
-            run.released = run.released + _sys_bleed_squad(squad, 1)
-            run.thinned = run.thinned + 1
-        end
-    end
     local ids = select(1, xsquad.collect_squad_ids({}))
     for i = 1, #ids do
         if run.thinned >= SYS_THIN_N and run.wiped >= SYS_WIPE_N then break end
-        massacre_one(alife_object(ids[i]))
+        _massacre_squad(alife_object(ids[i]), run, level_id, bin)
     end
     _sys_log("[SYS-STAGE1] massacre: thinned=%d wiped=%d released=%d NPCs",
         run.thinned, run.wiped, run.released)
