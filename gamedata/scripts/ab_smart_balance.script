@@ -405,8 +405,7 @@ local function _try_advance(smart, ctx)
     _execute_action(smart, ctx, budget_str, ACTION.ADVANCE)
 end
 
--- Delay only smarts whose every produced bin is over capacity: a mixed smart still
--- serving an under- or in-band bin is never punished for the crowded one.
+-- True when every bin the smart produces is over capacity (a mixed smart with an under/in-band bin is not).
 local function _check_all_bins_over(smart_id, ctx)
     local bins = ctx.model.smart_bins[smart_id]
     if not bins then return false end
@@ -434,8 +433,8 @@ local function _format_pass_part(bin, actual, capacity, verdict)
     return string_format("%s=%.1f/%.1f%s", tostring(bin), actual, capacity, tag)
 end
 
--- Judge one level from the live slot ledger: verdicts per producible bin, nil when
--- every bin is in band. Also folds the level's (actual, capacity) into the world sums.
+-- Judge one level from the live slot ledger: verdicts per producible bin, nil when every bin is in band.
+-- Also folds the level's (actual, capacity) into the world sums.
 local function _compute_level_verdicts(level_id, world)
     local model = ab_smart_recipe.get_level_model(level_id)
     local actual_lv = ab_smart_recipe.read_actual(model)
@@ -621,8 +620,7 @@ function add_spawn_size_count(added)
     _stats.spawn_size_adds = _stats.spawn_size_adds + added
 end
 
---- Console helper (ab_test): read-only snapshot of one smart's pacing state under the
---- current config: resolved idle, cooldown age, step sizing, delay age floor, both gates.
+--- Console helper (ab_test): read-only snapshot of one smart's pacing state - idle, cooldown age, step sizing, delay age floor, both gates.
 function get_smart_state(smart)
     local params = _get_advance_params(smart)
     local now = xtime.get_game_time()
@@ -638,8 +636,8 @@ function get_smart_state(smart)
     }
 end
 
---- Console helper (ab_test): one gated full-strength advance step (err = 1), bypassing
---- verdicts and budget (pure actuator). Returns pushed seconds, 0 when gated.
+--- Console helper (ab_test): one gated full-strength advance step (err = 1), bypassing verdicts and budget.
+--- Returns pushed seconds, 0 when gated.
 function apply_advance_step(smart)
     if not _can_advance(smart) then return 0 end
     return _apply_advance(smart, _get_advance_params(smart).advance)
@@ -652,8 +650,8 @@ function apply_delay_step(smart)
     return _apply_delay(smart, _get_advance_params(smart).advance)
 end
 
---- Console helper (ab_test): run one full sweep + pass synchronously and return the
---- number of squads walked. Heavier than the staggered pass; diagnostic use only.
+--- Console helper (ab_test): run one full sweep + pass synchronously, returning the number of squads walked.
+--- Heavier than the staggered pass; diagnostic use only.
 function run_full_pass()
     local swept = ab_squad_refill.iterate_all_squads()
     _execute_pass()
@@ -666,8 +664,7 @@ function get_stats()
     return _stats
 end
 
---- Console helper (ab_test): one level's state as { [bin] = { actual, capacity, verdict } }
---- in slot units, from the live ledger and the current model.
+--- Console helper (ab_test): one level's state as { [bin] = { actual, capacity, verdict } } in slot units, from the live ledger.
 function get_level_state(level_id)
     local model = ab_smart_recipe.get_level_model(level_id)
     local actual_lv = ab_smart_recipe.read_actual(model)
@@ -687,8 +684,7 @@ function get_eligible_smarts(level_id, bin)
     return ab_smart_recipe.get_level_model(level_id).eligible[bin]
 end
 
---- Console helper (ab_test): one "level: bin actual/capacity verdict" slot line per
---- respawn-capable level, from the last pass.
+--- Console helper (ab_test): one "level: bin actual/capacity verdict" slot line per respawn-capable level, from the last pass.
 function get_status_lines()
     local lines = {}
     for level_id in pairs(_last_actual) do

@@ -188,15 +188,14 @@ local function _sys_fodder(squad, level_id, bin)
     return true
 end
 
--- Wipes must free respawn slots, so only respawn-born squads (respawn_point_id set)
--- qualify; thins repair-test any fodder squad.
+-- Wipes need respawn-born squads (respawn_point_id set) to free slots; thins repair-test any fodder squad.
 local function _sys_wipe_fodder(squad, level_id, bin)
     if not squad.respawn_point_id then return false end
     return _sys_fodder(squad, level_id, bin)
 end
 
--- Release members via alife_release (_g wrapper -> squad:remove_npc, the detach-safe
--- path). keep = members left alive; keep 0 deletes the squad when the last member goes.
+-- Release members via alife_release (_g wrapper -> squad:remove_npc, the detach-safe path).
+-- keep = members left alive; keep 0 deletes the squad when the last member goes.
 local function _sys_bleed_squad(squad, keep)
     local ids = {}
     for member_id in xsquad.iterate_member_ids(squad) do

@@ -53,8 +53,7 @@ function set_debug(dbg)
     if not dbg then _inventoried = {} end
 end
 
---- Drop every cached level model. Called by ab_smart_balance on its recompute cadence
---- and on state reset, so condlist flips and mutator injections converge within a cadence.
+--- Drop every cached level model, so condlist flips and mutator injections converge on the recompute cadence.
 function clear_models()
     _models = {}
 end
@@ -66,8 +65,7 @@ end
 
 -- HELPERS
 
---- Classify a squad section into a bin: MUTANTS for monster factions, the faction
---- name for human factions, nil when the section has no faction field.
+--- Classify a squad section into a bin: MUTANTS for monster factions, the faction name for humans, nil when it has no faction field.
 function get_section_bin(section)
     local faction = xsmart.get_section_faction(section)
     if not faction then return nil end
@@ -258,8 +256,7 @@ local function _add_recipe_to_model(smart, k, recipe, slot_cap, model, bins_here
     model.readers[#model.readers + 1] = { smart = smart, key = k, fracs = fracs }
 end
 
--- Register the smart under every bin its recipes produce, keep the reverse map, and
--- append to the level's flat smart array (the crowd-delay sweep iterates it).
+-- Register the smart under every bin its recipes produce, keep the reverse map, and append it to the level's flat smart array.
 local function _register_smart_bins(smart, model, bins_here)
     local any = false
     for bin in pairs(bins_here) do
@@ -274,8 +271,7 @@ local function _register_smart_bins(smart, model, bins_here)
     end
 end
 
--- Fold one smart's recipes into the level model (capacity + eligibility + smart_bins
--- + readers).
+-- Fold one smart's recipes into the level model (capacity, eligibility, smart_bins, readers).
 local function _add_smart_to_model(smart, model, monster_factor, stalker_factor)
     local bins_here = {}
     for k, recipe in pairs(smart.respawn_params) do
@@ -386,8 +382,7 @@ local function _compute_recipe_budget(recipe, k, smart, bin, monster_factor, sta
     return cur, raw_max, open, eligible
 end
 
--- Fold one evaluated recipe into the budget accumulator: track any-open, capture the
--- first open bin-matching recipe as the winner, append the printed snapshot part.
+-- Fold one evaluated recipe into the budget accumulator: track any-open, capture the first bin-matching winner, append the snapshot part.
 local function _collect_recipe_budget(state, k, cur, raw_max, open, eligible)
     if open then state.any_open = true end
     if not state.matched_key and eligible then state.matched_key = k end
