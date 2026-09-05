@@ -44,7 +44,7 @@ World scope: the same sums aggregated across all levels, served per bin by `get_
 
 At pass end, per (level, bin) verdict, one step per smart per pass enforced across bins (an `acted` set; a declined try does not consume the slot):
 
-- **Advance** (UNDER): every eligible smart passing `_can_advance` + the crowded-area check + an open recipe budget for the bin (`evaluate_budget_for_bin`) gets `push = step * err`, where `step = (resolved_idle - min_minutes*60) / advances`. Clamped to the `min_minutes` floor; pushes under 60s skipped.
+- **Advance** (UNDER): every eligible smart passing `_can_advance` + the crowded-area check + an open recipe budget for the bin (`compute_bin_budget`) gets `push = step * err`, where `step = (resolved_idle - min_minutes*60) / advances`. Clamped to the `min_minutes` floor; pushes under 60s skipped.
 - **Delay** (OVER): mirror direction for smarts whose every produced bin is OVER, clamped so remaining cooldown never exceeds `max_minutes` and age never drops below 0.
 - **Crowd delay**: a smart inside a crowded area is delayed at full step regardless of verdicts — crowding is local overpopulation, and slowing local spawners is the delay lever's native answer.
 
@@ -66,9 +66,9 @@ Cells keyed by `xlevel.cell_key` (the shared grid convention with AlifeGuard's o
 
 ```
 TICK (60s, CreateTimeEvent)
-  ab_squad_refill.sweep_chunk(50): cells += offline bodies, candidates += below-min
-  on wrap -> _finalize_pass:
-    every 3rd pass: invalidate_models
+  ab_squad_refill.iterate_squads(50): cells += offline bodies, candidates += below-min
+  on wrap -> _execute_pass:
+    every 3rd pass: clear_models
     per level: model + read_actual -> verdicts {v, err}, world sums    [PASS]
     peace wish? -> skip corrections
     per (level, bin) verdict, acted-set enforced:
@@ -93,7 +93,7 @@ All in-memory, reset on load. ab_smart_balance: `_verdicts`, `_world`, `_last_ac
 |------|---------|
 | `gamedata/scripts/_ab_deps.script` | Version string, xlibs dependency gate |
 | `gamedata/scripts/ab_mcm.script` | MCM defaults, 5-tab tree, reset button |
-| `gamedata/scripts/ab_smart_balance.script` | Verdicts, world sums, pacing actuators, public `get_verdict` / `get_world_deficit` / `marker_label` / `show_smart_stats` |
+| `gamedata/scripts/ab_smart_balance.script` | Verdicts, world sums, pacing actuators, public `get_verdict` / `get_world_deficit` / `build_marker_label` / `show_smart_stats` |
 | `gamedata/scripts/ab_smart_recipe.script` | Slot capacity model, readers, `read_actual`, bin classification, budget eval, side-effect-free condlist walker |
 | `gamedata/scripts/ab_squad_refill.script` | Staggered sweep, density cells, `is_crowded`, refill drain |
 | `gamedata/scripts/ab_spawn_size.script` | `create_npc` wrap: world-deficit-proportional member draw |
@@ -126,7 +126,7 @@ All in-memory, reset on load. ab_smart_balance: `_verdicts`, `_world`, `_last_ac
 |-----------|------|
 | Sweep, per tick | 50 squads x ~4-6 luabind (resolve, npc_count, permanence, level); cells pure Lua |
 | Verdicts, per pass | model cached; `read_actual` = pure Lua field reads over readers; per-level judge O(bins) |
-| Model rebuild, per level per refresh | O(smarts x recipes); 1 `pick_value_readonly` per recipe; duration in `[MODEL]` |
+| Model rebuild, per level per refresh | O(smarts x recipes); 1 `select_value_readonly` per recipe; duration in `[MODEL]` |
 | Per correction | cooldown read + CTime build (cached at full step) + write; durations in `[SUMMARY]` |
 | Crowded check | <= 10 hash lookups, pure Lua |
 | Refill drain | 1 squad per frame via xslice; per-frame and completion durations in `[REFILL]`/`[DRAIN]` |

@@ -31,12 +31,12 @@ local _key_to_tab = {
     btn_reset_all       = "development",
 }
 
-local function path_builder(key)
+local function build_path(key)
     local tab = _key_to_tab[key] or "general"
     return "ab/" .. tab .. "/" .. key
 end
 
-cfg, get_config, load_config = xmcm.create_config("ab", defaults, path_builder)
+cfg, get_config, load_config = xmcm.create_config("ab", defaults, build_path)
 
 -- functor_ui receives the UI_MCM instance as trailing arg (ui_mcm.script:1435).
 -- functor would receive nothing. MCM 1.7.2fix leaves the file-local GUI nil on fresh opens
@@ -50,7 +50,7 @@ cfg, get_config, load_config = xmcm.create_config("ab", defaults, path_builder)
 local function _apply_defaults(gui, msg)
     local config = axr_main.config
     for k, v in pairs(defaults) do
-        config:w_value("mcm", path_builder(k), v)
+        config:w_value("mcm", build_path(k), v)
     end
     config:save()
     load_config()
@@ -79,7 +79,7 @@ function btn_reset_all(gui)
     _apply_defaults(gui, game.translate_string("st_ab_reset_all_done"))
 end
 
-local function _tab_header(desc_id)
+local function _build_tab_header(desc_id)
     return {
         { id = "title", type = "slide", link = "ab_mcm_banner",
             text = "ui_mcm_ab_title", size = {512, 50}, spacing = 20 },
@@ -88,8 +88,8 @@ local function _tab_header(desc_id)
     }
 end
 
-local function _with_header(desc_id, entries)
-    local gr = _tab_header(desc_id)
+local function _build_tab_group(desc_id, entries)
+    local gr = _build_tab_header(desc_id)
     for i = 1, #entries do gr[#gr + 1] = entries[i] end
     return gr
 end
@@ -101,7 +101,7 @@ function on_mcm_load()
             {
                 id = "general",
                 sh = true,
-                gr = _with_header("ui_mcm_ab_general_desc", {
+                gr = _build_tab_group("ui_mcm_ab_general_desc", {
                     { id = "enabled", type = "check", val = 1, def = true },
                     { id = "crowd_threshold", type = "track", val = 2, min = 20, max = 200, step = 10, def = 60 },
                     { id = "div_footer", type = "line" },
@@ -112,7 +112,7 @@ function on_mcm_load()
             {
                 id = "pacing",
                 sh = true,
-                gr = _with_header("ui_mcm_ab_pacing_desc", {
+                gr = _build_tab_group("ui_mcm_ab_pacing_desc", {
                     { id = "pacing", type = "check", val = 1, def = true },
                     { id = "advances", type = "track", val = 2, min = 2, max = 8, step = 1, def = 6 },
                     { id = "min_minutes", type = "track", val = 2, min = 30, max = 360, step = 5, def = 120 },
@@ -122,7 +122,7 @@ function on_mcm_load()
             {
                 id = "spawn_size",
                 sh = true,
-                gr = _with_header("ui_mcm_ab_spawn_size_desc", {
+                gr = _build_tab_group("ui_mcm_ab_spawn_size_desc", {
                     { id = "spawn_size", type = "check", val = 1, def = true },
                     { id = "spawn_size_strength", type = "track", val = 2, min = 0, max = 100, step = 5, def = 50 },
                 }),
@@ -130,14 +130,14 @@ function on_mcm_load()
             {
                 id = "squad_refill",
                 sh = true,
-                gr = _with_header("ui_mcm_ab_squad_refill_desc", {
+                gr = _build_tab_group("ui_mcm_ab_squad_refill_desc", {
                     { id = "refill", type = "check", val = 1, def = true },
                 }),
             },
             {
                 id = "development",
                 sh = true,
-                gr = _with_header("ui_mcm_ab_development_desc", {
+                gr = _build_tab_group("ui_mcm_ab_development_desc", {
                     { id = "hdr_logging", type = "desc", text = "ui_mcm_ab_hdr_logging", clr = {255, 200, 200, 200} },
                     { id = "log_level", type = "list", val = 0, def = "WARN",
                         content = {

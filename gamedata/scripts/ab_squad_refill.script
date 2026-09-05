@@ -41,12 +41,12 @@ function set_debug(dbg)
     _dbg = dbg and true or false
 end
 
-local function _refill_enabled()
+local function is_refill_enabled()
     local mcm = ab_mcm and ab_mcm.cfg
     return mcm and mcm.enabled and mcm.refill
 end
 
-local function _crowd_threshold()
+local function get_crowd_threshold()
     local mcm = ab_mcm and ab_mcm.cfg
     return (mcm and mcm.crowd_threshold) or DEFAULT_CROWD_THRESHOLD
 end
@@ -57,7 +57,7 @@ end
 --- bodies from the current pass; false before the first pass (fail-open, vanilla).
 function is_crowded(level_id, position)
     if _cell_size <= 0 or not position then return false end
-    local threshold = _crowd_threshold()
+    local threshold = get_crowd_threshold()
     local key = xlevel.build_cell_key(level_id, position, _cell_size)
     if not key then return false end
     if (_cells[key] or 0) >= threshold then return true end
@@ -73,7 +73,7 @@ function is_crowded(level_id, position)
     return sum >= threshold * 2
 end
 
-local function _pool_of(section)
+local function get_section_pool(section)
     local cached = _pool_cache[section]
     if cached ~= nil then return cached or nil end
     local raw = ini_sys:r_string_ex(section, "npc_random")
@@ -104,7 +104,7 @@ end
 -- Examine one squad: cells for every offline squad (accumulated regardless of the
 -- refill toggle -- the pacing crowd gates read them), candidacy for squads below their
 -- declared minimum with a random pool. Skips: gone, empty, permanent, companion.
-local function _sweep_squad(squad_id)
+local function _collect_squad(squad_id)
     local squad = xobject.get_se(squad_id)
     if not squad or not squad.npc_count then return end
     local npc_count = squad:npc_count()
@@ -119,18 +119,18 @@ local function _sweep_squad(squad_id)
     local key = xlevel.build_cell_key(level_id, pos, _cell_size)
     if not key then return end
     _cells[key] = (_cells[key] or 0) + npc_count
-    if not _refill_enabled() then return end
-    local bin = ab_smart_recipe.bin_of_faction(squad.player_id)
+    if not is_refill_enabled() then return end
+    local bin = ab_smart_recipe.get_faction_bin(squad.player_id)
     if not bin then return end
     local section = squad:section_name()
     local nmin = xsmart.get_section_npc_range(section)
     if nmin <= npc_count then return end
-    if not _pool_of(section) then return end
+    if not get_section_pool(section) then return end
     _candidates[#_candidates + 1] = { id = squad.id, level_id = level_id, bin = bin, cell = key }
 end
 
 --- Walk up to `per_tick` squads; true when the pass wrapped (caller finalizes then).
-function sweep_chunk(per_tick)
+function iterate_squads(per_tick)
     if not _sweep.active then
         if not _start_pass() then return false end
         _sweep.active = true
@@ -138,7 +138,7 @@ function sweep_chunk(per_tick)
     local last = _sweep.cursor + per_tick - 1
     if last > _sweep.total then last = _sweep.total end
     for i = _sweep.cursor, last do
-        _sweep_squad(_sweep.ids[i])
+        _collect_squad(_sweep.ids[i])
     end
     _sweep.cursor = last + 1
     if _sweep.cursor > _sweep.total then
@@ -149,10 +149,10 @@ function sweep_chunk(per_tick)
 end
 
 --- Console helper (ab_test): run one full sweep synchronously, return squads walked.
-function debug_force_sweep()
+function iterate_all_squads()
     if not _start_pass() then return 0 end
     for i = 1, _sweep.total do
-        _sweep_squad(_sweep.ids[i])
+        _collect_squad(_sweep.ids[i])
     end
     _sweep.active = false
     return _sweep.total
@@ -163,7 +163,7 @@ end
 -- on its own, or lost its smart assignment since consider() saw it. Every decline path
 -- counts its reason into acc (cheap field ops, always on) so the [DRAIN] completion line
 -- explains the whole batch from the log alone.
-local function _refill_one(squad_id, acc)
+local function _add_member(squad_id, acc)
     local squad = xobject.get_se(squad_id)
     if not squad then acc.gone = acc.gone + 1; return end
     if squad.online then acc.online = acc.online + 1; return end
@@ -179,7 +179,7 @@ local function _refill_one(squad_id, acc)
     local commander = xobject.get_se(squad:commander_id())
     if not commander then acc.no_commander = acc.no_commander + 1; return end
     if not xlevel.is_valid_lvid(commander) then acc.bad_lvid = acc.bad_lvid + 1; return end
-    local pool = _pool_of(section)
+    local pool = get_section_pool(section)
     if not pool then acc.no_pool = acc.no_pool + 1; return end
     local member_id = squad:add_squad_member(pool[math_random(#pool)],
         commander.position, commander.m_level_vertex_id, commander.m_game_vertex_id)
@@ -198,19 +198,19 @@ local function _refill_one(squad_id, acc)
 end
 
 --- Filter this pass's candidates against this pass's verdicts and cell counts, then
---- drain one squad per frame. Called from ab_smart_balance._finalize_pass AFTER the
+--- drain one squad per frame. Called from ab_smart_balance._execute_pass AFTER the
 --- verdicts are assigned, so candidates, verdicts, and cells all describe the same pass.
 --- Traces: [QUEUE] (debug) with per-gate skip counts and build time; per-frame [REFILL]
 --- debug lines with frame time; one [DRAIN] info line on completion with decline
 --- reasons, frames, and elapsed wall time -- the log explains the batch without a debugger.
-function finalize_pass()
+function start_drain()
     if #_candidates == 0 then return end
     if xslice.is_active(REFILL_JOB) then
         log.debug("[QUEUE] previous drain still active, skipping pass")
         return
     end
     local build = xprofiler.new_if(_dbg):start()
-    local threshold = _crowd_threshold()
+    local threshold = get_crowd_threshold()
     local work = {}
     local skipped_verdict, skipped_crowd = 0, 0
     for i = 1, #_candidates do
@@ -241,7 +241,7 @@ function finalize_pass()
         func = function(squad_id)
             frames = frames + 1
             local frame_timer = xprofiler.new_if(_dbg):start()
-            _refill_one(squad_id, acc)
+            _add_member(squad_id, acc)
             frame_timer:stop()
             if _dbg then
                 log.debug("[REFILL] squad=%d added_total=%d [%.2fms frame:%d]",
@@ -251,7 +251,7 @@ function finalize_pass()
         end,
         on_done = function()
             local elapsed_ms = (os_clock() - start_time) * 1000
-            if acc.added > 0 then ab_smart_balance.count_refills(acc.added) end
+            if acc.added > 0 then ab_smart_balance.add_refill_count(acc.added) end
             log.info("[DRAIN] added=%d/%d gone=%d online=%d recovered=%d no_smart=%d no_commander=%d bad_lvid=%d no_pool=%d add_failed=%d [%d frames %.0fms]",
                 acc.added, total, acc.gone, acc.online, acc.recovered, acc.no_smart,
                 acc.no_commander, acc.bad_lvid, acc.no_pool, acc.add_failed, frames, elapsed_ms)

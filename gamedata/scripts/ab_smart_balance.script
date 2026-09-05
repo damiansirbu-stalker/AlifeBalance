@@ -132,7 +132,7 @@ local _stats           = { passes = 0, advances = 0, delays = 0, crowd_delays = 
                            ticks = 0, spawns = 0, spawns_from_us = 0 }
 
 -- Format game-time seconds as compact hours. <10h shows one decimal, >=10h shows int.
-local function _fmt_hours(seconds)
+local function _format_hours(seconds)
     if not seconds then return "?" end
     local hours = seconds / 3600
     if hours >= 10 then return string_format("%dh", math_floor(hours)) end
@@ -140,7 +140,7 @@ local function _fmt_hours(seconds)
 end
 
 -- Format real-time seconds (os.clock deltas) as compact h/m/s.
-local function _fmt_real(seconds)
+local function _format_real(seconds)
     if not seconds then return "?" end
     if seconds < 60   then return string_format("%ds", math_floor(seconds)) end
     if seconds < 3600 then return string_format("%dm", math_floor(seconds / 60)) end
@@ -157,15 +157,15 @@ local function _format_cooldown(smart)
     if not now then return "?" end
     local age  = now:diffSec(lru)
     local idle = _resolve_idle(smart)
-    if idle <= 0 then return string_format("age=%s (respawns disabled)", _fmt_hours(age)) end
+    if idle <= 0 then return string_format("age=%s (respawns disabled)", _format_hours(age)) end
     local left = idle - age
-    if left <= 0 then return string_format("age=%s/idle=%s (engine ready)", _fmt_hours(age), _fmt_hours(idle)) end
-    return string_format("age=%s/idle=%s (%s left)", _fmt_hours(age), _fmt_hours(idle), _fmt_hours(left))
+    if left <= 0 then return string_format("age=%s/idle=%s (engine ready)", _format_hours(age), _format_hours(idle)) end
+    return string_format("age=%s/idle=%s (%s left)", _format_hours(age), _format_hours(idle), _format_hours(left))
 end
 
 -- Per-recipe cur/max snapshot. cur = already_spawned[k].num (engine bookkeeping),
--- max = ab_smart_recipe.pick_value_readonly(v.num, actor, smart) (read-only mirror of
--- the engine's eval inside smart_terrain.script:try_respawn; see pick_value_readonly docstring for
+-- max = ab_smart_recipe.select_value_readonly(v.num, actor, smart) (read-only mirror of
+-- the engine's eval inside smart_terrain.script:try_respawn; see select_value_readonly docstring for
 -- why we route through our walker instead of xr_logic.pick_section_from_condlist).
 -- Flags ALL_FULL if no recipe has open budget.
 local function _format_budget(smart)
@@ -174,9 +174,9 @@ local function _format_budget(smart)
     for k, v in pairs(smart.respawn_params) do
         local cur = (smart.already_spawned and smart.already_spawned[k]
                      and smart.already_spawned[k].num) or 0
-        -- pick_value_readonly returns nil on fall-through; capture into a local so
+        -- select_value_readonly returns nil on fall-through; capture into a local so
         -- tonumber sees nil, not a missing argument.
-        local picked = ab_smart_recipe.pick_value_readonly(v.num, db.actor, smart)
+        local picked = ab_smart_recipe.select_value_readonly(v.num, db.actor, smart)
         local max = tonumber(picked) or 0
         if max > cur then any_open = true end
         parts[#parts + 1] = string_format("%s %d/%d", tostring(k), cur, max)
@@ -193,7 +193,7 @@ local function _format_pop(smart)
 end
 
 -- Union faction set across a recipe's squad sections, mutating `seen` (set semantics).
-local function _gather_recipe_factions(recipe, seen)
+local function _collect_recipe_factions(recipe, seen)
     if not recipe.squads then return end
     for _, section in ipairs(recipe.squads) do
         local faction = xsmart.get_section_faction(section)
@@ -204,24 +204,24 @@ end
 -- Set of factions a smart's recipes can actually spawn. Recipe-content derived (via
 -- xsmart.get_section_faction per squad section), not routing-prop derived -- props govern
 -- where a squad can move, not what a smart's recipes produce.
-local function _smart_recipe_factions(smart)
+local function _get_smart_recipe_factions(smart)
     local seen = {}
     if not smart.respawn_params then return seen end
     for _, recipe in pairs(smart.respawn_params) do
-        _gather_recipe_factions(recipe, seen)
+        _collect_recipe_factions(recipe, seen)
     end
     return seen
 end
 
 -- Create or update the per-smart stats record. before_cooldown is captured BEFORE
 -- the cooldown write; we don't store the after-state since the live cooldown is read
--- on demand in show_smart_stats. ctx is the correction context built in _correct_level
+-- on demand in show_smart_stats. ctx is the correction context built in _apply_level_correction
 -- ({ level_id, bin, actual, capacity, model, verdicts_lv }).
-local function _record_action(smart, action, ctx, before_cooldown, budget_str)
+local function _update_smart_stats(smart, action, ctx, before_cooldown, budget_str)
     local entry = _smart_stats[smart.id]
     if not entry then
         local recipe_arr = {}
-        for recipe_faction in pairs(_smart_recipe_factions(smart)) do
+        for recipe_faction in pairs(_get_smart_recipe_factions(smart)) do
             recipe_arr[#recipe_arr + 1] = recipe_faction
         end
         table_sort(recipe_arr)
@@ -252,7 +252,7 @@ end
 -- Hours above 23 are valid: generate_time_impl is unbounded positional arithmetic
 -- (date_time.cpp:118-140, days*24 + hours before scaling to ms), so deltas past 24h
 -- construct correctly (long respawn_idle values with advances=1).
-local function _make_delta_ctime(seconds)
+local function _create_delta_ctime(seconds)
     local secs    = math_floor(seconds)
     local hours   = math_floor(secs / 3600)
     local minutes = math_floor((secs - hours * 3600) / 60)
@@ -280,7 +280,7 @@ local function _get_advance_params(smart)
     local advance_sec = (usable > 0) and (usable / cfg.advances) or 0
     local max_sec     = cfg.max_minutes * SEC_PER_MIN
     local params      = {
-        delta   = (advance_sec > 0) and _make_delta_ctime(advance_sec) or nil,
+        delta   = (advance_sec > 0) and _create_delta_ctime(advance_sec) or nil,
         advance = advance_sec,
         usable  = usable,
         -- Delay ceiling: age may not drop below this, so remaining cooldown
@@ -320,7 +320,7 @@ end
 -- Push lru backward so age grows by push_sec (clamped to the min_minutes floor).
 -- The cached delta serves the full-step case; scaled or clamped pushes build a CTime.
 -- Returns the applied push in seconds.
-local function _advance_smart(smart, push_sec)
+local function _apply_advance(smart, push_sec)
     local lru = smart.last_respawn_update
     if lru == nil then return 0 end
     local params = _get_advance_params(smart)
@@ -331,7 +331,7 @@ local function _advance_smart(smart, push_sec)
     if max_push <= 0 then return 0 end
     if push_sec > max_push then push_sec = max_push end
     if push_sec < MIN_PUSH_SEC then return 0 end
-    local delta = (push_sec == params.advance) and params.delta or _make_delta_ctime(push_sec)
+    local delta = (push_sec == params.advance) and params.delta or _create_delta_ctime(push_sec)
     lru:sub(delta)
     smart.last_respawn_update = lru
     return push_sec
@@ -356,9 +356,9 @@ end
 
 -- Push lru forward so age shrinks by push_sec, clamped so age never goes below
 -- delay_age_floor (the max_minutes ceiling on remaining cooldown; 0 when idle fits
--- under the ceiling). Mirror of _advance_smart with CTime:add (engine binding:
+-- under the ceiling). Mirror of _apply_advance with CTime:add (engine binding:
 -- xr_time.h add_script). Returns the applied push in seconds.
-local function _delay_smart(smart, push_sec)
+local function _apply_delay(smart, push_sec)
     local lru = smart.last_respawn_update
     if lru == nil then return 0 end
     local params = _get_advance_params(smart)
@@ -369,7 +369,7 @@ local function _delay_smart(smart, push_sec)
     if room <= 0 then return 0 end
     if push_sec > room then push_sec = room end
     if push_sec < MIN_PUSH_SEC then return 0 end
-    local delta = (push_sec == params.advance) and params.delta or _make_delta_ctime(push_sec)
+    local delta = (push_sec == params.advance) and params.delta or _create_delta_ctime(push_sec)
     lru:add(delta)
     smart.last_respawn_update = lru
     return push_sec
@@ -378,13 +378,13 @@ end
 --- Hover hint for ab_smart_map markers: mod / feature name + translated smart name +
 --- recipe-derived factions + action snapshot (advances and delays applied, cooldown
 --- remaining the engine still ages out before firing).
---- Exposed for ab_smart_map.mark_smart_with_linger; reads pacing-side _smart_stats directly.
-function marker_label(smart)
+--- Exposed for ab_smart_map.add_marker; reads pacing-side _smart_stats directly.
+function build_marker_label(smart)
     local name       = smart:name() or "?"
     local translated = game.translate_string(name)
     local display    = (translated ~= name and translated) or name
     local refills    = {}
-    for faction in pairs(_smart_recipe_factions(smart)) do
+    for faction in pairs(_get_smart_recipe_factions(smart)) do
         refills[#refills + 1] = faction
     end
     local lines = { "Smart Balance: " .. display }
@@ -402,7 +402,7 @@ function marker_label(smart)
         if idle <= 0 then
             lines[#lines + 1] = "engine respawns disabled"
         elseif left > 0 then
-            lines[#lines + 1] = "engine spawns in " .. _fmt_hours(left) .. " of game time"
+            lines[#lines + 1] = "engine spawns in " .. _format_hours(left) .. " of game time"
         else
             lines[#lines + 1] = "engine spawns on next alife tick"
         end
@@ -441,7 +441,7 @@ end
 -- Verdict for one bin against its declared slot capacity: { v, err } with err the
 -- deficit/excess fraction (0..1), nil inside the deadband. A fully absent bin is
 -- UNDER at any capacity (massacre response).
-local function _bin_verdict(actual, capacity)
+local function _compute_bin_verdict(actual, capacity)
     local band = capacity * BAND_FRAC
     if band < BAND_MIN then band = BAND_MIN end
     local open = capacity - actual
@@ -460,14 +460,14 @@ end
 -- snapshot state, record for the right-click stats display, refresh the marker hint.
 -- Marks the smart in ctx.acted so a smart serving 2 corrected bins still takes exactly
 -- one step per pass ("one step per smart per pass" across bins, not per bin).
-local function _fire_action(smart, ctx, budget_str, action)
+local function _execute_action(smart, ctx, budget_str, action)
     local before_cooldown = _format_cooldown(smart)
     local push = _get_advance_params(smart).advance * (ctx.err or 1)
     local push_sec
     if action == ACTION.ADVANCE then
-        push_sec = _advance_smart(smart, push)
+        push_sec = _apply_advance(smart, push)
     else
-        push_sec = _delay_smart(smart, push)
+        push_sec = _apply_delay(smart, push)
     end
     if push_sec <= 0 then return end
     ctx.acted[smart.id] = true
@@ -477,13 +477,13 @@ local function _fire_action(smart, ctx, budget_str, action)
     else
         _stats.delays = _stats.delays + 1
     end
-    _record_action(smart, action, ctx, before_cooldown, budget_str)
-    if cfg.show_markers then ab_smart_map.mark_smart_with_linger(smart) end
+    _update_smart_stats(smart, action, ctx, before_cooldown, budget_str)
+    if cfg.show_markers then ab_smart_map.add_marker(smart) end
     if _dbg then
         log.debug("[%s] smart=%s level=%d bin=%s actual=%d/capacity=%.1f push=%s pop=%s cooldown[%s -> %s] budget=%s",
             action == ACTION.ADVANCE and "ADVANCE" or "DELAY",
             smart:name() or "?", ctx.level_id, tostring(ctx.bin), ctx.actual, ctx.capacity,
-            _fmt_hours(push_sec), _format_pop(smart), before_cooldown,
+            _format_hours(push_sec), _format_pop(smart), before_cooldown,
             _format_cooldown(smart), budget_str or "-")
     end
 end
@@ -496,14 +496,14 @@ end
 local function _try_advance(smart, ctx)
     if not _can_advance(smart) then return end
     if ab_squad_refill.is_crowded(ctx.level_id, smart.position) then return end
-    local matched, budget_str = ab_smart_recipe.evaluate_budget_for_bin(smart, ctx.bin)
+    local matched, budget_str = ab_smart_recipe.compute_bin_budget(smart, ctx.bin)
     if not matched then return end
-    _fire_action(smart, ctx, budget_str, ACTION.ADVANCE)
+    _execute_action(smart, ctx, budget_str, ACTION.ADVANCE)
 end
 
 -- Delay only smarts whose every produced bin is over capacity: a mixed smart still
 -- serving an under- or in-band bin is never punished for the crowded one.
-local function _all_bins_over(smart_id, ctx)
+local function _check_all_bins_over(smart_id, ctx)
     local bins = ctx.model.smart_bins[smart_id]
     if not bins then return false end
     for bin in pairs(bins) do
@@ -515,15 +515,15 @@ end
 
 local function _try_delay(smart, ctx)
     if not _can_delay(smart) then return end
-    if not _all_bins_over(smart.id, ctx) then return end
-    -- Budget is not a delay gate; the snapshot string feeds _record_action so the
+    if not _check_all_bins_over(smart.id, ctx) then return end
+    -- Budget is not a delay gate; the snapshot string feeds _update_smart_stats so the
     -- right-click "Show stats" display carries real budget data for delays too.
-    local _, budget_str = ab_smart_recipe.evaluate_budget_for_bin(smart, ctx.bin)
-    _fire_action(smart, ctx, budget_str, ACTION.DELAY)
+    local _, budget_str = ab_smart_recipe.compute_bin_budget(smart, ctx.bin)
+    _execute_action(smart, ctx, budget_str, ACTION.DELAY)
 end
 
 -- Format one bin's [PASS] log fragment.
-local function _pass_part(bin, actual, capacity, verdict)
+local function _format_pass_part(bin, actual, capacity, verdict)
     local tag = ""
     if verdict then
         tag = string_format(" %s %.0f%%",
@@ -534,7 +534,7 @@ end
 
 -- Judge one level from the live slot ledger: verdicts per producible bin, nil when
 -- every bin is in band. Also folds the level's (actual, capacity) into the world sums.
-local function _judge_level(level_id, world)
+local function _compute_level_verdicts(level_id, world)
     local model = ab_smart_recipe.get_level_model(level_id)
     local actual_lv = ab_smart_recipe.read_actual(model)
     _last_actual[level_id] = actual_lv
@@ -549,12 +549,12 @@ local function _judge_level(level_id, world)
         end
         world_bin.actual = world_bin.actual + actual
         world_bin.capacity = world_bin.capacity + capacity
-        local verdict = _bin_verdict(actual, capacity)
+        local verdict = _compute_bin_verdict(actual, capacity)
         if verdict then
             verdicts_lv = verdicts_lv or {}
             verdicts_lv[bin] = verdict
         end
-        if parts then parts[#parts + 1] = _pass_part(bin, actual, capacity, verdict) end
+        if parts then parts[#parts + 1] = _format_pass_part(bin, actual, capacity, verdict) end
     end
     if parts then
         log.debug("[PASS] level=%d slots [%s]", level_id, table_concat(parts, ", "))
@@ -567,7 +567,7 @@ end
 -- back for delays). Smarts that already took a step this pass (ctx.acted, set on fire,
 -- not on a declined try -- a closed budget for one bin must not block another bin's
 -- attempt) are skipped.
-local function _correct_bin(verdict, eligibles, ctx)
+local function _apply_bin_correction(verdict, eligibles, ctx)
     if not eligibles then return end
     local try = (verdict.v == VERDICT_UNDER) and _try_advance or _try_delay
     for i = 1, #eligibles do
@@ -580,7 +580,7 @@ end
 -- crowding is local overpopulation, and slowing the local spawners is the delay
 -- lever's native answer (one full step; the crowd gate is binary). Same bounds as
 -- every delay: fresh smarts skipped, ceiling capped, never blocks.
-local function _delay_crowded(level_id, model, acted)
+local function _apply_crowd_delay(level_id, model, acted)
     local smarts = model.smarts
     for i = 1, #smarts do
         local smart = smarts[i]
@@ -588,13 +588,13 @@ local function _delay_crowded(level_id, model, acted)
            and ab_squad_refill.is_crowded(level_id, smart.position) then
             local ctx = { level_id = level_id, bin = "crowd", actual = 0,
                           capacity = 0, err = 1, acted = acted }
-            _fire_action(smart, ctx, nil, ACTION.DELAY)
+            _execute_action(smart, ctx, nil, ACTION.DELAY)
             _stats.crowd_delays = _stats.crowd_delays + 1
         end
     end
 end
 
-local function _correct_level(level_id, verdicts_lv, acted)
+local function _apply_level_correction(level_id, verdicts_lv, acted)
     local model = ab_smart_recipe.get_level_model(level_id)
     local actual_lv = _last_actual[level_id]
     if verdicts_lv then
@@ -609,10 +609,10 @@ local function _correct_level(level_id, verdicts_lv, acted)
                 verdicts_lv = verdicts_lv,
                 acted       = acted,
             }
-            _correct_bin(verdict, model.eligible[bin], ctx)
+            _apply_bin_correction(verdict, model.eligible[bin], ctx)
         end
     end
-    _delay_crowded(level_id, model, acted)
+    _apply_crowd_delay(level_id, model, acted)
 end
 
 -- Pass end: refresh models on cadence, judge every respawn-capable level from the live
@@ -620,18 +620,18 @@ end
 -- (engine gate 2, smart_terrain.script:1607) idles the pacing wholesale -- the engine
 -- spawns nothing while it holds, so every push would be wasted; the refill is
 -- unaffected (add_squad_member does not route through try_respawn).
-local function _finalize_pass()
+local function _execute_pass()
     local tmr = xprofiler.new_if(_dbg):start()
     _passes = _passes + 1
     _stats.passes = _passes
     if _passes % MODEL_REFRESH_PASSES == 0 then
-        ab_smart_recipe.invalidate_models()
+        ab_smart_recipe.clear_models()
     end
     local out = {}
     local world = {}
     local levels = ab_smart_recipe.get_respawn_level_ids()
     for level_id in pairs(levels) do
-        out[level_id] = _judge_level(level_id, world)
+        out[level_id] = _compute_level_verdicts(level_id, world)
     end
     _verdicts = out
     _world = world
@@ -639,10 +639,10 @@ local function _finalize_pass()
     if cfg.pacing and not peace then
         local acted = {}
         for level_id in pairs(levels) do
-            _correct_level(level_id, out[level_id], acted)
+            _apply_level_correction(level_id, out[level_id], acted)
         end
     end
-    ab_squad_refill.finalize_pass()
+    ab_squad_refill.start_drain()
     tmr:stop()
     if _dbg then
         log.debug("[SUMMARY] pass=%d advances=%d delays=%d crowd_delays=%d refills=%d size_adds=%d spawns=%d from_advance=%d peace=%s [finalize %.2fms]",
@@ -668,7 +668,7 @@ local function _on_npc_creation(squad, _se_obj, spawn_smart)
     if not spawn_smart then return end
     _stats.spawns = _stats.spawns + 1
     -- from_us = at least one advance fired at this smart since the previous spawn here.
-    -- _advance_pending is set in _fire_action and consumed (cleared) on the next spawn,
+    -- _advance_pending is set in _execute_action and consumed (cleared) on the next spawn,
     -- so spawns_from_us accurately reflects "engine spawns we caused" rather than
     -- "engine spawns at smarts we ever touched".
     local from_us = _advance_pending[spawn_smart.id] == true
@@ -702,18 +702,18 @@ local function _on_try_respawn(smart, _flags)
         smart:name() or "?", _format_cooldown(smart))
 end
 
--- One refill sweep chunk per tick; verdicts and corrections fire in _finalize_pass
+-- One refill sweep chunk per tick; verdicts and corrections fire in _execute_pass
 -- when the sweep wraps. ResetTimeEvent FIRST: a nil return without a reset refires the event
 -- NEXT FRAME (doc/library/xray/internals/globals.md:188-191), and this body has early nil
 -- returns (the disabled gate), so the reset must precede them.
-local function _periodic_tick()
+local function _run_tick()
     ResetTimeEvent(TIMER_EV, TIMER_TICK, TICK_INTERVAL_SEC)
     if not cfg.enabled then return end
     _stats.ticks = _stats.ticks + 1
-    if ab_squad_refill.sweep_chunk(SWEEP_PER_TICK) then
-        _finalize_pass()
+    if ab_squad_refill.iterate_squads(SWEEP_PER_TICK) then
+        _execute_pass()
     end
-    ab_smart_map.prune_markers()
+    ab_smart_map.remove_expired_markers()
 end
 
 --- Verdict sign for a (level, bin) from the last completed pass.
@@ -740,18 +740,18 @@ function get_band_frac()
 end
 
 --- Stats hook for ab_squad_refill: members added by the refill drain.
-function count_refills(added)
+function add_refill_count(added)
     _stats.refills = _stats.refills + added
 end
 
 --- Stats hook for ab_spawn_size: members added to squads at spawn.
-function count_spawn_size_adds(added)
+function add_spawn_size_count(added)
     _stats.spawn_size_adds = _stats.spawn_size_adds + added
 end
 
 --- Console helper (ab_test): read-only snapshot of one smart's pacing state under the
 --- current config: resolved idle, cooldown age, step sizing, delay age floor, both gates.
-function debug_probe_smart(smart)
+function get_smart_state(smart)
     local params = _get_advance_params(smart)
     local now = xtime.get_game_time()
     local lru = smart.last_respawn_update
@@ -768,35 +768,35 @@ end
 
 --- Console helper (ab_test): one gated full-strength advance step (err = 1), bypassing
 --- verdicts and budget (pure actuator). Returns pushed seconds, 0 when gated.
-function debug_advance_step(smart)
+function apply_advance_step(smart)
     if not _can_advance(smart) then return 0 end
-    return _advance_smart(smart, _get_advance_params(smart).advance)
+    return _apply_advance(smart, _get_advance_params(smart).advance)
 end
 
 --- Console helper (ab_test): one gated full-strength delay step (pure actuator mirror).
 --- Returns pushed seconds, 0 when gated.
-function debug_delay_step(smart)
+function apply_delay_step(smart)
     if not _can_delay(smart) then return 0 end
-    return _delay_smart(smart, _get_advance_params(smart).advance)
+    return _apply_delay(smart, _get_advance_params(smart).advance)
 end
 
 --- Console helper (ab_test): run one full sweep + pass synchronously and return the
 --- number of squads walked. Heavier than the staggered pass; diagnostic use only.
-function debug_force_pass()
-    local swept = ab_squad_refill.debug_force_sweep()
-    _finalize_pass()
+function run_full_pass()
+    local swept = ab_squad_refill.iterate_all_squads()
+    _execute_pass()
     return swept
 end
 
 --- Console helper (ab_test): live counters table (advances, delays, refills, spawns, ...).
 --- Returned by reference; callers snapshot fields they compare across stages.
-function debug_get_stats()
+function get_stats()
     return _stats
 end
 
 --- Console helper (ab_test): one level's state as { [bin] = { actual, capacity, verdict } }
 --- in slot units, from the live ledger and the current model.
-function debug_level_state(level_id)
+function get_level_state(level_id)
     local model = ab_smart_recipe.get_level_model(level_id)
     local actual_lv = ab_smart_recipe.read_actual(model)
     local out = {}
@@ -811,13 +811,13 @@ function debug_level_state(level_id)
 end
 
 --- Console helper (ab_test): eligible smarts array for a (level, bin), from the model.
-function debug_eligible_smarts(level_id, bin)
+function get_eligible_smarts(level_id, bin)
     return ab_smart_recipe.get_level_model(level_id).eligible[bin]
 end
 
 --- Console helper (ab_test): one "level: bin actual/capacity verdict" slot line per
 --- respawn-capable level, from the last pass.
-function debug_status_lines()
+function get_status_lines()
     local lines = {}
     for level_id in pairs(_last_actual) do
         local model = ab_smart_recipe.get_level_model(level_id)
@@ -849,8 +849,8 @@ function show_smart_stats(se_obj)
         return
     end
     local now       = os_clock()
-    local last_ago  = _fmt_real(now - (entry.last_at or entry.first_at))
-    local first_ago = _fmt_real(now - entry.first_at)
+    local last_ago  = _format_real(now - (entry.last_at or entry.first_at))
+    local first_ago = _format_real(now - entry.first_at)
     local trigger   = entry.last_trigger or {}
     news_manager.send_tip(db.actor, string_format(
         "%s: %d advances, %d delays (last %s ago, first %s ago)",
@@ -908,7 +908,7 @@ local function _on_first_update()
     RegisterScriptCallback(CALLBACK.LOAD_STATE, _on_load_state)
     RegisterScriptCallback(CALLBACK.ON_TRY_RESPAWN, _on_try_respawn)
     RemoveTimeEvent(TIMER_EV, TIMER_TICK)
-    CreateTimeEvent(TIMER_EV, TIMER_TICK, TICK_INTERVAL_SEC, _periodic_tick)
+    CreateTimeEvent(TIMER_EV, TIMER_TICK, TICK_INTERVAL_SEC, _run_tick)
 end
 
 function on_game_start()

@@ -1,6 +1,6 @@
 --- ab_smart_map: PDA map markers + right-click menu for smart terrains advanced by ab_smart_balance.
 --- Marker render-state (_markers) owned here. Pacing-side bookkeeping lives in ab_smart_balance
---- and is read via ab_smart_balance.marker_label / ab_smart_balance.show_smart_stats.
+--- and is read via ab_smart_balance.build_marker_label / ab_smart_balance.show_smart_stats.
 
 local pairs, os_clock = pairs, os.clock
 local RegisterScriptCallback = RegisterScriptCallback
@@ -25,14 +25,14 @@ local function _show_markers_enabled()
     return mcm and mcm.show_markers
 end
 
-function mark_smart_with_linger(smart)
+function add_marker(smart)
     if not smart then return end
-    local label = ab_smart_balance.marker_label(smart)
+    local label = ab_smart_balance.build_marker_label(smart)
     xpda.add_entity_marker(smart.id, { marker_type = MARKER_TYPE, label = label })
     _markers[smart.id] = os_clock() + MARKER_LINGER_SEC
 end
 
-function unmark_smart(smart_id)
+function remove_marker(smart_id)
     xpda.remove_entity_marker(smart_id, MARKER_TYPE)
     _markers[smart_id] = nil
 end
@@ -44,10 +44,10 @@ function clear_all_markers()
     _markers = {}
 end
 
-function prune_markers()
+function remove_expired_markers()
     local now = os_clock()
     for smart_id, expires_at in pairs(_markers) do
-        if now >= expires_at then unmark_smart(smart_id) end
+        if now >= expires_at then remove_marker(smart_id) end
     end
 end
 
@@ -55,7 +55,7 @@ local function _teleport_menu_label(smart_name_key)
     return game.translate_string(TELEPORT_KEY) .. " " .. game.translate_string(smart_name_key)
 end
 
-local function _stats_menu_label(smart_name_key)
+local function _build_stats_menu_label(smart_name_key)
     return game.translate_string(STATS_KEY) .. " " .. game.translate_string(smart_name_key)
 end
 
@@ -66,7 +66,7 @@ local function _on_map_spot_menu_add(property_ui, id, _level_name)
     if not se_obj or se_obj:clsid() ~= clsid.smart_terrain then return end
     local name = se_obj:name()
     property_ui:AddItem(_teleport_menu_label(name))
-    property_ui:AddItem(_stats_menu_label(name))
+    property_ui:AddItem(_build_stats_menu_label(name))
 end
 
 -- Teleport mechanism mirrors game_fast_travel.script:117-122 exactly.
@@ -85,7 +85,7 @@ local function _on_map_spot_menu_clicked(_property_ui, id, _level_name, prop)
         end
         return
     end
-    if prop == _stats_menu_label(name) then
+    if prop == _build_stats_menu_label(name) then
         ab_smart_balance.show_smart_stats(se_obj)
         return
     end

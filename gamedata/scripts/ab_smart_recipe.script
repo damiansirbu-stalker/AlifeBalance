@@ -5,7 +5,7 @@
 --- reader list read_actual() sums live already_spawned counts through. A bin is a
 --- human faction or the single MUTANTS aggregate (every monster faction as one group).
 --- Models are cached per level and invalidated on a fixed pass cadence by
---- ab_smart_balance (invalidate_models), because respawn_params is NOT static:
+--- ab_smart_balance (clear_models), because respawn_params is NOT static:
 --- spawn_num condlists flip with story infos, and runtime mutators (territory
 --- conquest / infestation) inject and remove entries.
 --- State wiped by reset_state() (called from ab_smart_balance on save load).
@@ -24,14 +24,14 @@ MUTANTS = "__mutants"
 -- alife_stalker_pop / alife_mutant_pop; ZCP replaces those with its own MCM cvars
 -- (GAMMA seeds both to 0.5). Split into stalker/monster getters so the per-recipe
 -- classifier can mirror the engine's factor selection verbatim.
-local function _monster_pop_factor()
+local function get_monster_pop_factor()
     if smr_amain_mcm and smr_amain_mcm.get_config and smr_amain_mcm.get_config("smr_enabled") then
         return smr_amain_mcm.get_config("monster_pop_factor") or 1
     end
     return ui_options.get("alife/general/alife_mutant_pop") or 1
 end
 
-local function _stalker_pop_factor()
+local function get_stalker_pop_factor()
     if smr_amain_mcm and smr_amain_mcm.get_config and smr_amain_mcm.get_config("smr_enabled") then
         return smr_amain_mcm.get_config("stalker_pop_factor") or 1
     end
@@ -43,7 +43,7 @@ end
 -- containing "simulation" or "zombied" takes the monster factor, "sim_squad" takes the
 -- stalker factor, anything else stays unscaled. Classifying by the recipe's own first
 -- section, not the target bin, is what makes AB agree with the engine gate.
-local function _recipe_factor(recipe, monster_factor, stalker_factor)
+local function _compute_recipe_factor(recipe, monster_factor, stalker_factor)
     local squads = recipe.squads
     local section = squads and squads[1]
     if not section then return 1 end
@@ -76,7 +76,7 @@ end
 
 --- Drop every cached level model. Called by ab_smart_balance on its recompute cadence
 --- and on state reset, so condlist flips and mutator injections converge within a cadence.
-function invalidate_models()
+function clear_models()
     _models = {}
 end
 
@@ -89,22 +89,22 @@ end
 
 --- Classify a squad section into a bin: MUTANTS for monster factions, the faction
 --- name for human factions, nil when the section has no faction field.
-function bin_of_section(section)
+function get_section_bin(section)
     local faction = xsmart.get_section_faction(section)
     if not faction then return nil end
     if xcreature.is_monster_faction(faction) then return MUTANTS end
     return faction
 end
 
---- Classify a squad's player_id into a bin (same key space as bin_of_section).
-function bin_of_faction(faction)
+--- Classify a squad's player_id into a bin (same key space as get_section_bin).
+function get_faction_bin(faction)
     if not faction or faction == "" then return nil end
     if xcreature.is_monster_faction(faction) then return MUTANTS end
     return faction
 end
 
 -- "stalker|bandit" or "?" -- factions any squad section in this recipe can produce.
-local function _recipe_factions_str(recipe)
+local function _format_recipe_factions(recipe)
     if not recipe.squads then return "?" end
     local seen = {}
     for _, section in ipairs(recipe.squads) do
@@ -118,21 +118,21 @@ local function _recipe_factions_str(recipe)
 end
 
 -- "recipe_a->stalker, recipe_b->bandit" or "none" -- one entry per recipe in the smart.
-local function _smart_recipes_str(smart)
+local function _format_smart_recipes(smart)
     if not smart.respawn_params then return "none" end
     local parts = {}
     for k, recipe in pairs(smart.respawn_params) do
-        parts[#parts + 1] = tostring(k) .. "->" .. _recipe_factions_str(recipe)
+        parts[#parts + 1] = tostring(k) .. "->" .. _format_recipe_factions(recipe)
     end
     if #parts == 0 then return "none" end
     return table_concat(parts, ", ")
 end
 
 -- True if any section in the recipe produces the bin.
-local function _recipe_has_bin(recipe, bin)
+local function _has_recipe_bin(recipe, bin)
     if not recipe.squads then return false end
     for _, section in ipairs(recipe.squads) do
-        if bin_of_section(section) == bin then return true end
+        if get_section_bin(section) == bin then return true end
     end
     return false
 end
@@ -154,7 +154,7 @@ local function _log_inventory(level_id)
             total = total + 1
             log.debug("[INVENTORY] level=%d smart=%s routing=%s recipes=[%s]",
                 level_id, smart:name() or "?",
-                tostring(smart.faction), _smart_recipes_str(smart))
+                tostring(smart.faction), _format_smart_recipes(smart))
         end
     end
     log.debug("[INVENTORY] level=%d total_smarts=%d", level_id, total)
@@ -213,7 +213,7 @@ local function _check_condition_entry(infop, obj, npc, npc_info, actor, sim)
 end
 
 -- All conditions in a cond[2] list must pass for the cond to match.
-local function _all_conditions_pass(conds, obj, npc, npc_info, actor, sim)
+local function _check_all_conditions(conds, obj, npc, npc_info, actor, sim)
     for j = 1, #conds do
         if not _check_condition_entry(conds[j], obj, npc, npc_info, actor, sim) then
             return false
@@ -236,7 +236,7 @@ end
 --       future engine reader changes that might add new side effects.
 -- Return semantics match engine: "" on nil condlist, cond[1] or "" on match, nil on no
 -- match. Callers handle all three via tonumber(picked) or 0.
-function pick_value_readonly(condlist, obj, npc)
+function select_value_readonly(condlist, obj, npc)
     if not condlist then return "" end
     -- npc_info = npc when usable for npc-side info dispatch; nil when caller passed the
     -- actor as npc (vanilla treats AC_ID-as-npc as "no npc-side check"). npc itself is
@@ -251,7 +251,7 @@ function pick_value_readonly(condlist, obj, npc)
     for i = 1, #condlist do
         local cond = condlist[i]
         local conds = cond[2]
-        if not conds or _all_conditions_pass(conds, obj, npc, npc_info, actor, sim) then
+        if not conds or _check_all_conditions(conds, obj, npc, npc_info, actor, sim) then
             return cond[1] or ""
         end
     end
@@ -269,7 +269,7 @@ end
 -- cap is ceil of that -- a proven identity with the engine's `max > num` gate: integer
 -- max caps at max, fractional 1.5 caps at 2, chance recipes (<1) cap at 1 behind the
 -- engine's own roll.
-local function _recipe_slot_cap(recipe, k, smart, monster_factor, stalker_factor)
+local function _compute_recipe_slot_cap(recipe, k, smart, monster_factor, stalker_factor)
     local spawned = smart.already_spawned and smart.already_spawned[k]
     if not (recipe.num and spawned and spawned.num) then return nil end
     local faction = smart.faction or smart.default_faction
@@ -278,9 +278,9 @@ local function _recipe_slot_cap(recipe, k, smart, monster_factor, stalker_factor
         return nil
     end
     if not recipe.squads or #recipe.squads == 0 then return nil end
-    local raw = tonumber(pick_value_readonly(recipe.num, db.actor, smart)) or 0
+    local raw = tonumber(select_value_readonly(recipe.num, db.actor, smart)) or 0
     if raw <= 0 then return nil end
-    local factor = _recipe_factor(recipe, monster_factor, stalker_factor)
+    local factor = _compute_recipe_factor(recipe, monster_factor, stalker_factor)
     local eff = (factor ~= 1) and math_floor(raw * factor + 0.5) or raw
     if eff <= 0 then return nil end
     return math_ceil(eff)
@@ -295,7 +295,7 @@ local function _add_recipe_to_model(smart, k, recipe, slot_cap, model, bins_here
     local per_bin = {}
     local total = #recipe.squads
     for _, section in ipairs(recipe.squads) do
-        local bin = bin_of_section(section)
+        local bin = get_section_bin(section)
         if bin then
             per_bin[bin] = (per_bin[bin] or 0) + 1
         end
@@ -331,7 +331,7 @@ end
 local function _add_smart_to_model(smart, model, monster_factor, stalker_factor)
     local bins_here = {}
     for k, recipe in pairs(smart.respawn_params) do
-        local slot_cap = _recipe_slot_cap(recipe, k, smart, monster_factor, stalker_factor)
+        local slot_cap = _compute_recipe_slot_cap(recipe, k, smart, monster_factor, stalker_factor)
         if slot_cap then
             _add_recipe_to_model(smart, k, recipe, slot_cap, model, bins_here)
         end
@@ -343,8 +343,8 @@ end
 local function _build_model(level_id, model)
     local board = SIMBOARD
     if not board or not board.smarts then return end
-    local monster_factor = _monster_pop_factor()
-    local stalker_factor = _stalker_pop_factor()
+    local monster_factor = get_monster_pop_factor()
+    local stalker_factor = get_stalker_pop_factor()
     for _, rec in pairs(board.smarts) do
         local smart = rec.smrt
         if smart and smart.respawn_params and xlevel.get_level_id(smart) == level_id then
@@ -358,7 +358,7 @@ end
 --- sim_squad_scripted.script:1028) attributed by the same section fractions capacity
 --- used. Pure Lua field reads on cached references; call per pass, never cached.
 -- Fold one reader's floor-guarded num into the actual sums by its section fractions.
-local function _read_one(reader, actual)
+local function _collect_reader(reader, actual)
     local spawned = reader.smart.already_spawned
     local entry = spawned and spawned[reader.key]
     local num = entry and entry.num or 0
@@ -372,7 +372,7 @@ function read_actual(model)
     local actual = {}
     local readers = model.readers
     for i = 1, #readers do
-        _read_one(readers[i], actual)
+        _collect_reader(readers[i], actual)
     end
     return actual
 end
@@ -394,7 +394,7 @@ function get_respawn_level_ids()
     return out
 end
 
---- Level model accessor. Computed lazily per level, cached until invalidate_models /
+--- Level model accessor. Computed lazily per level, cached until clear_models /
 --- reset_state. One walk over the level's smarts builds capacity, eligibility, and the
 --- smart->bins reverse map together, so the three views can never disagree.
 function get_level_model(level_id)
@@ -426,7 +426,7 @@ end
 -- LTX capacity (unscaled) used for the printed snapshot; effective max applies the mirrored
 -- per-recipe factor (round-half-up for >= 1, optimistic on fractional since AB cannot
 -- replicate the engine's probabilistic gate for max < 1).
-local function _eval_recipe(recipe, k, smart, bin, monster_factor, stalker_factor)
+local function _compute_recipe_budget(recipe, k, smart, bin, monster_factor, stalker_factor)
     -- Engine guard (smart_terrain.script:1666,1701-1702): no num or no live
     -- already_spawned[k].num -> engine logs ERROR and skips. AB skips silently.
     local spawned = smart.already_spawned and smart.already_spawned[k]
@@ -441,18 +441,18 @@ local function _eval_recipe(recipe, k, smart, bin, monster_factor, stalker_facto
         return nil
     end
     local cur = spawned.num
-    local raw_max = tonumber(pick_value_readonly(recipe.num, db.actor, smart)) or 0
-    local factor = _recipe_factor(recipe, monster_factor, stalker_factor)
+    local raw_max = tonumber(select_value_readonly(recipe.num, db.actor, smart)) or 0
+    local factor = _compute_recipe_factor(recipe, monster_factor, stalker_factor)
     local effective_max = raw_max * factor
     local max = (effective_max >= 1) and math_floor(effective_max + 0.5) or effective_max
     local open = max > cur
-    local eligible = open and _recipe_has_bin(recipe, bin)
+    local eligible = open and _has_recipe_bin(recipe, bin)
     return cur, raw_max, open, eligible
 end
 
 -- Fold one evaluated recipe into the budget accumulator: track any-open, capture the
 -- first open bin-matching recipe as the winner, append the printed snapshot part.
-local function _fold_budget(state, k, cur, raw_max, open, eligible)
+local function _collect_recipe_budget(state, k, cur, raw_max, open, eligible)
     if open then state.any_open = true end
     if not state.matched_key and eligible then state.matched_key = k end
     local mark = (state.matched_key == k) and "*" or ""
@@ -460,19 +460,19 @@ local function _fold_budget(state, k, cur, raw_max, open, eligible)
 end
 
 -- Single-pass budget eval. For each recipe the engine would consider: compute cur
--- (already_spawned[k].num) and effective max (pick_value_readonly on recipe.num times the
+-- (already_spawned[k].num) and effective max (select_value_readonly on recipe.num times the
 -- mirrored factor); first recipe with open budget AND a bin-matching section wins.
--- pick_value_readonly runs ONCE per recipe per call, so the gate decision and the printed
--- snapshot read the same value. Recipes the engine skips (see _eval_recipe) are omitted.
-function evaluate_budget_for_bin(smart, bin)
+-- select_value_readonly runs ONCE per recipe per call, so the gate decision and the printed
+-- snapshot read the same value. Recipes the engine skips (see _compute_recipe_budget) are omitted.
+function compute_bin_budget(smart, bin)
     if not smart.respawn_params then return nil, "[no respawn_params]" end
-    local monster_factor = _monster_pop_factor()
-    local stalker_factor = _stalker_pop_factor()
+    local monster_factor = get_monster_pop_factor()
+    local stalker_factor = get_stalker_pop_factor()
     local state = { parts = {}, any_open = false, matched_key = nil }
     for k, recipe in pairs(smart.respawn_params) do
-        local cur, raw_max, open, eligible = _eval_recipe(recipe, k, smart, bin, monster_factor, stalker_factor)
+        local cur, raw_max, open, eligible = _compute_recipe_budget(recipe, k, smart, bin, monster_factor, stalker_factor)
         if cur ~= nil then
-            _fold_budget(state, k, cur, raw_max, open, eligible)
+            _collect_recipe_budget(state, k, cur, raw_max, open, eligible)
         end
     end
     return state.matched_key, string_format("[%s]%s",
