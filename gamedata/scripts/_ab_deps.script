@@ -50,8 +50,7 @@ function platform_status()
     return line .. " (fully compatible)", "full"
 end
 
--- MCM ui_hook_functor for the footer row: writes platform_status into the desc widget, colored by
--- verdict. Colors build lazily (GetARGB is absent under the static validator).
+-- MCM footer hook: writes platform_status into the desc widget, colored by verdict; colors built lazily (GetARGB absent under the static validator).
 local _footer_clr = nil
 function platform_functor()
     return function(_anchor, handlers)
@@ -110,8 +109,6 @@ function on_game_start()
         )
     end
 
-    -- The boot platform line and the MCM footer come from the same builder, so they never drift.
-    -- printf lands it in xray_*.log (the log reporters attach); xlog mirrors it to <mod>.log.
     local platform_line = (platform_status())
     printf("~ [%s] %s", MOD_NAME, platform_line)
     xlog.get_logger(MOD_NAME, { outfile = MOD_NAME:lower() .. ".log" })

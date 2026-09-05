@@ -1,6 +1,4 @@
---- ab_smart_map: PDA map markers + right-click menu for smart terrains advanced by ab_smart_balance.
---- Marker render-state (_markers) owned here. Pacing-side bookkeeping lives in ab_smart_balance
---- and is read via ab_smart_balance.build_marker_label / ab_smart_balance.show_smart_stats.
+--- ab_smart_map: PDA map markers + right-click menu for smart terrains that ab_smart_balance advances.
 
 local pairs, os_clock = pairs, os.clock
 local RegisterScriptCallback = RegisterScriptCallback

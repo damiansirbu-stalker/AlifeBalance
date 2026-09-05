@@ -1,16 +1,4 @@
 --- ab_squad_refill: Squad Refill - offline repair of squads below their declared minimum
----
---- Owns the staggered squad sweep (the mod's only squad walk): each tick walks a chunk
---- of a SIMBOARD id snapshot, accumulating per-cell offline body counts (xlevel.build_cell_key
---- at switch_distance granularity -- the crowded-area check every system reads) and
---- collecting squads below their section's own npc_in_squad minimum as candidates.
---- At pass end candidates whose (level, bin) is not OVER and whose cell is not crowded
---- drain through xslice, one squad per frame, one member per squad per pass, via the
---- engine's add_squad_member at the commander's position (register_npc +
---- setup_squad_and_group, the vanilla member-add call shape).
----
---- Add-only and declared-bounded: refills stop at the section's own npc_in_squad
---- minimum and never touch online, permanent, or companion squads.
 
 local pairs, tostring, math_random = pairs, tostring, math.random
 local os_clock, alife = os.clock, alife
@@ -24,17 +12,13 @@ local DEFAULT_CROWD_THRESHOLD = 60
 
 local _dbg = false
 
--- Sweep state: SIMBOARD id snapshot + cursor. Per-pass accumulators, rebuilt each pass:
--- _cells[key] = offline body count per xlevel.build_cell_key (all offline squads, not just
--- candidates -- the crowded-area check needs the full picture); _candidates = array of
--- { id, level_id, bin, cell } squads below their declared minimum.
+-- Pass accumulators, rebuilt each pass: _cells[key] = offline body count (all squads); _candidates = below-min squads as { id, level_id, bin, cell }.
 local _sweep      = { ids = {}, total = 0, cursor = 1, active = false }
 local _cell_size  = 0
 local _cells      = {}
 local _candidates = {}
 
--- _pool_cache[section] = parsed npc_random array, or false when the section has none
--- (fixed roster). Session-lifetime: squad_descr LTX is static.
+-- _pool_cache[section] = parsed npc_random array, or false when none (fixed roster); session-lifetime, squad_descr LTX is static.
 local _pool_cache = {}
 
 function set_debug(dbg)
@@ -51,10 +35,8 @@ local function get_crowd_threshold()
     return (mcm and mcm.crowd_threshold) or DEFAULT_CROWD_THRESHOLD
 end
 
---- True when the area holding `position` on `level_id` is crowded: its own cell is at
---- the threshold, or its 3x3 neighborhood holds double (catches piles straddling a
---- cell border). Shared gate: refill drain, advance lever, crowd delay. Counts offline
---- bodies from the current pass; false before the first pass (fail-open, vanilla).
+--- True when the area at `position` on `level_id` is crowded: own cell at the threshold, or its 3x3 neighborhood at double.
+--- Shared gate for refill drain, advance lever, and crowd delay; offline bodies from the current pass, fail-open before it.
 function is_crowded(level_id, position)
     if _cell_size <= 0 or not position then return false end
     local threshold = get_crowd_threshold()
@@ -73,12 +55,12 @@ function is_crowded(level_id, position)
     return sum >= threshold * 2
 end
 
+--- Parsed npc_random pool for a section, cached (false = no pool).
+--- @src _g.script: parse_names read via _G at call time (not loaded when this chunk runs under the stub load test).
 local function get_section_pool(section)
     local cached = _pool_cache[section]
     if cached ~= nil then return cached or nil end
     local raw = ini_sys:r_string_ex(section, "npc_random")
-    -- parse_names read via _G at call time: it lives in _g.script, which is not loaded
-    -- yet when this module's top-level chunk runs under the stub-based load test.
     local pool = raw and parse_names(raw) or nil
     if not pool or #pool == 0 then
         _pool_cache[section] = false
@@ -101,9 +83,8 @@ local function _start_pass()
     return total > 0
 end
 
--- Examine one squad: cells for every offline squad (accumulated regardless of the
--- refill toggle -- the pacing crowd gates read them), candidacy for squads below their
--- declared minimum with a random pool. Skips: gone, empty, permanent, companion.
+-- Examine one squad: accumulate its offline body count into the cells, and mark it a candidate if below its declared minimum with a random pool.
+-- Skips: gone, empty, permanent, companion.
 local function _collect_squad(squad_id)
     local squad = xobject.get_se(squad_id)
     if not squad or not squad.npc_count then return end
@@ -158,11 +139,8 @@ function iterate_all_squads()
     return _sweep.total
 end
 
--- Refill one candidate squad by one member. State re-verified fresh in the drain frame:
--- the pass took minutes of real time and the squad may have died, come online, recovered
--- on its own, or lost its smart assignment since consider() saw it. Every decline path
--- counts its reason into acc (cheap field ops, always on) so the [DRAIN] completion line
--- explains the whole batch from the log alone.
+-- Refill one candidate squad by a member, re-verifying its state fresh (the pass took minutes; it may have died, gone online, recovered, or lost its smart).
+-- Every decline path counts its reason into acc so the [DRAIN] completion line explains the batch from the log alone.
 local function _add_member(squad_id, acc)
     local squad = xobject.get_se(squad_id)
     if not squad then acc.gone = acc.gone + 1; return end
@@ -172,7 +150,6 @@ local function _add_member(squad_id, acc)
     local section = squad:section_name()
     local nmin = xsmart.get_section_npc_range(section)
     if nmin <= npc_count then acc.recovered = acc.recovered + 1; return end
-    -- Unassigned squads are traveling; a later pass catches them once they settle.
     local rec = squad.smart_id and SIMBOARD.smarts[squad.smart_id]
     local smart = rec and rec.smrt
     if not smart then acc.no_smart = acc.no_smart + 1; return end
@@ -197,12 +174,8 @@ local function _add_member(squad_id, acc)
     end
 end
 
---- Filter this pass's candidates against this pass's verdicts and cell counts, then
---- drain one squad per frame. Called from ab_smart_balance._execute_pass AFTER the
---- verdicts are assigned, so candidates, verdicts, and cells all describe the same pass.
---- Traces: [QUEUE] (debug) with per-gate skip counts and build time; per-frame [REFILL]
---- debug lines with frame time; one [DRAIN] info line on completion with decline
---- reasons, frames, and elapsed wall time -- the log explains the batch without a debugger.
+--- Filter this pass's candidates against its verdicts and cell counts, then drain one squad per frame via xslice.
+--- Called from ab_smart_balance._execute_pass after verdicts assign, so candidates, verdicts, and cells share one pass.
 function start_drain()
     if #_candidates == 0 then return end
     if xslice.is_active(REFILL_JOB) then

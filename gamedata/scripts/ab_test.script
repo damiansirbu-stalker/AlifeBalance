@@ -1,15 +1,4 @@
---- ab_test: console probes and flow tests for AlifeBalance Smart Balance.
----
---- Run from the X-Ray debug console (requires `-dbg` or `-dbgdev` in launch args):
----   run_string ab_test.census()  -- force one full census pass now (synchronous)
----   run_string ab_test.status()  -- per-level "bin alive/declared" lines to tips + log
----   run_string ab_test.ab_test_smart_balance()  -- census pipeline + lever limits flow test
----   run_string ab_test.ab_test_system()  -- staged end-to-end system test (SYNTHETIC
----     MASSACRE: releases real NPCs; run on a throwaway save, do not keep saves after)
----
---- status() marks a bin with "+" when under capacity (recovery boosted) and "-" when
---- over (recovery delayed); unmarked bins are inside the deadband. census() is the
---- staggered pass run in one call; use it before status() to read fresh counts.
+--- ab_test: console probes and flow tests for AlifeBalance Smart Balance (run from the -dbg console via run_string ab_test.<cmd>()).
 
 local ipairs, pairs, tostring, xlog, xtime = ipairs, pairs, tostring, xlog, xtime
 local string_format, math_abs = string.format, math.abs
@@ -67,8 +56,6 @@ local _flow_log
 local function _get_flow_log()
     if _flow_log then return _flow_log end
     local ts = os.date("%Y-%m-%d_%H-%M-%S")
-    -- Logger name must be unique across mods: xlog's registry is name-keyed, and ag_test
-    -- already owns "TEST" -- a duplicate name reuses ITS logger and outfile (tested 2026-07-18).
     _flow_log = xlog.get_logger("TEST.AB", { outfile = string_format("test_%s_%s.log", MOD, ts) })
     return _flow_log
 end
@@ -106,11 +93,8 @@ local function _drive_lever(smart, step_fn)
     return steps, moved
 end
 
---- Smart Balance flow test: config wiring, census pipeline, and both pacing levers
---- against their limits. Phase 1 asserts min_minutes/max_minutes arithmetic in the
---- pacing params. Phase 2 forces a full census pass and asserts data flowed. Phase 3
---- zeroes one smart's cooldown age, advances to the floor (remaining >= min_minutes)
---- and delays to the ceiling (remaining <= max_minutes), then restores the cooldown.
+--- Smart Balance flow test: config wiring, census pipeline, and both pacing levers against their limits.
+--- Phase 1 asserts the min/max arithmetic; phase 2 forces a census pass; phase 3 drives one smart to floor and ceiling, then restores its cooldown.
 --- @novalidate(code.unused_export, reason:"console command")
 function ab_test_smart_balance()
     local TEST = "smart_balance"
@@ -136,18 +120,15 @@ function ab_test_smart_balance()
         return
     end
 
-    -- Phase 1: pacing arithmetic reflects the MCM limits.
     local ok_wiring = math_abs(probe.usable - (probe.idle - min_sec)) <= 1
         and math_abs(probe.advance * advances_cfg - probe.usable) <= 1
         and probe.delay_age_floor == ((probe.idle > max_sec) and (probe.idle - max_sec) or 0)
 
-    -- Phase 2: census pipeline end to end.
     local walked = ab_smart_balance.run_full_pass()
     local lines = ab_smart_balance.get_status_lines()
     local ok_census = walked > 0 and #lines > 0
     _log_info("[CENSUS] walked=%d status_lines=%d", walked, #lines)
 
-    -- Phase 3: levers on one real smart, cooldown restored afterwards.
     local original_lru = smart.last_respawn_update
     local saved = original_lru and game.CTime(original_lru) or nil
     smart.last_respawn_update = xtime.get_game_time()
@@ -184,21 +165,10 @@ function ab_test_smart_balance()
     _log_info("[TEARDOWN] smart=%s cooldown restored (%s)", name, saved and "original CTime" or "fresh nil")
 end
 
--- SYSTEM TEST (synthetic massacre, staged)
--- End-to-end accelerated exercise of the whole homeostat on a THROWAWAY save: it
--- releases real NPCs. Stage 1 picks the most-populated (level, bin), thins several
--- offline squads to 1 member (manufactures refill candidates) and wipes several whole
--- squads (manufactures a population deficit), then forces a pass and asserts the
--- verdict flips UNDER and advances fire. Stage 2 (after the xslice drain had frames)
--- asserts refills landed. Stage 3 opens one advanced smart's cooldown gate
--- (last_respawn_update = nil, the engine's own "ready" state) and waits for the
--- engine's alife tick; the final pass asserts recovery began (spawns and/or actual up).
+-- System test: staged end-to-end homeostat exercise on a throwaway save (releases real NPCs); see ab_test_system.
 
 local SYS_EV = "ab_test_system"
--- Massacre shape: SYS_THIN_N squads thinned to 1 member (refill candidates),
--- SYS_WIPE_N squads fully released (population deficit). Waits in real seconds:
--- SYS_DRAIN_WAIT for the refill xslice to drain, SYS_SPAWN_WAIT for the engine
--- alife tick to reach the opened smart.
+-- Massacre shape: SYS_THIN_N squads thinned to 1 member, SYS_WIPE_N fully released; SYS_DRAIN_WAIT/SYS_SPAWN_WAIT are real-second waits.
 local SYS_THIN_N = 4
 local SYS_WIPE_N = 3
 local SYS_DRAIN_WAIT = 4
@@ -206,10 +176,8 @@ local SYS_SPAWN_WAIT = 45
 
 local _sys = nil
 
--- Squad qualifies as massacre fodder: offline (the massacre must not despawn things in
--- front of the player, and the refill under test is offline-only), right bin, right
--- level, not permanent/companion, and its section declares a random pool (so thinned
--- squads are refillable -- the property under test).
+-- Squad qualifies as massacre fodder: offline (refill under test is offline-only), right bin, right level, not permanent/companion.
+-- Its section must declare a random pool, so thinned squads are refillable (the property under test).
 local function _sys_fodder(squad, level_id, bin)
     local online = squad.online
     if online then return false end
@@ -245,10 +213,7 @@ local function _sys_bleed_squad(squad, keep)
     return released
 end
 
--- Pick the (level, bin) with the highest actual count from the last pass: the most
--- fodder, and offline squads guaranteed on big maps.
--- Pick the (level, bin) with the most OCCUPIED slots (live ledger): wiping its
--- respawn-born squads frees slots, guaranteeing the UNDER verdict the test asserts.
+-- Pick the (level, bin) with the most occupied slots (live ledger): wiping its respawn-born squads frees slots for the UNDER verdict the test asserts.
 local function _sys_best_in_level(level_id, best)
     local state = ab_smart_balance.get_level_state(level_id)
     for bin, bin_state in pairs(state) do
@@ -308,11 +273,6 @@ local function _sys_stage2()
     run.ok_refill = (run.thinned == 0) or (refills_delta > 0)
     _sys_log("[SYS-STAGE2] refills=+%d (thinned %d squads) ok=%s",
         refills_delta, run.thinned, tostring(run.ok_refill))
-    -- Advance game time past the min_minutes floor the advances left, so EVERY
-    -- advanced smart's gate opens naturally on the engine's next alife ticks (vanilla
-    -- sleep API, xr_effects.script:4514). No timestamp forgery.
-    -- 7h clears the full ZCP 6h idle regardless of how much cooldown the proportional
-    -- pushes left, so every gate is open, not merely closer.
     level.change_game_time(0, 7, 0)
     _sys_log("[SYS-STAGE2] advanced game time by 7h; engine gates open naturally")
     CreateTimeEvent(SYS_EV, "stage3", SYS_SPAWN_WAIT, function()
@@ -321,15 +281,13 @@ local function _sys_stage2()
     end)
 end
 
---- Staged end-to-end system test. SYNTHETIC MASSACRE: releases real NPCs offline.
---- Run on a throwaway save with log_level DEBUG; results as tips + test log + alifebalance.log.
---- @novalidate(code.unused_export, reason:"console command")
 --- One-shot alias: the system test IS the full end-to-end test.
 --- @novalidate(code.unused_export, reason:"console command")
 function ab_test_full()
     ab_test_system()
 end
 
+--- Staged end-to-end system test. SYNTHETIC MASSACRE: releases real NPCs offline; run on a throwaway save with log_level DEBUG.
 --- @novalidate(code.unused_export, reason:"console command")
 function ab_test_system()
     if _sys then
@@ -338,7 +296,6 @@ function ab_test_system()
     end
     local TEST = "system"
     _log_info("[BEGIN] %s", TEST)
-    -- Pass 1: baseline.
     ab_smart_balance.run_full_pass()
     local level_id, bin, actual0 = _sys_pick_target()
     if not level_id then
@@ -380,7 +337,6 @@ function ab_test_system()
         _flow_tip("[FAIL] system test: no fodder squads to release")
         return
     end
-    -- Pass 2: react. Verdict must flip UNDER; the refill drain starts inside.
     ab_smart_balance.run_full_pass()
     run.ok_verdict = ab_smart_balance.get_verdict(level_id, bin) > 0
     local state = ab_smart_balance.get_level_state(level_id)[bin]

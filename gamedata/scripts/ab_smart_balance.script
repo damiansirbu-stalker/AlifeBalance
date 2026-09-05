@@ -1,16 +1,4 @@
 --- ab_smart_balance: Smart Balance - per-map slot homeostat over smart-terrain respawn cooldowns
----
---- Sensor: the engine's own respawn ledger, in SLOT units. Per (level, bin) the pass
---- sums live already_spawned counts (ab_smart_recipe.read_actual) against declared slot
---- capacity (get_level_model). UNDER/OVER verdicts carry an error fraction; corrections
---- are proportional: push = step * err. Under-capacity bins get eligible smarts'
---- cooldowns advanced (never below min_minutes remaining); over-capacity bins and
---- smarts inside crowded cells get them delayed (never past max_minutes remaining,
---- never below age 0, spawns delayed, never blocked). World-scope deficits per bin
---- feed ab_spawn_size. The squad walk lives in ab_squad_refill (this module only
---- drives its tick and drains it at pass end).
---- The engine keeps owning the spawn itself, recipes, squad selection, and budgets;
---- this module writes exactly one engine field: last_respawn_update.
 
 local pairs, ipairs, tonumber, tostring = pairs, ipairs, tonumber, tostring
 local math_floor, string_format = math.floor, string.format
@@ -18,8 +6,7 @@ local table_concat, table_sort = table.concat, table.sort
 local os_clock, RegisterScriptCallback = os.clock, RegisterScriptCallback
 local xlog, xprofiler = xlog, xprofiler
 local xsmart, xlevel, xtime = xsmart, xlevel, xtime
--- NOTE: never cache CreateTimeEvent/ResetTimeEvent/RemoveTimeEvent as locals (doc/library/xray/internals/globals.md:208-219).
--- demonized_time_events.script replaces the globals at load time; cached locals point at a dead queue.
+-- Never cache CreateTimeEvent/ResetTimeEvent/RemoveTimeEvent as locals; demonized swaps the globals at load (globals.md:208-219).
 
 local log = xlog.get_logger("AB.SBAL", { outfile = "alifebalance.log" })
 
@@ -28,27 +15,20 @@ local TIMER_TICK = "tick"
 local TICK_INTERVAL_SEC = 60
 local SEC_PER_MIN = 60
 local DEFAULT_RESPAWN_IDLE_SEC = 43200
--- ZCP's MCM default for respawn_idle (smr_amain_mcm.script:4). Part of ZCP's gate
--- condition, see _resolve_idle.
+-- ZCP's MCM default for respawn_idle (smr_amain_mcm.script:4); part of ZCP's gate condition, see _resolve_idle.
 local ZCP_DEFAULT_RESPAWN_IDLE_SEC = 86400
 
--- Sweep pacing: SWEEP_PER_TICK squads per 60s tick through ab_squad_refill; a pass
--- over N squads completes in ceil(N / SWEEP_PER_TICK) ticks (~8 min at ~400 squads).
--- Corrections fire once per completed pass -- the pass cadence IS the damping.
+-- Sweep pacing: SWEEP_PER_TICK squads per 60s tick through ab_squad_refill; corrections fire once per completed pass (the cadence IS the damping).
 local SWEEP_PER_TICK = 50
 
--- Deadband around declared slot capacity: a bin within max(BAND_MIN, capacity *
--- BAND_FRAC) SLOTS of its capacity is healthy and untouched on both levers. BAND_MIN
--- is 1 slot (integer noise floor: one squad dying must not engage the controller).
--- A fully absent bin (actual 0, capacity > 0) is UNDER at any size (massacre response).
+-- Deadband: a bin within max(BAND_MIN, capacity*BAND_FRAC) slots of capacity is healthy; a fully absent bin (actual 0, cap>0) is UNDER at any size.
 local BAND_FRAC = 0.25
 local BAND_MIN = 1
 
 -- Pushes below this are skipped: sub-minute cooldown moves are noise and CTime churn.
 local MIN_PUSH_SEC = 60
 
--- Level models (capacity + eligibility) recomputed every this many passes, so condlist
--- spawn_num flips and runtime respawn_params mutations converge within a few passes.
+-- Level models recomputed every this many passes, so condlist spawn_num flips and respawn_params mutations converge within a few passes.
 local MODEL_REFRESH_PASSES = 3
 
 local STATUS_TIP_MS = 8000
@@ -58,16 +38,8 @@ local VERDICT_OVER = -1
 
 local ACTION = { ADVANCE = "advance", DELAY = "delay" }
 
--- ZCP's smr_pop.smart_can_respawn gates against smr_amain_mcm.get_config("respawn_idle"),
--- NOT smart.respawn_idle. Under ZCP-enabled (GAMMA seeds the cvar to 21600 via
--- axr_options.ltx), the engine's per-smart LTX field is ignored at the gate. ZCP falls
--- back to smart.respawn_idle only when it is DISABLED and the cvar was moved off its
--- 86400 default; disabled-at-default still gates on the cvar
--- (smr_pop.script:1246-1249, the `(not smr_enabled) and (cfg ~= 86400)` branch).
--- Mirrored exactly here so the step always sizes against the gate the engine uses.
--- Cvar value of -1 means "respawns disabled" -> idle <= 0 -> _get_advance_params yields
--- advance == 0 -> _can_advance and _can_delay return false. AB silently no-ops,
--- matching ZCP intent.
+-- Resolve the respawn_idle the engine actually gates on: ZCP's cvar when smr_enabled or at its 86400 default, else the smart's own field.
+-- @src smr_pop.script:1246-1249: mirrors ZCP's gate selection; cvar -1 = respawns disabled -> advance 0 -> _can_advance/_can_delay false, AB no-ops.
 local function _resolve_idle(smart)
     if smr_amain_mcm and smr_amain_mcm.get_config then
         local idle = smr_amain_mcm.get_config("respawn_idle")
@@ -98,23 +70,7 @@ local cfg = {
 -- mirrors log level >= DEBUG; updated in _load_config
 local _dbg = false
 
--- _verdicts[level_id][bin]   = { v = VERDICT_UNDER/VERDICT_OVER, err = 0..1 } from the
---                              last completed pass; absent = in band. get_verdict serves
---                              the sign to ab_squad_refill / ab_spawn_size.
--- _world[bin]                = { actual, capacity } summed across all judged levels;
---                              get_world_deficit serves the fraction to ab_spawn_size.
--- _last_actual[level_id]     = read_actual table of the last pass (status display).
--- _delta_cache[smart_id]     = base step CTime + pacing params. Lazy cached; reset on
---                              option change and on _reset_state.
--- _seen_squads[squad.id]     = true. Dedup for spawn tracing (DEBUG only).
--- _smart_stats[smart_id]     = per-smart bookkeeping of the actions we've issued:
---     {
---       factions = {f1, f2, ...},
---       advances, delays, first_at, last_at,
---       last_trigger = { level_id, bin, actual, capacity, action },
---       last_before_cooldown,                         -- string snapshot
---       last_budget,                                  -- string snapshot
---     }
+-- Module state (all reset on load): _verdicts[level][bin]={v,err}, _world[bin]={actual,capacity}, _last_actual, _delta_cache, _seen_squads, _smart_stats.
 local _verdicts     = {}
 local _world        = {}
 local _last_actual  = {}
@@ -122,10 +78,7 @@ local _passes       = 0
 local _delta_cache  = {}
 local _seen_squads  = {}
 local _smart_stats  = {}
--- _advance_pending[smart_id] = true between an advance at the smart and the next engine
--- spawn there. Drives the "from_us" correlation in _on_npc_creation. Distinct from
--- _smart_stats (lifetime history): pending is consumed on spawn, history persists for
--- the right-click "Show stats" display.
+-- _advance_pending[smart_id] = true between an advance and the next spawn there; drives the from_us correlation in _on_npc_creation (consumed on spawn).
 local _advance_pending = {}
 local _stats           = { passes = 0, advances = 0, delays = 0, crowd_delays = 0,
                            refills = 0, spawn_size_adds = 0,
@@ -147,9 +100,8 @@ local function _format_real(seconds)
     return string_format("%dh%dm", math_floor(seconds / 3600), math_floor((seconds % 3600) / 60))
 end
 
--- Format the cooldown state: "age=Xh/idle=Yh (Zh left)" if set, "fresh" if nil.
--- Reads engine cooldown semantics (smart_terrain.script:try_respawn: nil OR diff > respawn_idle
--- passes the gate).
+-- Format the cooldown state: "age=Xh/idle=Yh (Zh left)", or "fresh" when unset.
+-- @src smart_terrain.script:try_respawn: nil OR diff > respawn_idle passes the gate.
 local function _format_cooldown(smart)
     local lru = smart.last_respawn_update
     if lru == nil then return "fresh" end
@@ -163,19 +115,14 @@ local function _format_cooldown(smart)
     return string_format("age=%s/idle=%s (%s left)", _format_hours(age), _format_hours(idle), _format_hours(left))
 end
 
--- Per-recipe cur/max snapshot. cur = already_spawned[k].num (engine bookkeeping),
--- max = ab_smart_recipe.select_value_readonly(v.num, actor, smart) (read-only mirror of
--- the engine's eval inside smart_terrain.script:try_respawn; see select_value_readonly docstring for
--- why we route through our walker instead of xr_logic.pick_section_from_condlist).
--- Flags ALL_FULL if no recipe has open budget.
+-- Per-recipe cur/max snapshot: cur = already_spawned[k].num, max = select_value_readonly(v.num); flags ALL_FULL when no recipe is open.
+-- @src smart_terrain.script:try_respawn: read-only mirror of the engine's eval; see select_value_readonly for why not xr_logic.pick_section_from_condlist.
 local function _format_budget(smart)
     if not smart.respawn_params then return "[no respawn_params]" end
     local parts, any_open = {}, false
     for k, v in pairs(smart.respawn_params) do
         local cur = (smart.already_spawned and smart.already_spawned[k]
                      and smart.already_spawned[k].num) or 0
-        -- select_value_readonly returns nil on fall-through; capture into a local so
-        -- tonumber sees nil, not a missing argument.
         local picked = ab_smart_recipe.select_value_readonly(v.num, db.actor, smart)
         local max = tonumber(picked) or 0
         if max > cur then any_open = true end
@@ -201,9 +148,8 @@ local function _collect_recipe_factions(recipe, seen)
     end
 end
 
--- Set of factions a smart's recipes can actually spawn. Recipe-content derived (via
--- xsmart.get_section_faction per squad section), not routing-prop derived -- props govern
--- where a squad can move, not what a smart's recipes produce.
+-- Set of factions a smart's recipes can actually spawn, derived from recipe content (xsmart.get_section_faction per squad section), not routing props.
+-- Routing props govern where a squad can move, not what a smart's recipes produce.
 local function _get_smart_recipe_factions(smart)
     local seen = {}
     if not smart.respawn_params then return seen end
@@ -213,10 +159,8 @@ local function _get_smart_recipe_factions(smart)
     return seen
 end
 
--- Create or update the per-smart stats record. before_cooldown is captured BEFORE
--- the cooldown write; we don't store the after-state since the live cooldown is read
--- on demand in show_smart_stats. ctx is the correction context built in _apply_level_correction
--- ({ level_id, bin, actual, capacity, model, verdicts_lv }).
+-- Create or update the per-smart stats record; before_cooldown is captured before the cooldown write (the live cooldown is read on demand in show_smart_stats).
+-- ctx is the correction context ({ level_id, bin, actual, capacity, model, verdicts_lv }).
 local function _update_smart_stats(smart, action, ctx, before_cooldown, budget_str)
     local entry = _smart_stats[smart.id]
     if not entry then
@@ -245,13 +189,8 @@ local function _update_smart_stats(smart, action, ctx, before_cooldown, budget_s
     entry.last_budget          = budget_str
 end
 
--- Build a CTime whose m_time equals exactly `seconds` (as ms). setHMSms(h,m,s,0) zeros
--- m_time then adds generate_time(1,1,1,h,m,s,0). Two CTimes constructed this way differ
--- in m_time by exactly the H/M/S delta in ms -- the (year=1, month=1, day=1) base cancels
--- under operator-. Result is a pure duration usable with xrTime:sub/:add.
--- Hours above 23 are valid: generate_time_impl is unbounded positional arithmetic
--- (date_time.cpp:118-140, days*24 + hours before scaling to ms), so deltas past 24h
--- construct correctly (long respawn_idle values with advances=1).
+-- Build a CTime whose m_time equals exactly `seconds`: two setHMSms stamps subtracted, the (year 1, month 1, day 1) base cancelling to a pure duration.
+-- @src date_time.cpp:118-140: generate_time is unbounded positional arithmetic, so deltas past 24h construct correctly (long idle with advances=1).
 local function _create_delta_ctime(seconds)
     local secs    = math_floor(seconds)
     local hours   = math_floor(secs / 3600)
@@ -264,14 +203,8 @@ local function _create_delta_ctime(seconds)
     return stamp - zero
 end
 
--- Per-smart cache: the per-step CTime delta, scalar step, plus usable. The step is
--- sized so exactly `advances` passes carry a fresh smart from age 0 to `usable`
--- (resolved idle - min_minutes_sec), leaving exactly min_minutes of cooldown for the
--- engine to age out on its own. The delay direction uses the same step. `idle` comes
--- from _resolve_idle, which mirrors ZCP's own gate selection (see its comment) -- so
--- the floor always sizes against the gate the engine actually uses.
--- Cache invalidated in _load_config on any option change (AB or ZCP cvar moved), and in
--- _reset_state.
+-- Per-smart cached pacing params: per-step CTime delta, scalar advance step, usable range, delay age floor.
+-- The step sizes so `advances` passes carry a fresh smart from age 0 to usable (idle - min_minutes); cache reset on option change.
 local function _get_advance_params(smart)
     local cached = _delta_cache[smart.id]
     if cached then return cached end
@@ -283,22 +216,14 @@ local function _get_advance_params(smart)
         delta   = (advance_sec > 0) and _create_delta_ctime(advance_sec) or nil,
         advance = advance_sec,
         usable  = usable,
-        -- Delay ceiling: age may not drop below this, so remaining cooldown
-        -- (idle - age) never exceeds max_minutes. 0 when idle already fits under
-        -- the ceiling -- there the age-0 clamp (one full vanilla cooldown) binds.
         delay_age_floor = (idle > max_sec) and (idle - max_sec) or 0,
     }
     _delta_cache[smart.id] = params
     return params
 end
 
--- Advance gate: degenerate config, fresh smart (engine gate already open), third-party
--- future timestamp, or under MIN_PUSH_SEC of headroom to the floor. Then the read-side
--- mirrors of the engine's own try_respawn gates (vanilla lines) -- an advance spent on
--- a smart the engine will refuse is a wasted correction:
---   disabled flag (:1601), respawn_only_level vs actor level (:1611), actor distance
---   vs respawn_radius (:1619), simulation availability == false (:1630; nil means
---   unprocessed and passes, engine semantics).
+-- Advance gate: skip degenerate config, fresh smart, future timestamp, or under MIN_PUSH_SEC of headroom, then mirror the engine's try_respawn gates.
+-- @src smart_terrain.script: disabled (:1601), respawn_only_level (:1611), actor distance vs respawn_radius (:1619), availability==false (:1630, nil passes).
 local function _can_advance(smart)
     local params = _get_advance_params(smart)
     if params.advance <= 0 then return false end
@@ -317,9 +242,8 @@ local function _can_advance(smart)
     return true
 end
 
--- Push lru backward so age grows by push_sec (clamped to the min_minutes floor).
+-- Push lru backward so age grows by push_sec, clamped to the min_minutes floor; returns the applied push in seconds.
 -- The cached delta serves the full-step case; scaled or clamped pushes build a CTime.
--- Returns the applied push in seconds.
 local function _apply_advance(smart, push_sec)
     local lru = smart.last_respawn_update
     if lru == nil then return 0 end
@@ -337,13 +261,7 @@ local function _apply_advance(smart, push_sec)
     return push_sec
 end
 
--- Delay gate. Skip conditions:
---   (a) degenerate config (same as _can_advance)
---   (b) fresh smart (lru == nil): writing lru on a fresh smart would close an
---       engine-open gate -- delays never block a spawn that is already due
---   (c) age <= delay_age_floor: remaining cooldown already at the max_minutes
---       ceiling (age floor 0 when idle fits under the ceiling: one full vanilla
---       cooldown is the bound there), or a third-party future timestamp we don't fight
+-- Delay gate: skip degenerate config, a fresh smart (writing lru would close an engine-open gate), or age already at delay_age_floor.
 local function _can_delay(smart)
     local params = _get_advance_params(smart)
     if params.advance <= 0 then return false end
@@ -354,10 +272,8 @@ local function _can_delay(smart)
     return now:diffSec(lru) > params.delay_age_floor
 end
 
--- Push lru forward so age shrinks by push_sec, clamped so age never goes below
--- delay_age_floor (the max_minutes ceiling on remaining cooldown; 0 when idle fits
--- under the ceiling). Mirror of _apply_advance with CTime:add (engine binding:
--- xr_time.h add_script). Returns the applied push in seconds.
+-- Push lru forward so age shrinks by push_sec, clamped so age never drops below delay_age_floor (the max_minutes ceiling); returns the applied push in seconds.
+-- @src xr_time.h add_script: mirror of _apply_advance with CTime:add.
 local function _apply_delay(smart, push_sec)
     local lru = smart.last_respawn_update
     if lru == nil then return 0 end
@@ -375,9 +291,7 @@ local function _apply_delay(smart, push_sec)
     return push_sec
 end
 
---- Hover hint for ab_smart_map markers: mod / feature name + translated smart name +
---- recipe-derived factions + action snapshot (advances and delays applied, cooldown
---- remaining the engine still ages out before firing).
+--- Hover hint for ab_smart_map markers: smart name + recipe-derived factions + advances/delays applied + cooldown remaining before the engine fires.
 --- Exposed for ab_smart_map.add_marker; reads pacing-side _smart_stats directly.
 function build_marker_label(smart)
     local name       = smart:name() or "?"
@@ -422,12 +336,8 @@ local function _load_config()
     cfg.show_markers = mcm.show_markers
     cfg.log_level    = mcm.log_level
     log.set_level(cfg.log_level)
-    -- DEBUG = 5 per xlog.script:8
     _dbg = log.get_level() >= 5
-    -- AB knobs OR ZCP cvars (respawn_idle, pop_factor) may have moved; rebuild lazily next
-    -- pass. Cache is cheap to reseed (one CTime construction per smart on first action).
     _delta_cache = {}
-    -- sync DEBUG flag to the sibling modules so their gated log lines respect it.
     ab_smart_recipe.set_debug(_dbg)
     ab_squad_refill.set_debug(_dbg)
     ab_spawn_size.set_debug(_dbg)
@@ -438,9 +348,8 @@ local function _load_config()
     if was_show_markers and not cfg.show_markers then ab_smart_map.clear_all_markers() end
 end
 
--- Verdict for one bin against its declared slot capacity: { v, err } with err the
--- deficit/excess fraction (0..1), nil inside the deadband. A fully absent bin is
--- UNDER at any capacity (massacre response).
+-- Verdict for one bin against its declared slot capacity: { v, err } with err the deficit/excess fraction (0..1), nil inside the deadband.
+-- A fully absent bin (actual 0, capacity > 0) is UNDER at any capacity (massacre response).
 local function _compute_bin_verdict(actual, capacity)
     local band = capacity * BAND_FRAC
     if band < BAND_MIN then band = BAND_MIN end
@@ -456,10 +365,8 @@ local function _compute_bin_verdict(actual, capacity)
     return nil
 end
 
--- Fire one action (advance or delay) on a smart: proportional push (step * ctx.err),
--- snapshot state, record for the right-click stats display, refresh the marker hint.
--- Marks the smart in ctx.acted so a smart serving 2 corrected bins still takes exactly
--- one step per pass ("one step per smart per pass" across bins, not per bin).
+-- Execute one action (advance or delay) on a smart: proportional push (step * ctx.err), snapshot, stats, marker refresh.
+-- Marks the smart in ctx.acted so a smart serving 2 corrected bins still takes one step per pass, not per bin.
 local function _execute_action(smart, ctx, budget_str, action)
     local before_cooldown = _format_cooldown(smart)
     local push = _get_advance_params(smart).advance * (ctx.err or 1)
@@ -488,11 +395,8 @@ local function _execute_action(smart, ctx, budget_str, action)
     end
 end
 
--- One advance step on a qualifying smart: floor gate + crowd gate + open budget for
--- the bin. The crowd gate reads the census pass's offline density cells (same data the
--- refill lever gates on): a spawned squad lands at the smart, so an advance into an
--- already-crowded cell would feed a body pile instead of recovering the map -- recovery
--- is steered toward the empty parts of a depleted level.
+-- One advance step on a qualifying smart: floor gate + crowd gate + open budget for the bin.
+-- The crowd gate steers recovery to empty parts of a depleted level: an advance into a crowded cell would feed a body pile, since the spawn lands at the smart.
 local function _try_advance(smart, ctx)
     if not _can_advance(smart) then return end
     if ab_squad_refill.is_crowded(ctx.level_id, smart.position) then return end
@@ -516,8 +420,6 @@ end
 local function _try_delay(smart, ctx)
     if not _can_delay(smart) then return end
     if not _check_all_bins_over(smart.id, ctx) then return end
-    -- Budget is not a delay gate; the snapshot string feeds _update_smart_stats so the
-    -- right-click "Show stats" display carries real budget data for delays too.
     local _, budget_str = ab_smart_recipe.compute_bin_budget(smart, ctx.bin)
     _execute_action(smart, ctx, budget_str, ACTION.DELAY)
 end
@@ -562,11 +464,8 @@ local function _compute_level_verdicts(level_id, world)
     return verdicts_lv
 end
 
--- Correct one bin on one level: one step per qualifying eligible smart per pass, so
--- `advances` passes carry a smart from full cooldown to the floor (and symmetrically
--- back for delays). Smarts that already took a step this pass (ctx.acted, set on fire,
--- not on a declined try -- a closed budget for one bin must not block another bin's
--- attempt) are skipped.
+-- Correct one bin: one step per eligible smart per pass, so `advances` passes carry a smart from full cooldown to the floor (and back for delays).
+-- Smarts already acted this pass are skipped (ctx.acted is set on fire, not on a declined try, so a closed budget for one bin never blocks another).
 local function _apply_bin_correction(verdict, eligibles, ctx)
     if not eligibles then return end
     local try = (verdict.v == VERDICT_UNDER) and _try_advance or _try_delay
@@ -576,10 +475,8 @@ local function _apply_bin_correction(verdict, eligibles, ctx)
     end
 end
 
--- Crowd delay: a smart inside a crowded cell is delayed regardless of bin verdicts --
--- crowding is local overpopulation, and slowing the local spawners is the delay
--- lever's native answer (one full step; the crowd gate is binary). Same bounds as
--- every delay: fresh smarts skipped, ceiling capped, never blocks.
+-- Crowd delay: a smart in a crowded cell is delayed at full step regardless of verdicts (crowding is local overpopulation).
+-- Same bounds as every delay: fresh smarts skipped, ceiling capped, never blocks.
 local function _apply_crowd_delay(level_id, model, acted)
     local smarts = model.smarts
     for i = 1, #smarts do
@@ -615,11 +512,8 @@ local function _apply_level_correction(level_id, verdicts_lv, acted)
     _apply_crowd_delay(level_id, model, acted)
 end
 
--- Pass end: refresh models on cadence, judge every respawn-capable level from the live
--- slot ledger, apply proportional corrections, drain the refill. The peace wish
--- (engine gate 2, smart_terrain.script:1607) idles the pacing wholesale -- the engine
--- spawns nothing while it holds, so every push would be wasted; the refill is
--- unaffected (add_squad_member does not route through try_respawn).
+-- Pass end: refresh models on cadence, judge every respawn-capable level, apply proportional corrections, drain the refill.
+-- @src smart_terrain.script:1607: the peace wish idles pacing wholesale; the refill is unaffected, add_squad_member skips try_respawn.
 local function _execute_pass()
     local tmr = xprofiler.new_if(_dbg):start()
     _passes = _passes + 1
@@ -652,25 +546,14 @@ local function _execute_pass()
     end
 end
 
--- Counts every NPC creation into a squad where spawn_smart is set. Deduped by squad.id
--- so multi-NPC squads count once. Uses the callback's spawn_smart arg (sim_board.script:149)
--- because squad.respawn_point_id is only set AFTER SIMBOARD:create_squad returns
--- (set inside smart_terrain.script:try_respawn after create_squad returns) and the callback fires DURING create_squad.
--- Includes spawns the engine made without an advance from us; the ratio advances/spawns is a
--- debug signal, not production logic.
--- Counters always run (cheap field ops); luabind log call is _dbg-gated. Tags whether
--- the spawn occurred at a smart AlifeBalance has advanced (matching _smart_stats key) so
--- the player can correlate advances to actual refills.
+-- Count every NPC creation into a squad with spawn_smart set, deduped by squad.id, tagging whether the smart was advanced (from_us).
+-- @src sim_board.script:149: uses the spawn_smart callback arg; respawn_point_id is set only after create_squad returns, but the callback fires during it.
 local function _on_npc_creation(squad, _se_obj, spawn_smart)
     if not squad or not squad.id then return end
     if _seen_squads[squad.id] then return end
     _seen_squads[squad.id] = true
     if not spawn_smart then return end
     _stats.spawns = _stats.spawns + 1
-    -- from_us = at least one advance fired at this smart since the previous spawn here.
-    -- _advance_pending is set in _execute_action and consumed (cleared) on the next spawn,
-    -- so spawns_from_us accurately reflects "engine spawns we caused" rather than
-    -- "engine spawns at smarts we ever touched".
     local from_us = _advance_pending[spawn_smart.id] == true
     if from_us then
         _stats.spawns_from_us = _stats.spawns_from_us + 1
@@ -683,17 +566,8 @@ local function _on_npc_creation(squad, _se_obj, spawn_smart)
     end
 end
 
--- Diagnostic: every engine try_respawn call on a smart we've acted on.
--- SendScriptCallback("on_try_respawn") fires at line 1601 in vanilla unpacked
--- smart_terrain.script (1603 under ZCP) BEFORE every gate, so a [TRY_RESPAWN]
--- with no subsequent [SPAWN] (within a tick or two) means one of the later gates
--- blocked: peace_info (1607), respawn_only_level (1611), actor distance (1619),
--- respawn_params/already_spawned (1625), simulation availability (1630), or the
--- cooldown gate (1651). Absence of [TRY_RESPAWN] for an advanced smart means the
--- alife scheduler hasn't reached it yet.
--- Filtered to _smart_stats only so the log doesn't drown in entries for every smart
--- the engine touches. `flags` is the engine's {disabled = false} table; we never set
--- disabled = true (we don't block any spawn).
+-- Diagnostic: log every engine try_respawn on a smart we've acted on, filtered to _smart_stats so the log stays readable.
+-- @src smart_terrain.script:1601: fires before every gate, so a [TRY_RESPAWN] with no following [SPAWN] means a later gate blocked (peace/distance/cooldown).
 local function _on_try_respawn(smart, _flags)
     if not _dbg then return end
     if not smart or not smart.id then return end
@@ -702,10 +576,8 @@ local function _on_try_respawn(smart, _flags)
         smart:name() or "?", _format_cooldown(smart))
 end
 
--- One refill sweep chunk per tick; verdicts and corrections fire in _execute_pass
--- when the sweep wraps. ResetTimeEvent FIRST: a nil return without a reset refires the event
--- NEXT FRAME (doc/library/xray/internals/globals.md:188-191), and this body has early nil
--- returns (the disabled gate), so the reset must precede them.
+-- One refill sweep chunk per tick; verdicts and corrections fire in _execute_pass when the sweep wraps.
+-- @src globals.md:188-191: ResetTimeEvent FIRST - a nil return without a reset refires next frame, and the disabled gate returns early.
 local function _run_tick()
     ResetTimeEvent(TIMER_EV, TIMER_TICK, TICK_INTERVAL_SEC)
     if not cfg.enabled then return end
@@ -837,9 +709,8 @@ function get_status_lines()
     return lines
 end
 
---- Show tracked stats for a smart that received actions, via stacked PDA tips. Pulls from
---- _smart_stats and reads live engine state for current cooldown / budget / capacity, so
---- the player sees both the historical record and the present situation in one view.
+--- Show tracked stats for a smart that received actions, via stacked PDA tips.
+--- Pulls from _smart_stats and reads live engine state (cooldown / budget / capacity), so the player sees history and present in one view.
 function show_smart_stats(se_obj)
     if not db or not db.actor then return end
     local name  = se_obj:name() or "?"

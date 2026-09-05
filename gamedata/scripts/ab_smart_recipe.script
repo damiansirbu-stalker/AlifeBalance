@@ -1,14 +1,4 @@
---- ab_smart_recipe: smart-terrain recipe analysis for AlifeBalance Smart Balance.
---- Builds the per-level model the balance controller steers toward, in SLOT units
---- (concurrent squads the engine's own respawn bookkeeping allows): declared slot
---- capacity per bin, the eligible smarts per bin, the bins each smart serves, and the
---- reader list read_actual() sums live already_spawned counts through. A bin is a
---- human faction or the single MUTANTS aggregate (every monster faction as one group).
---- Models are cached per level and invalidated on a fixed pass cadence by
---- ab_smart_balance (clear_models), because respawn_params is NOT static:
---- spawn_num condlists flip with story infos, and runtime mutators (territory
---- conquest / infestation) inject and remove entries.
---- State wiped by reset_state() (called from ab_smart_balance on save load).
+--- ab_smart_recipe: smart-terrain recipe analysis - the per-level slot-capacity model Smart Balance steers toward.
 
 local pairs, ipairs, tonumber, tostring, type = pairs, ipairs, tonumber, tostring, type
 local string_format, table_concat, string_find = string.format, table.concat, string.find
@@ -16,14 +6,11 @@ local math_floor, math_ceil, math_random = math.floor, math.ceil, math.random
 local xlog, xsmart, xlevel, xcreature, xprofiler = xlog, xsmart, xlevel, xcreature, xprofiler
 local ini_sys = ini_sys
 
---- Bin key for the mutant aggregate. Every squad whose faction is a monster faction
---- (xcreature.is_monster_faction) counts here; human factions bin under their own name.
+--- Bin key for the mutant aggregate: every monster-faction squad bins here; humans bin under their own faction name.
 MUTANTS = "__mutants"
 
--- Population factors, ZCP-aware. The engine (smart_terrain.script:try_respawn) reads
--- alife_stalker_pop / alife_mutant_pop; ZCP replaces those with its own MCM cvars
--- (GAMMA seeds both to 0.5). Split into stalker/monster getters so the per-recipe
--- classifier can mirror the engine's factor selection verbatim.
+-- Population factors, ZCP-aware: engine reads alife_stalker_pop / alife_mutant_pop, ZCP replaces them with its MCM cvars (GAMMA seeds both 0.5).
+-- @src smart_terrain.script:try_respawn: split into stalker/monster getters so the per-recipe classifier mirrors the engine's factor selection.
 local function get_monster_pop_factor()
     if smr_amain_mcm and smr_amain_mcm.get_config and smr_amain_mcm.get_config("smr_enabled") then
         return smr_amain_mcm.get_config("monster_pop_factor") or 1
@@ -38,11 +25,8 @@ local function get_stalker_pop_factor()
     return ui_options.get("alife/general/alife_stalker_pop") or 1
 end
 
--- Mirror the engine's per-recipe factor selection verbatim (smart_terrain.script:1675-1686):
--- only recipes whose FIRST squad section carries common=true are scaled; a section name
--- containing "simulation" or "zombied" takes the monster factor, "sim_squad" takes the
--- stalker factor, anything else stays unscaled. Classifying by the recipe's own first
--- section, not the target bin, is what makes AB agree with the engine gate.
+-- Mirror the engine's per-recipe factor selection: only recipes whose FIRST squad section has common=true are scaled.
+-- @src smart_terrain.script:1675-1686: "simulation"/"zombied" section takes the monster factor, "sim_squad" the stalker, else unscaled.
 local function _compute_recipe_factor(recipe, monster_factor, stalker_factor)
     local squads = recipe.squads
     local section = squads and squads[1]
@@ -60,12 +44,7 @@ local log = xlog.get_logger("AB.SREC", { outfile = "alifebalance.log" })
 
 local _dbg = false
 
--- _models[level_id] = {
---   capacity   = { [bin] = expected concurrent NPCs from the level's recipes },
---   eligible   = { [bin] = array of smart objects with a recipe producing the bin },
---   smart_bins = { [smart_id] = { [bin] = true } },  -- reverse map for the delay gate
--- }
--- _inventoried[level_id] = true once per session (DEBUG inventory dump gate)
+-- _models[level_id] = { capacity[bin], eligible[bin]=smarts, smart_bins[smart_id]=bins, readers, smarts }; _inventoried[level_id] gates the DEBUG dump.
 local _models      = {}
 local _inventoried = {}
 
@@ -137,10 +116,8 @@ local function _has_recipe_bin(recipe, bin)
     return false
 end
 
--- Dump every smart on the level once per session at DEBUG: routing-faction + recipe map.
--- Lets the player see WHY a smart is or isn't eligible (recipe content vs routing prop).
--- _inventoried gate keys by level so this fires once per level. Reset on log-level change
--- so toggling DEBUG mid-session re-dumps.
+-- Dump every smart on the level once per session at DEBUG: routing-faction + recipe map, so the player sees why a smart is or isn't eligible.
+-- _inventoried gates once per level; reset on log-level change so toggling DEBUG re-dumps.
 local function _log_inventory(level_id)
     if not _dbg then return end
     if _inventoried[level_id] then return end
@@ -162,11 +139,7 @@ end
 
 -- CONDLIST WALKER
 
--- Info-portion condition (cond type 1 = positive, 2 = negative). Dispatch:
---   infop[3] truthy -> npc-side (npc_info reads has_info; nil means actor was passed as npc)
---   else actor present -> actor-side
---   else sim present -> sim:has_info(0, ...)
---   else nothing to check -> pass
+-- Info-portion condition (type 1 positive, 2 negative). Dispatch: infop[3] -> npc-side; else actor; else sim:has_info(0,..); else pass.
 local function _check_info_condition(infop, npc_info, actor, sim, is_negative)
     local has_info
     if infop[3] then
@@ -198,10 +171,8 @@ local function _check_random_condition(infop)
     return infop[3] >= math_random(100)
 end
 
--- Dispatch one condition entry by type. Unknown types pass through (engine permissive).
--- npc_info is npc when usable for npc-side info dispatch, nil when caller passed the
--- actor as npc (vanilla treats AC_ID-as-npc as "skip npc-side"). npc is the original
--- value (still passed to xr_conditions functors).
+-- Dispatch one condition entry by type; unknown types pass (engine permissive).
+-- npc_info = npc for npc-side dispatch, nil when the actor was passed as npc; npc still goes to xr_conditions functors.
 local function _check_condition_entry(infop, obj, npc, npc_info, actor, sim)
     local ctype = infop[2]
     if ctype == 1 then return _check_info_condition(infop, npc_info, actor, sim, false) end
@@ -222,25 +193,11 @@ local function _check_all_conditions(conds, obj, npc, npc_info, actor, sim)
     return true
 end
 
--- Side-effect-free condlist evaluator. Mirrors xr_logic.pick_section_from_condlist
--- (xr_logic.script:365-499) condition-check semantics exactly -- npc-side / actor-side /
--- sim-side has_info dispatch, xr_conditions functor calls, type-5 math.random draw --
--- and SKIPS the cond[3] effects block (xr_logic.script:447-494). Why we cannot route
--- through the engine reader:
---   (1) Engine reader runs cond[3] effects (info grants, xr_effects functors) on every
---       call. AB calls this once per recipe per eligible smart per pass. Engine
---       calls it once per smart per resolved respawn_idle game-hours -- orders of
---       magnitude rarer. Any side effect a modpack ever writes into a spawn_num
---       condlist would fire at AB's pacing, not the engine's.
---   (2) Read-only contract makes AB's intent explicit at the API boundary, immune to
---       future engine reader changes that might add new side effects.
--- Return semantics match engine: "" on nil condlist, cond[1] or "" on match, nil on no
--- match. Callers handle all three via tonumber(picked) or 0.
+--- Side-effect-free condlist evaluator: mirrors xr_logic condition-check semantics but SKIPS the cond[3] effects block.
+--- Routing through the engine reader would fire spawn_num side effects at AB's pass cadence, not the engine's; read-only keeps AB's intent explicit.
+--- @src xr_logic.script:365-499: condition semantics mirrored, effects at :447-494 skipped. Returns "" on nil, cond[1]/"" on match, nil on none.
 function select_value_readonly(condlist, obj, npc)
     if not condlist then return "" end
-    -- npc_info = npc when usable for npc-side info dispatch; nil when caller passed the
-    -- actor as npc (vanilla treats AC_ID-as-npc as "no npc-side check"). npc itself is
-    -- still passed through to xr_conditions functors.
     local npc_info = npc
     if npc_info then
         local id = (npc_info.id and type(npc_info.id) == "function") and npc_info:id() or npc_info.id
@@ -260,15 +217,9 @@ end
 
 -- LEVEL MODEL
 
--- Effective concurrent-squad SLOT cap for one recipe, nil when the engine would skip
--- it. Mirrors the try_respawn gates (smart_terrain.script:1665-1702): missing
--- bookkeeping (engine logs ERROR and skips), the faction_controlled gate (with the
--- default_faction seeding at :1659, read-only), heli/empty recipes. The value mirrors
--- the engine's own math to the digit: common-flagged recipes get round_idp(raw *
--- pop_factor) (integer, _g.script:773); others keep the raw condlist value. The slot
--- cap is ceil of that -- a proven identity with the engine's `max > num` gate: integer
--- max caps at max, fractional 1.5 caps at 2, chance recipes (<1) cap at 1 behind the
--- engine's own roll.
+-- Effective concurrent-squad SLOT cap for one recipe, nil when the engine would skip it.
+-- @src smart_terrain.script:1665-1702: mirrors the try_respawn gates (bookkeeping, faction_controlled with default_faction seed at :1659, heli/empty).
+-- @src _g.script:773: common recipes scale by round_idp(raw*pop_factor); ceil is an identity with the engine's max>num gate (1.5->2, chance <1 ->1).
 local function _compute_recipe_slot_cap(recipe, k, smart, monster_factor, stalker_factor)
     local spawned = smart.already_spawned and smart.already_spawned[k]
     if not (recipe.num and spawned and spawned.num) then return nil end
@@ -286,11 +237,8 @@ local function _compute_recipe_slot_cap(recipe, k, smart, monster_factor, stalke
     return math_ceil(eff)
 end
 
--- Fold one recipe into capacity and the smart's bin set, in SLOT units. The engine
--- picks one section uniformly per spawn (smart_terrain.script:1707,1716) and its num
--- counts squads of ANY of the recipe's sections, so both the slot cap and (later) the
--- live num are attributed to bins by section fraction -- same fractions both sides, so
--- per-bin cap and actual stay comparable and the sums are exact.
+-- Fold one recipe into capacity and the smart's bin set, in SLOT units, attributed to bins by section fraction.
+-- @src smart_terrain.script:1707,1716: engine picks one section per spawn, num counts any section; same fractions both sides keep cap/actual comparable.
 local function _add_recipe_to_model(smart, k, recipe, slot_cap, model, bins_here)
     local per_bin = {}
     local total = #recipe.squads
@@ -353,10 +301,6 @@ local function _build_model(level_id, model)
     end
 end
 
---- Live actual per bin, in slot units: for every model reader, the engine's own
---- already_spawned[k].num (floor-guarded against the unfloored decrement at
---- sim_squad_scripted.script:1028) attributed by the same section fractions capacity
---- used. Pure Lua field reads on cached references; call per pass, never cached.
 -- Fold one reader's floor-guarded num into the actual sums by its section fractions.
 local function _collect_reader(reader, actual)
     local spawned = reader.smart.already_spawned
@@ -368,6 +312,8 @@ local function _collect_reader(reader, actual)
     end
 end
 
+--- Live actual per bin in slot units: each reader's already_spawned[k].num by the same section fractions capacity used.
+--- @src sim_squad_scripted.script:1028: the num decrement is unfloored, hence the floor guard in _collect_reader. Call per pass, never cache.
 function read_actual(model)
     local actual = {}
     local readers = model.readers
@@ -377,9 +323,8 @@ function read_actual(model)
     return actual
 end
 
---- Set of level ids with at least one respawn-capable smart on SIMBOARD. The judged
---- level set: every such level gets verdicts from the first pass (no census sighting
---- needed -- slot state is readable immediately).
+--- Set of level ids with at least one respawn-capable smart on SIMBOARD.
+--- The judged set: each gets verdicts from the first pass, slot state readable immediately (no census sighting needed).
 function get_respawn_level_ids()
     local out = {}
     local board = SIMBOARD
@@ -394,9 +339,8 @@ function get_respawn_level_ids()
     return out
 end
 
---- Level model accessor. Computed lazily per level, cached until clear_models /
---- reset_state. One walk over the level's smarts builds capacity, eligibility, and the
---- smart->bins reverse map together, so the three views can never disagree.
+--- Level model accessor, computed lazily and cached until clear_models / reset_state.
+--- One walk builds capacity, eligibility, and the smart->bins reverse map together, so the three views can never disagree.
 function get_level_model(level_id)
     local model = _models[level_id]
     if model then return model end
@@ -420,21 +364,13 @@ end
 
 -- BUDGET EVAL
 
--- Evaluate one recipe slot. Returns (cur, raw_max, open, eligible_for_match), or nil when
--- the engine would skip this recipe entirely (missing already_spawned bookkeeping, or a
--- faction_controlled smart whose recipe routes to another faction). raw_max is the declared
--- LTX capacity (unscaled) used for the printed snapshot; effective max applies the mirrored
--- per-recipe factor (round-half-up for >= 1, optimistic on fractional since AB cannot
--- replicate the engine's probabilistic gate for max < 1).
+-- Evaluate one recipe slot, or nil when the engine would skip it.
+-- raw_max is the declared LTX capacity for the snapshot; effective max applies the mirrored factor (round-half-up >=1, optimistic on fractional).
+-- @src smart_terrain.script:1666,1701-1702: no num or no live already_spawned[k].num -> engine logs ERROR and skips; AB skips silently.
+-- @src smart_terrain.script:1667: faction_controlled spawns only matching-faction recipes; faction seeds from default_faction (:1648-1650), read-only.
 local function _compute_recipe_budget(recipe, k, smart, bin, monster_factor, stalker_factor)
-    -- Engine guard (smart_terrain.script:1666,1701-1702): no num or no live
-    -- already_spawned[k].num -> engine logs ERROR and skips. AB skips silently.
     local spawned = smart.already_spawned and smart.already_spawned[k]
     if not (recipe.num and spawned and spawned.num) then return nil end
-    -- Engine faction_controlled gate (smart_terrain.script:1667): a faction_controlled
-    -- smart only spawns recipes whose faction matches its own. try_respawn seeds
-    -- self.faction from default_faction first (smart_terrain.script:1648-1650);
-    -- mirrored as a read, never written.
     local faction = smart.faction or smart.default_faction
     if smart.faction_controlled ~= nil
        and not (faction ~= nil and recipe.faction == faction) then
@@ -459,11 +395,8 @@ local function _collect_recipe_budget(state, k, cur, raw_max, open, eligible)
     state.parts[#state.parts + 1] = string_format("%s%s %d/%d", mark, tostring(k), cur, raw_max)
 end
 
--- Single-pass budget eval. For each recipe the engine would consider: compute cur
--- (already_spawned[k].num) and effective max (select_value_readonly on recipe.num times the
--- mirrored factor); first recipe with open budget AND a bin-matching section wins.
--- select_value_readonly runs ONCE per recipe per call, so the gate decision and the printed
--- snapshot read the same value. Recipes the engine skips (see _compute_recipe_budget) are omitted.
+-- Single-pass budget eval: for each recipe the engine would consider, the first with open budget AND a bin-matching section wins.
+-- select_value_readonly runs once per recipe, so the gate decision and the printed snapshot read the same value.
 function compute_bin_budget(smart, bin)
     if not smart.respawn_params then return nil, "[no respawn_params]" end
     local monster_factor = get_monster_pop_factor()
