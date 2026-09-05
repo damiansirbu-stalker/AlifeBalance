@@ -18,14 +18,14 @@ local AOE_BASELINE_BUILD = 20250908
 -- MCM footer color table, built lazily (GetARGB absent under the static validator).
 local _footer_clr = nil
 
---- @return string Version string
-function get_version()
-    return _VERSION
-end
-
 -- xray-monolith build (YYYYMMDD) as the themrdemonized tag style, no zero padding (20260722 -> "2026.7.22").
 local function _build_tag(build)
     return math_floor(build / 10000) .. "." .. (math_floor(build / 100) % 100) .. "." .. (build % 100)
+end
+
+--- @return string Version string
+function get_version()
+    return _VERSION
 end
 
 -- Platform status line and verdict for the boot log and the MCM footer.

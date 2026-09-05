@@ -61,10 +61,6 @@ local function _apply_defaults(gui, msg)
     end
 end
 
-function btn_reset_all(gui)
-    _apply_defaults(gui, game.translate_string("st_ab_reset_all_done"))
-end
-
 local function _build_tab_header(desc_id)
     return {
         { id = "title", type = "slide", link = "ab_mcm_banner",
@@ -78,6 +74,10 @@ local function _build_tab_group(desc_id, entries)
     local gr = _build_tab_header(desc_id)
     for i = 1, #entries do gr[#gr + 1] = entries[i] end
     return gr
+end
+
+function btn_reset_all(gui)
+    _apply_defaults(gui, game.translate_string("st_ab_reset_all_done"))
 end
 
 function on_mcm_load()

@@ -23,32 +23,6 @@ local function _show_markers_enabled()
     return mcm and mcm.show_markers
 end
 
-function add_marker(smart)
-    if not smart then return end
-    local label = ab_smart_balance.build_marker_label(smart)
-    xpda.add_entity_marker(smart.id, { marker_type = MARKER_TYPE, label = label })
-    _markers[smart.id] = os_clock() + MARKER_LINGER_SEC
-end
-
-function remove_marker(smart_id)
-    xpda.remove_entity_marker(smart_id, MARKER_TYPE)
-    _markers[smart_id] = nil
-end
-
-function clear_all_markers()
-    for smart_id in pairs(_markers) do
-        xpda.remove_entity_marker(smart_id, MARKER_TYPE)
-    end
-    _markers = {}
-end
-
-function remove_expired_markers()
-    local now = os_clock()
-    for smart_id, expires_at in pairs(_markers) do
-        if now >= expires_at then remove_marker(smart_id) end
-    end
-end
-
 local function _teleport_menu_label(smart_name_key)
     return game.translate_string(TELEPORT_KEY) .. " " .. game.translate_string(smart_name_key)
 end
@@ -92,6 +66,32 @@ end
 local function _on_first_update()
     RegisterScriptCallback(CALLBACK.MAP_SPOT_MENU_ADD_PROPERTY, _on_map_spot_menu_add)
     RegisterScriptCallback(CALLBACK.MAP_SPOT_MENU_PROPERTY_CLICKED, _on_map_spot_menu_clicked)
+end
+
+function add_marker(smart)
+    if not smart then return end
+    local label = ab_smart_balance.build_marker_label(smart)
+    xpda.add_entity_marker(smart.id, { marker_type = MARKER_TYPE, label = label })
+    _markers[smart.id] = os_clock() + MARKER_LINGER_SEC
+end
+
+function remove_marker(smart_id)
+    xpda.remove_entity_marker(smart_id, MARKER_TYPE)
+    _markers[smart_id] = nil
+end
+
+function clear_all_markers()
+    for smart_id in pairs(_markers) do
+        xpda.remove_entity_marker(smart_id, MARKER_TYPE)
+    end
+    _markers = {}
+end
+
+function remove_expired_markers()
+    local now = os_clock()
+    for smart_id, expires_at in pairs(_markers) do
+        if now >= expires_at then remove_marker(smart_id) end
+    end
 end
 
 function on_game_start()

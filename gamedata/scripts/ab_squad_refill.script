@@ -21,10 +21,6 @@ local _candidates = {}
 -- _pool_cache[section] = parsed npc_random array, or false when none (fixed roster); session-lifetime, squad_descr LTX is static.
 local _pool_cache = {}
 
-function set_debug(dbg)
-    _dbg = dbg and true or false
-end
-
 local function is_refill_enabled()
     local mcm = ab_mcm and ab_mcm.cfg
     return mcm and mcm.enabled and mcm.refill
@@ -33,26 +29,6 @@ end
 local function get_crowd_threshold()
     local mcm = ab_mcm and ab_mcm.cfg
     return (mcm and mcm.crowd_threshold) or DEFAULT_CROWD_THRESHOLD
-end
-
---- True when the area at `position` on `level_id` is crowded: own cell at the threshold, or its 3x3 neighborhood at double.
---- Shared gate for refill drain, advance lever, and crowd delay; offline bodies from the current pass, fail-open before it.
-function is_crowded(level_id, position)
-    if _cell_size <= 0 or not position then return false end
-    local threshold = get_crowd_threshold()
-    local key = xlevel.build_cell_key(level_id, position, _cell_size)
-    if not key then return false end
-    if (_cells[key] or 0) >= threshold then return true end
-    local sum = 0
-    for dx = -1, 1 do
-        for dz = -1, 1 do
-            local neighbor = xlevel.build_cell_key(level_id,
-                { x = position.x + dx * _cell_size, z = position.z + dz * _cell_size },
-                _cell_size)
-            sum = sum + (neighbor and _cells[neighbor] or 0)
-        end
-    end
-    return sum >= threshold * 2
 end
 
 --- Parsed npc_random pool for a section, cached (false = no pool).
@@ -108,35 +84,6 @@ local function _collect_squad(squad_id)
     if nmin <= npc_count then return end
     if not get_section_pool(section) then return end
     _candidates[#_candidates + 1] = { id = squad.id, level_id = level_id, bin = bin, cell = key }
-end
-
---- Walk up to `per_tick` squads; true when the pass wrapped (caller finalizes then).
-function iterate_squads(per_tick)
-    if not _sweep.active then
-        if not _start_pass() then return false end
-        _sweep.active = true
-    end
-    local last = _sweep.cursor + per_tick - 1
-    if last > _sweep.total then last = _sweep.total end
-    for i = _sweep.cursor, last do
-        _collect_squad(_sweep.ids[i])
-    end
-    _sweep.cursor = last + 1
-    if _sweep.cursor > _sweep.total then
-        _sweep.active = false
-        return true
-    end
-    return false
-end
-
---- Console helper (ab_test): run one full sweep synchronously, return squads walked.
-function iterate_all_squads()
-    if not _start_pass() then return 0 end
-    for i = 1, _sweep.total do
-        _collect_squad(_sweep.ids[i])
-    end
-    _sweep.active = false
-    return _sweep.total
 end
 
 -- Refill one candidate squad by a member, re-verifying its state fresh (the pass took minutes; it may have died, gone online, recovered, or lost its smart).
@@ -239,4 +186,57 @@ function reset_state()
     _cell_size  = 0
     _cells      = {}
     _candidates = {}
+end
+
+function set_debug(dbg)
+    _dbg = dbg and true or false
+end
+
+--- True when the area at `position` on `level_id` is crowded: own cell at the threshold, or its 3x3 neighborhood at double.
+--- Shared gate for refill drain, advance lever, and crowd delay; offline bodies from the current pass, fail-open before it.
+function is_crowded(level_id, position)
+    if _cell_size <= 0 or not position then return false end
+    local threshold = get_crowd_threshold()
+    local key = xlevel.build_cell_key(level_id, position, _cell_size)
+    if not key then return false end
+    if (_cells[key] or 0) >= threshold then return true end
+    local sum = 0
+    for dx = -1, 1 do
+        for dz = -1, 1 do
+            local neighbor = xlevel.build_cell_key(level_id,
+                { x = position.x + dx * _cell_size, z = position.z + dz * _cell_size },
+                _cell_size)
+            sum = sum + (neighbor and _cells[neighbor] or 0)
+        end
+    end
+    return sum >= threshold * 2
+end
+
+--- Walk up to `per_tick` squads; true when the pass wrapped (caller finalizes then).
+function iterate_squads(per_tick)
+    if not _sweep.active then
+        if not _start_pass() then return false end
+        _sweep.active = true
+    end
+    local last = _sweep.cursor + per_tick - 1
+    if last > _sweep.total then last = _sweep.total end
+    for i = _sweep.cursor, last do
+        _collect_squad(_sweep.ids[i])
+    end
+    _sweep.cursor = last + 1
+    if _sweep.cursor > _sweep.total then
+        _sweep.active = false
+        return true
+    end
+    return false
+end
+
+--- Console helper (ab_test): run one full sweep synchronously, return squads walked.
+function iterate_all_squads()
+    if not _start_pass() then return 0 end
+    for i = 1, _sweep.total do
+        _collect_squad(_sweep.ids[i])
+    end
+    _sweep.active = false
+    return _sweep.total
 end
