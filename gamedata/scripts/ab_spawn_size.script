@@ -34,7 +34,7 @@ local function _try_raise(squad, spawn_smart)
     if deficit <= ab_smart_balance.get_band_frac() then return end
     if ab_squad_refill.is_crowded(level_id, spawn_smart.position) then return end
     if not xlevel.is_valid_lvid(spawn_smart) then return end
-    local nmin, nmax = xsmart.get_section_npc_range(section)
+    local nmin, nmax = xsmart.get_section_range(section)
     if nmax <= nmin then return end
     local target = nmin + math_floor(strength * deficit * (nmax - nmin) + 0.5)
     local have = squad:npc_count()

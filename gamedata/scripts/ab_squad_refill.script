@@ -80,7 +80,7 @@ local function _collect_squad(squad_id)
     local bin = ab_smart_recipe.get_faction_bin(squad.player_id)
     if not bin then return end
     local section = squad:section_name()
-    local nmin = xsmart.get_section_npc_range(section)
+    local nmin = xsmart.get_section_range(section)
     if nmin <= npc_count then return end
     if not get_section_pool(section) then return end
     _candidates[#_candidates + 1] = { id = squad.id, level_id = level_id, bin = bin, cell = key }
@@ -95,7 +95,7 @@ local function _add_member(squad_id, acc)
     local npc_count = squad:npc_count()
     if npc_count == 0 then acc.gone = acc.gone + 1; return end
     local section = squad:section_name()
-    local nmin = xsmart.get_section_npc_range(section)
+    local nmin = xsmart.get_section_range(section)
     if nmin <= npc_count then acc.recovered = acc.recovered + 1; return end
     local rec = squad.smart_id and SIMBOARD.smarts[squad.smart_id]
     local smart = rec and rec.smrt
