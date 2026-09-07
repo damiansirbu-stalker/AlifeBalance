@@ -98,7 +98,8 @@ On GAMMA, ZCP can spawn squads below their LTX minimum (0.55 scaling). The refil
 Cells keyed by `xlevel.cell_key` (the shared grid convention with AlifeGuard's offline cull) at `switch_distance` granularity, offline bodies only, rebuilt each pass.
 Crowded means the own cell at the MCM threshold (default 60), or the 3x3 neighborhood at double (which catches piles straddling a border).
 Offline-only is deliberate. The mod's levers act in offline space. Online density is AlifeGuard's online guard and the engine's own `respawn_radius`.
-The threshold sits at half AlifeGuard's default cull trigger (120), so the two systems keep a dead zone and do not meet at one line. That assumption is a comment, not a cross-mod read.
+The threshold sits at half AlifeGuard's default cull trigger (120), so the two systems keep a dead zone and do not meet at one line.
+That relationship is only an assumption in a comment. AlifeBalance never reads it from AlifeGuard.
 
 ## Pipeline
 
@@ -160,7 +161,7 @@ One 60s timer, one xslice job (`ab_refill`), one function patch (`create_npc`, a
 | `refill` | Squad Refill | true | Squad repairs on/off |
 | `log_level`, `show_markers`, `btn_reset_all` | Development | WARN / false / - | Diagnostics |
 
-`BAND_FRAC`, `BAND_MIN`, `SWEEP_PER_TICK`, `MODEL_REFRESH_PASSES`, `MIN_PUSH_SEC` are tuning constants, not knobs.
+`BAND_FRAC`, `BAND_MIN`, `SWEEP_PER_TICK`, `MODEL_REFRESH_PASSES`, `MIN_PUSH_SEC` are fixed tuning constants with no MCM knob.
 
 ## Performance
 
