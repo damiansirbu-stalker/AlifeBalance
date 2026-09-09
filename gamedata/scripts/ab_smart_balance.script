@@ -447,13 +447,13 @@ local function _apply_crowd_delay(level_id, model, acted)
     local smarts = model.smarts
     for i = 1, #smarts do
         local smart = smarts[i]
-        if not acted[smart.id] and _can_delay(smart)
-           and ab_squad_refill.is_crowded(level_id, smart.position) then
-            local ctx = { level_id = level_id, bin = "crowd", actual = 0,
-                          capacity = 0, err = 1, acted = acted }
-            _execute_action(smart, ctx, nil, ACTION.DELAY)
-            _stats.crowd_delays = _stats.crowd_delays + 1
-        end
+        if acted[smart.id] or not _can_delay(smart)
+           or not ab_squad_refill.is_crowded(level_id, smart.position) then goto continue end
+        local ctx = { level_id = level_id, bin = "crowd", actual = 0,
+                      capacity = 0, err = 1, acted = acted }
+        _execute_action(smart, ctx, nil, ACTION.DELAY)
+        _stats.crowd_delays = _stats.crowd_delays + 1
+        ::continue::
     end
 end
 

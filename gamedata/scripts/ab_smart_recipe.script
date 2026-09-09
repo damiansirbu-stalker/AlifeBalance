@@ -236,9 +236,7 @@ local function _build_model(level_id, model)
     local stalker_factor = get_stalker_pop_factor()
     for _, rec in pairs(board.smarts) do
         local smart = rec.smrt
-        if smart and smart.respawn_params and xlevel.get_level_id(smart) == level_id then
-            _add_smart_to_model(smart, model, monster_factor, stalker_factor)
-        end
+        if smart and smart.respawn_params and xlevel.get_level_id(smart) == level_id then _add_smart_to_model(smart, model, monster_factor, stalker_factor) end
     end
 end
 
