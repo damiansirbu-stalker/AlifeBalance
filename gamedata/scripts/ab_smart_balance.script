@@ -25,7 +25,7 @@ local SWEEP_PER_TICK = 50
 local BAND_FRAC = 0.25
 local BAND_MIN = 1
 
--- Pushes below this are skipped: sub-minute cooldown moves are noise and CTime churn.
+-- Pushes below this are skipped: sub-minute cooldown moves are noise and wasted CTime writes.
 local MIN_PUSH_SEC = 60
 
 -- Level models recomputed every this many passes, so condlist spawn_num flips and respawn_params mutations converge within a few passes.
