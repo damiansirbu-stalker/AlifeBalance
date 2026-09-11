@@ -94,7 +94,7 @@ Smart Balance:
   Работает на модифицированных exe themrdemonized 2025.9.10 или новее, либо AOEngine v0.55 или новее.
   Полный набор функций требует свежей сборки demonized. Функция, которой нужна более новая сборка, остаётся неактивной на старых exe.
 
-  Протестирован с ванильной Anomaly 1.5.3, GAMMA, ZCP, Redone, AlifeGuard, AlifePlus.
+  Протестирован с ванильной Anomaly 1.5.3, GAMMA, Forgotten Zone, ZCP, Redone, AlifeGuard, AlifePlus.
   Также протестирован с Night Mutants, Nocturnal Mutants, GAMMA Dynamic Despawner, Guards Spawner.
 
   Конфликты (критично): Warfare. Его модель населения конфликтует с любой внешней балансировкой. Отключите AlifeBalance при запуске Warfare.
@@ -163,7 +163,7 @@ Altogolik предоставил поддержку, идеи и исходны�
 Держи Зону живой, оставляя ванильный A-Life ванильным.
 
 Сообщение об ошибках и предложения
-Откройте отчёт на https://github.com/damiansirbu-stalker/AlifeBalance/issues/new/choose или спросите на Discord-серверах GAMMA, EFP, Anomaly и Zona. Сначала прочитайте этот readme и настройки MCM.
+Откройте отчёт на https://github.com/damiansirbu-stalker/AlifeBalance/issues/new/choose или спросите на Discord-серверах EFP, Anomaly и Zona. Сначала прочитайте этот readme и настройки MCM.
 
 Приложите: точные шаги воспроизведения (новая игра или именованное сохранение, ожидаемое и фактическое), сборку движка, список модов, порядок загрузки, xray.log и лог отладки мода.
 С сотнями загруженных модов только лог показывает, был ли задействован именно этот.

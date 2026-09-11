@@ -95,43 +95,27 @@ Performance:
   The optimized multithreaded build you run is always faster.
 
 Compatibility:
-  Requires xlibs.
-  Runs on themrdemonized modded exes 2025.9.10 or newer, or AOEngine v0.55 or newer.
-  The full feature set needs the latest demonized build. A feature that needs a newer build stays inactive on older exes.
-
-  Tested with vanilla Anomaly 1.5.3, GAMMA, ZCP, Redone, AlifeGuard, AlifePlus.
-  Also tested with Night Mutants, Nocturnal Mutants, GAMMA Dynamic Despawner, Guards Spawner.
-
-  Conflicts (critical): Warfare. Its population model fights any external balancing. Disable AlifeBalance when running Warfare.
-
-  Superseded: Squad Filler. It tops offline stalker squads up to a flat size once per game-day, regardless of how crowded or populated the map is.
-  Smart Balance's refill covers the same squads gated by the spawner-record verdicts. It skips crowded areas and works for mutants too. It respects each squad's own configured size.
-  Disable Squad Filler when running AlifeBalance.
-
-  Affects / coexists (Smart Balance):
-  - Vanilla, ZCP: same cooldown field, gate, and spawner records, so they compose. ZCP keeps deciding which species or faction actually spawns and how squad sizes scale after spawning.
-    Smart Balance counts declared slots, so that scaling cannot skew its verdicts.
-  - Redone, GAMMA NPC Spawns: pure config. That config is the declared population Smart Balance steers toward.
-  - AlifePlus: territory conquest and infestation change what a smart spawns. The balance target follows those changes automatically.
-  - Night Mutants: their spawn path is outside the spawner records, so they are neither boosted nor suppressed.
-  - Nocturnal Mutants: they spawn outside smart terrains, so there is no interaction.
-  - Dynamic Despawner, AlifeGuard: despawns free spawner slots like any other loss. Recovery follows, and the refill skips crowded areas so it never fights a density cull.
+  Tested with vanilla Anomaly 1.5.3, GAMMA, Forgotten Zone, ZCP, Redone, AlifeGuard, AlifePlus, Night Mutants, Nocturnal Mutants, GAMMA Dynamic Despawner, and Guards Spawner.
+  - Supersedes: Squad Filler - Smart Balance's refill covers the same squads, skips crowded areas, works for mutants too, and respects each squad's own configured size. Disable Squad Filler when running AlifeBalance.
+  - Conflicts: Warfare - its population model fights any external balancing. Disable AlifeBalance when running Warfare.
+  - Coexists (Smart Balance):
+    - Vanilla, ZCP: same cooldown field, gate, and spawner records, so they compose. ZCP keeps deciding which species or faction spawns and how squad sizes scale; Smart Balance counts declared slots, so that scaling cannot skew its verdicts.
+    - Redone, GAMMA NPC Spawns: pure config, which is the declared population Smart Balance steers toward.
+    - AlifePlus: territory conquest and infestation change what a smart spawns; the balance target follows automatically.
+    - Night Mutants: spawn path outside the spawner records, neither boosted nor suppressed.
+    - Nocturnal Mutants: spawn outside smart terrains, no interaction.
+    - Dynamic Despawner, AlifeGuard: despawns free spawner slots like any other loss; recovery follows, and the refill skips crowded areas so it never fights a density cull.
 
 
-MCM:
-  The General tab holds the master on/off and the crowded area threshold.
-  The Respawn Pacing tab holds the on/off, correction passes, minimum cooldown remaining, and maximum cooldown remaining.
-  The Spawn Size tab holds the on/off and the strength slider.
-  The Squad Refill tab holds the on/off.
-  The Development tab holds the log level, map markers, and reset to defaults.
-
-  Map markers (Development): green PDA spots appear on every smart terrain that received a cooldown advance or delay.
-  They linger 5 minutes of real time. Right-click any marker to teleport to that smart or display its full correction history.
-  The markers appear at any log level.
+Diagnostics:
+- Map markers: enable in MCM > Development. Green PDA spots mark each smart terrain that got a cooldown advance or delay, lingering 5 minutes; right-click one to teleport there or show its correction history.
 
 
 Requirements:
-AlifeBalance requires Anomaly 1.5.3, xlibs 1.8.3 or newer (https://www.moddb.com/mods/stalker-anomaly/addons/xlibs-1001), and MCM.
+Anomaly 1.5.3
+Modded exes: themrdemonized 2025.9.10 or newer, or AOEngine v0.55 or newer. The full feature set needs the latest demonized build; a feature that needs a newer one stays inactive on older exes.
+xlibs 1.8.3 or newer (https://www.moddb.com/mods/stalker-anomaly/addons/xlibs-1001)
+MCM
 
 
 Install (MO2):
@@ -149,10 +133,6 @@ Runs on xlibs over the X-Ray engine, using runtime callbacks only and leaving ba
 See doc/architecture.md for the full design and the multi-stage validation pipeline (luacheck, selene, AST analysis, contract rules, integration tests).
 
 
-FAQ:
-Do I need modded exes?
-  Yes. AlifeBalance needs themrdemonized modded exes (2025.9.10 or newer) or AOEngine (v0.55 or newer). Vanilla Anomaly does not expose the APIs it relies on.
-
 Credits:
 Altogolik provided support, ideas, and source materials.
 
@@ -167,7 +147,7 @@ Usage and License:
 Keep the Zone alive while letting vanilla A-Life remain vanilla.
 
 Reporting issues and suggestions
-Open a report at https://github.com/damiansirbu-stalker/AlifeBalance/issues/new/choose, or ask on the GAMMA, EFP, Anomaly, and Zona Discord servers. Read this readme and the MCM options first.
+Open a report at https://github.com/damiansirbu-stalker/AlifeBalance/issues/new/choose, or ask on the EFP, Anomaly, and Zona Discord servers. Read this readme and the MCM options first.
 
 Include: exact repro steps (new game or named save, expected vs actual), engine build, modlist, load order, xray.log, and the mod debug log.
 With hundreds of mods loaded, only the log shows whether this one was involved.
