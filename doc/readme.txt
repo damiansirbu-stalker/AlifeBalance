@@ -107,10 +107,6 @@ Compatibility:
     - Dynamic Despawner, AlifeGuard: despawns free spawner slots like any other loss; recovery follows, and the refill skips crowded areas so it never fights a density cull.
 
 
-Diagnostics:
-- Map markers: enable in MCM > Development. Green PDA spots mark each smart terrain that got a cooldown advance or delay, lingering 5 minutes; right-click one to teleport there or show its correction history.
-
-
 Requirements:
 Anomaly 1.5.3
 Modded exes: themrdemonized 2025.9.10 or newer, or AOEngine v0.55 or newer. The full feature set needs the latest demonized build; a feature that needs a newer one stays inactive on older exes.
@@ -146,11 +142,7 @@ Usage and License:
 
 Keep the Zone alive while letting vanilla A-Life remain vanilla.
 
-Reporting issues and suggestions
-Open a report at https://github.com/damiansirbu-stalker/AlifeBalance/issues/new/choose, or ask on the EFP, Anomaly, and Zona Discord servers. Read this readme and the MCM options first.
-
-Include: exact repro steps (new game or named save, expected vs actual), engine build, modlist, load order, xray.log, and the mod debug log.
-With hundreds of mods loaded, only the log shows whether this one was involved.
-
-The debug log is required: set the MCM log level to DEBUG, reproduce, then back to WARN. DEBUG is not free.
-It writes a timed line for every evaluation and hitches single-threaded exes. The millisecond figures include the tracing itself, so treat them as relative.
+Diagnostics and reporting:
+Development > Log level: set to DEBUG, reproduce, then back to WARN. Writes the debug log.
+Development > Map markers: green PDA spot on each smart that got a cooldown advance or delay, 5 minutes; right-click to teleport or show its correction history.
+Report at https://github.com/damiansirbu-stalker/AlifeBalance/issues/new/choose or the EFP, Anomaly, and Zona Discord. Include repro steps, engine build, modlist, load order, xray.log, and the debug log.
