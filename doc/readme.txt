@@ -87,12 +87,20 @@ Smart Balance:
     Default (mild): correction passes 6, minimum cooldown 120 (2 game-hours), maximum 720 (12 game-hours), spawn size strength 50.
     Conservative: correction passes 8, minimum cooldown 360, spawn size strength 25.
 
+Requirements:
+Anomaly 1.5.3
+Modded exes: themrdemonized 2025.9.10 or newer, or AOEngine v0.55 or newer. The full feature set needs the latest demonized build; a feature that needs a newer one stays inactive on older exes.
+xlibs 1.8.3 or newer (https://www.moddb.com/mods/stalker-anomaly/addons/xlibs-1001)
+MCM
 
-Performance:
-  Performance comes first, ahead of any feature. AlifeBalance modulates rates the engine already owns and adds no work of its own beyond a throttled 60s timer.
-  When something cannot fit the budget it is reworked or removed with an X-Ray engine modification, never allowed to slow the game.
-  It is measured on the engine built from the latest source with no multithreading and no optimizations, so the timings are worst-case.
-  The optimized multithreaded build you run is always faster.
+Install (MO2):
+1. Install xlibs
+2. Install AlifeBalance
+3. Load order does not matter
+4. Configure via MCM
+
+Uninstall (MO2):
+Disable or remove in MO2.
 
 Compatibility:
   Tested with vanilla Anomaly 1.5.3, GAMMA, Forgotten Zone, ZCP, Redone, AlifeGuard, AlifePlus, Night Mutants, Nocturnal Mutants, GAMMA Dynamic Despawner, and Guards Spawner.
@@ -106,39 +114,24 @@ Compatibility:
     - Nocturnal Mutants: spawn outside smart terrains, no interaction.
     - Dynamic Despawner, AlifeGuard: despawns free spawner slots like any other loss; recovery follows, and the refill skips crowded areas so it never fights a density cull.
 
+Performance:
+  Performance comes first, ahead of any feature. AlifeBalance modulates rates the engine already owns and adds no work of its own beyond a throttled 60s timer.
+  When something cannot fit the budget it is reworked or removed with an X-Ray engine modification, never allowed to slow the game.
+  It is measured on the engine built from the latest source with no multithreading and no optimizations, so the timings are worst-case.
+  The optimized multithreaded build you run is always faster.
 
-Requirements:
-Anomaly 1.5.3
-Modded exes: themrdemonized 2025.9.10 or newer, or AOEngine v0.55 or newer. The full feature set needs the latest demonized build; a feature that needs a newer one stays inactive on older exes.
-xlibs 1.8.3 or newer (https://www.moddb.com/mods/stalker-anomaly/addons/xlibs-1001)
-MCM
-
-
-Install (MO2):
-1. Install xlibs
-2. Install AlifeBalance
-3. Load order does not matter
-4. Configure via MCM
-
-Uninstall (MO2):
-Disable or remove in MO2.
-
-
-Architecture and validation:
+Development:
 Runs on xlibs over the X-Ray engine, using runtime callbacks only and leaving base scripts and the engine binary untouched.
 See doc/architecture.md for the full design and the multi-stage validation pipeline (luacheck, selene, AST analysis, contract rules, integration tests).
 
-
 Credits:
 Altogolik provided support, ideas, and source materials.
-
 
 Usage and License:
   Modpacks: allowed and encouraged. Keep the readme and license files.
   Addons, patches, integrations: allowed. Credit "AlifeBalance by Damian Sirbu" visibly on your mod page.
   Reproducing the implementation in other software: not allowed, even with credit.
   The full license is in the LICENSE file and on GitHub.
-
 
 Keep the Zone alive while letting vanilla A-Life remain vanilla.
 
