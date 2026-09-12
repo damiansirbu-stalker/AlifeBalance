@@ -6,7 +6,6 @@ local alife_object, alife_release = alife_object, alife_release
 local xsquad, xlevel = xsquad, xlevel
 local ini_sys = ini_sys
 -- NOTE: never cache CreateTimeEvent/RemoveTimeEvent as locals (doc/library/xray/internals/globals.md:208-219).
-
 local log = xlog.get_logger("AB.TEST", { outfile = "alifebalance.log" })
 
 local STATUS_TIP_MS = 8000
@@ -109,8 +108,6 @@ local function _drive_levers(smart, advances_cfg, min_sec, max_sec)
         ok_floor = ok_floor, ok_ceiling = ok_ceiling, saved = saved,
     }
 end
-
--- System test: staged end-to-end homeostat exercise on a throwaway save (releases real NPCs); see ab_test_system.
 
 -- Squad qualifies as massacre fodder: offline (refill under test is offline-only), right bin, right level, not permanent/companion.
 -- Its section must declare a random pool, so thinned squads are refillable (the property under test).

@@ -7,7 +7,6 @@ local os_clock, RegisterScriptCallback = os.clock, RegisterScriptCallback
 local xlog, xprofiler = xlog, xprofiler
 local xsmart, xlevel, xtime = xsmart, xlevel, xtime
 -- Never cache CreateTimeEvent/ResetTimeEvent/RemoveTimeEvent as locals; demonized swaps the globals at load (globals.md:208-219).
-
 local log = xlog.get_logger("AB.SBAL", { outfile = "alifebalance.log" })
 
 local TIMER_EV = "ab_smart_balance"
