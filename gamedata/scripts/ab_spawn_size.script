@@ -1,9 +1,7 @@
 --- ab_spawn_size: Spawn Size - deficit-proportional member draw for new squads
 
 local tostring, math_random, math_floor = tostring, math.random, math.floor
-local parse_names, get_object_story_id = parse_names, get_object_story_id
 local xlog, xsmart, xlevel, xprofiler = xlog, xsmart, xlevel, xprofiler
-local ini_sys = ini_sys
 
 local log = xlog.get_logger("AB.SIZE", { outfile = "alifebalance.log" })
 
@@ -22,8 +20,8 @@ local function _try_raise(squad, spawn_smart)
     if not strength or strength <= 0 then return end
     if not spawn_smart then return end
     local section = squad:section_name()
-    local random_pool = ini_sys:r_string_ex(section, "npc_random")
-    if not random_pool then return end
+    local pool = ab_squad_refill.get_section_pool(section)
+    if not pool then return end
     if get_object_story_id(squad.id) then return end
     local bin = ab_smart_recipe.get_section_bin(section)
     if not bin then return end
@@ -39,8 +37,6 @@ local function _try_raise(squad, spawn_smart)
     local target = nmin + math_floor(strength * deficit * (nmax - nmin) + 0.5)
     local have = squad:npc_count()
     if target <= have then return end
-    local pool = parse_names(random_pool)
-    if #pool == 0 then return end
     local added = 0
     for _ = have + 1, target do
         local member_id = squad:add_squad_member(pool[math_random(#pool)],

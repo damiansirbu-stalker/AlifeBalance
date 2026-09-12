@@ -30,13 +30,23 @@ local function get_stalker_pop_factor()
     return ui_options.get("alife/general/alife_stalker_pop") or 1
 end
 
+-- The static `common` flag per squad section (engine scales only common recipes); cached, else the balance pass re-reads it per recipe.
+local _common_cache = {}
+local function _is_common_section(section)
+    local cached = _common_cache[section]
+    if cached ~= nil then return cached end
+    local common = ini_sys:r_bool_ex(section, "common") or false
+    _common_cache[section] = common
+    return common
+end
+
 -- Mirror the engine's per-recipe factor selection: only recipes whose FIRST squad section has common=true are scaled.
 -- @src smart_terrain.script:1675-1686: "simulation"/"zombied" section takes the monster factor, "sim_squad" the stalker, else unscaled.
 local function _compute_recipe_factor(recipe, monster_factor, stalker_factor)
     local squads = recipe.squads
     local section = squads and squads[1]
     if not section then return 1 end
-    if not ini_sys:r_bool_ex(section, "common") then return 1 end
+    if not _is_common_section(section) then return 1 end
     if string_find(section, "simulation") or string_find(section, "zombied") then
         return monster_factor
     elseif string_find(section, "sim_squad") then
@@ -102,8 +112,6 @@ local function _log_inventory(level_id)
     log.debug("[INVENTORY] level=%d total_smarts=%d", level_id, total)
 end
 
--- CONDLIST WALKER
-
 -- Info-portion condition (type 1 positive, 2 negative). Dispatch: infop[3] -> npc-side; else actor; else sim:has_info(0,..); else pass.
 local function _check_info_condition(infop, npc_info, actor, sim, is_negative)
     local has_info
@@ -157,8 +165,6 @@ local function _check_all_conditions(conds, obj, npc, npc_info, actor, sim)
     end
     return true
 end
-
--- LEVEL MODEL
 
 -- Effective concurrent-squad SLOT cap for one recipe, nil when the engine would skip it.
 -- @src smart_terrain.script:1665-1702: mirrors the try_respawn gates (bookkeeping, faction_controlled with default_faction seed at :1659, heli/empty).
@@ -250,8 +256,6 @@ local function _collect_reader(reader, actual)
         actual[bin] = (actual[bin] or 0) + num * frac
     end
 end
-
--- BUDGET EVAL
 
 -- Evaluate one recipe slot, or nil when the engine would skip it.
 -- raw_max is the declared LTX capacity for the snapshot; effective max applies the mirrored factor (round-half-up >=1, optimistic on fractional).
