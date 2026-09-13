@@ -5,6 +5,8 @@ Respawn pacing, squad size and squad refill adjust per faction and per region. I
 
 [ModDB](https://www.moddb.com/mods/stalker-anomaly/addons/alifebalance) | [Nexus](https://www.nexusmods.com/stalkeranomaly/mods/110) | [Releases](https://github.com/damiansirbu-stalker/AlifeBalance/releases) | [Bugs, suggestions](https://github.com/damiansirbu-stalker/AlifeBalance/issues)
 
+[![Grade](https://img.shields.io/endpoint?url=https%3A%2F%2Fdamiansirbu-stalker.github.io%2FAlifeBalance%2Fbadge.json)](https://damiansirbu-stalker.github.io/AlifeBalance/) [![validate](https://github.com/damiansirbu-stalker/AlifeBalance/actions/workflows/validate.yml/badge.svg)](https://github.com/damiansirbu-stalker/AlifeBalance/actions/workflows/validate.yml) [![Project Health](https://img.shields.io/badge/project_health-dashboard-00ced1)](https://damiansirbu-stalker.github.io/AlifeBalance/)
+
 Requires: Anomaly 1.5.3, modded exes (themrdemonized or AOEngine), [xlibs](https://www.moddb.com/mods/stalker-anomaly/addons/xlibs-1001), MCM. Exact versions in [readme.txt](doc/readme.txt).
 
 ## Alife Collection
