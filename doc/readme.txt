@@ -89,7 +89,7 @@ Smart Balance:
 
 Requirements:
 Anomaly 1.5.3
-Modded exes: themrdemonized 2025.9.10 or newer, or AOEngine v0.55 or newer. The full feature set needs the latest demonized build; a feature that needs a newer one stays inactive on older exes.
+Modded exes: themrdemonized or AOEngine v0.55 or newer. The full feature set needs the latest demonized build; a feature that needs a newer one stays inactive on older exes.
 xlibs 1.8.3 or newer (https://www.moddb.com/mods/stalker-anomaly/addons/xlibs-1001)
 MCM
 
@@ -114,15 +114,16 @@ Compatibility:
     - Nocturnal Mutants: spawn outside smart terrains, no interaction.
     - Dynamic Despawner, AlifeGuard: despawns free spawner slots like any other loss; recovery follows, and the refill skips crowded areas so it never fights a density cull.
 
-Performance:
+Performance and Infrastructure:
   Performance comes first, ahead of any feature. AlifeBalance modulates rates the engine already owns and adds no work of its own beyond a throttled 60s timer.
   When something cannot fit the budget it is reworked or removed with an X-Ray engine modification, never allowed to slow the game.
-  It is measured on the engine built from the latest source with no multithreading and no optimizations, so the timings are worst-case.
-  The optimized multithreaded build you run is always faster.
-
-Development:
-Runs on xlibs over the X-Ray engine, using runtime callbacks only and leaving base scripts and the engine binary untouched.
-See doc/architecture.md for the full design and the multi-stage validation pipeline (luacheck, selene, AST analysis, contract rules, integration tests).
+  Built from the X-Ray engine source by reverse engineering, with targeted engine changes of my own for performance, precision, and accuracy.
+  Heavy work spreads across frames, paced by rate limiters and staggered, deferred queues, with the math to keep cost bounded at any entity count.
+  A layered validator runs on every change, locally and in CI, and blocks the build on any crash, unsafe engine call, performance regression, style break, failed smoke load, or leaked secret.
+  Profiled with JitProfiler, an engine-native, scientific profiler.
+  Timings are worst-case, from a build with no multithreading or optimizations, so yours runs faster.
+  Project Health: https://damiansirbu-stalker.github.io/AlifeBalance/
+  [JitProfiler: AlifeBalance under CPU and allocation capture]
 
 Credits:
 Altogolik provided support, ideas, and source materials.
