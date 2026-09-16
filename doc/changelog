@@ -1,4 +1,14 @@
 next
+  Summary: performance and infrastructure, spawn-size respawn crash
+
+  Performance and Infrastructure
+    - Rebuilt the validator into layered rules for crashes, unsafe engine usage, performance, best practices, smoke load, and secret leaks.
+    - The validator runs on every change, locally and in CI, and a grade gate fails the build on any finding.
+    - Profiled and tuned with JitProfiler, an engine-native, scientific profiler.
+    - Consolidated the whole engine layer into xlibs and standardized naming and structure across every mod.
+
+  Spawn Size
+    - Fixed a crash on respawn when Spawn Size was on.
 
 1.1.3
   Summary: Spawner-record balance, spawn size, squad refill, crowded-area steering, Inventory Balance moved to AlifeGuard
