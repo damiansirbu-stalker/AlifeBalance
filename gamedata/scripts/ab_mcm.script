@@ -92,7 +92,7 @@ function on_mcm_load()
                     { id = "crowd_threshold", type = "track", val = 2, min = 20, max = 200, step = 10, def = 60 },
                     { id = "div_footer", type = "line" },
                     { id = "platform", type = "desc", text = "ui_mcm_xmcm_footer",
-                        ui_hook_functor = { _ab_deps.platform_functor() }, clr = {255, 212, 201, 168} },
+                        ui_hook_functor = { _ab_init.get_platform_functor() }, clr = {255, 212, 201, 168} },
                 }),
             },
             {

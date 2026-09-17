@@ -1,0 +1,7 @@
+--- _ab_manifest: AlifeBalance identity. Pure data, no logic. Read by _ab_init (the gate) and the validator (deps.manifest_structure).
+
+MANIFEST = {
+    name    = "AlifeBalance",
+    version = "next",
+    xlibs   = "1.8.3",
+}
