@@ -134,7 +134,8 @@ One 60s timer, one xslice job (`ab_refill`), one function patch (`create_npc`, a
 
 | File | Purpose |
 |------|---------|
-| `gamedata/scripts/_ab_deps.script` | Version string, xlibs dependency gate |
+| `gamedata/scripts/_ab_manifest.script` | Identity data: name, version, xlibs pin |
+| `gamedata/scripts/_ab_init.script` | xlibs + modded-exes dependency gate, platform footer |
 | `gamedata/scripts/ab_mcm.script` | MCM defaults, 5-tab tree, reset button |
 | `gamedata/scripts/ab_smart_balance.script` | Verdicts, world sums, pacing actuators, public `get_verdict` / `get_world_deficit` / `build_marker_label` / `show_smart_stats` |
 | `gamedata/scripts/ab_smart_recipe.script` | Slot capacity model, readers, `read_actual`, bin classification, budget eval, side-effect-free condlist walker |
