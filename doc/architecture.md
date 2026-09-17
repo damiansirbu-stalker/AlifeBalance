@@ -54,7 +54,7 @@ err  = |open| / cap, clamped to 1
 ```
 
 World scope: the same sums aggregated across all levels, served per bin by `get_world_deficit` (feeds Spawn Size).
-One known bound: member-only massacres (every squad survives at 1-2 members) hold their slots, so the verdicts read healthy.
+One bound is known. Member-only massacres (every squad survives at 1-2 members) hold their slots, so the counts read healthy.
 The refill floors those squads at their minimum, and squads that then die open slots, handing the case to pacing. Pacing drains that corner on its own.
 A member-level deficit sensor was rejected. Every reference (section max, midpoint) reads permanently false under ZCP's post-spawn scaling.
 
@@ -68,7 +68,8 @@ At pass end, per (level, bin), one step per smart per pass enforced across bins 
 - **Crowd delay**: a smart inside a crowded area is delayed at full step regardless of verdicts. Crowding is local overpopulation, and slowing local spawners is the delay lever's native answer.
 
 `_can_advance` mirrors the engine gates that would waste the push (`smart_terrain.script`): disabled (`:1601`), `respawn_only_level` vs actor level (`:1611`).
-It also checks actor distance vs `respawn_radius` (`:1619`) and `simulation_objects.available_by_id == false` (`:1630`, nil passes). The peace wish (`:1607`) idles all pacing at pass level.
+It also checks actor distance against `respawn_radius` at line 1619.
+Then it checks `simulation_objects.available_by_id == false` at line 1630, where nil passes. The peace wish (`:1607`) idles all pacing at pass level.
 Residual waste is only the unpredictable case: a budget closing between an advance and the next engine pass, or a chance-recipe roll. Both are corrected on the next pass.
 `_resolve_idle` mirrors ZCP's gate selection (`smr_pop.script:1246-1249`, including disabled-at-86400 and the -1 disable).
 CTime deltas are built positionally (`date_time.cpp:118-140`, valid past 24h). The full-step delta is cached per smart.
