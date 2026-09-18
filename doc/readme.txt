@@ -132,7 +132,7 @@ Usage and License:
   Modpacks: allowed and encouraged. Keep the readme and license files.
   Addons, patches, integrations: allowed. Credit "AlifeBalance by Damian Sirbu" visibly on your mod page.
   Reproducing the implementation in other software: not allowed, even with credit.
-  The full license is in the LICENSE file and on GitHub.
+  Full license in LICENSE file and on GitHub.
 
 Keep the Zone alive while letting vanilla A-Life remain vanilla.
 
