@@ -2,7 +2,6 @@ AlifeBalance: A-Life balance layer for STALKER Anomaly, by Damian
 Version: next (xlibs 1.8.3, demonized 20250908)
 Changelog: https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/changelog
 Russian / Na russkom: https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/readme_ru.txt
-Report at https://github.com/damiansirbu-stalker/AlifeBalance/issues/new/choose or the EFP, Anomaly, and Zona Discord. Include repro steps, engine build, modlist, load order, xray.log, and the debug log.
 
 My work:
 GitHub: https://github.com/orgs/damiansirbu-stalker/repositories
