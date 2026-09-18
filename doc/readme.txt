@@ -4,7 +4,7 @@ GitHub: https://github.com/damiansirbu-stalker/AlifeBalance
 Changelog: https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/changelog
 Architecture: https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/architecture.md
 Russian / Na russkom: https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/readme_ru.txt
-Report a bug or suggestion: https://github.com/damiansirbu-stalker/AlifeBalance/issues
+Report at https://github.com/damiansirbu-stalker/AlifeBalance/issues/new/choose or the EFP, Anomaly, and Zona Discord. Include repro steps, engine build, modlist, load order, xray.log, and the debug log.
 
 Alife Collection:
 AlifeAmbience: https://github.com/damiansirbu-stalker/AlifeAmbience
