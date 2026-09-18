@@ -10,14 +10,13 @@ The engine keeps owning the spawn itself, the recipes, squad selection, and budg
 
 Built on xlibs. `_ab_deps` asserts the minimum xlibs version on load.
 
-Part of a three-mod alife family. **AlifePlus** extends A-Life with new behaviors.
-**AlifeBalance** (this mod) modulates rates and counts the engine already owns, and never releases anything. **AlifeGuard** owns all release work and repairs alife state.
+AlifeBalance modulates rates and counts the engine already owns, and never releases anything.
 
 ## Invariants
 
 - **No steady-state per-frame work.** A throttled 60s timer or discrete engine events only. The refill drain frame-spreads a bounded batch via xslice and stops.
   Full rule: `doc/standards/stalker-code.md` "No Per-Frame Work".
-- **Never a release.** Spawn Size and Squad Refill only add members, inside each section's own `npc_in_squad` range. Release work belongs to AlifeGuard.
+- **Never a release.** Spawn Size and Squad Refill only add members, inside each section's own `npc_in_squad` range.
 - **Spawns delayed, never blocked.** Delays never leave more than `max_minutes` remaining, clamp age >= 0, skip fresh smarts, never write the `on_try_respawn` disable flag.
 - **Only the controllable population.** The slot ledger counts only spawner-owned squads. The starting population from `fill_start_position`, and event and mod spawns, are excluded.
   None of them set `respawn_point_id` (`sim_board.script:352` vs `smart_terrain.script:1720`). The mod neither boosts nor suppresses a population no lever can replace.
@@ -31,7 +30,7 @@ Part of a three-mod alife family. **AlifePlus** extends A-Life with new behavior
 
 ## The sensor: slot verdicts
 
-Per level, `ab_smart_recipe.get_level_model` walks the smarts once. It caches the model and recomputes every `MODEL_REFRESH_PASSES` = 3 passes, so condlist flips and AlifePlus mutations converge:
+Per level, `ab_smart_recipe.get_level_model` walks the smarts once. It caches the model and recomputes every `MODEL_REFRESH_PASSES` = 3 passes, so condlist flips and external smart mutations converge:
 
 ```
 per recipe (one filter, both sides: bookkeeping present; faction_controlled with
@@ -92,15 +91,15 @@ At pass end, candidates gated by bin not OVER and area not crowded drain through
 Each add uses `add_squad_member` at the commander's position with `register_npc` and `setup_squad_and_group`, the vanilla member-add shape. Every state is re-verified fresh in the drain frame.
 Repairs stop at the declared minimum.
 This is the repair for the engine's structural blind spot. Nothing in vanilla ever refills a squad, and a lone survivor holds its respawn slot forever.
-On GAMMA, ZCP can spawn squads below their LTX minimum (0.55 scaling). The refill enforces the LTX floor, bounded, one-directional, no tug (ZCP scales at spawn only).
+ZCP can spawn squads below their LTX minimum (0.55 scaling). The refill enforces the LTX floor, bounded, one-directional, no tug (ZCP scales at spawn only).
 
 ## The crowded-area check
 
-Cells keyed by `xlevel.cell_key` (the shared grid convention with AlifeGuard's offline cull) at `switch_distance` granularity, offline bodies only, rebuilt each pass.
+Cells keyed by `xlevel.cell_key` at `switch_distance` granularity, offline bodies only, rebuilt each pass.
 Crowded means the own cell at the MCM threshold (default 60), or the 3x3 neighborhood at double (which catches piles straddling a border).
-Offline-only is deliberate. The mod's levers act in offline space. Online density is AlifeGuard's online guard and the engine's own `respawn_radius`.
-The threshold sits at half AlifeGuard's default cull trigger (120), so the two systems keep a dead zone and do not meet at one line.
-That relationship is only an assumption in a comment. AlifeBalance never reads it from AlifeGuard.
+Offline-only is deliberate. The mod's levers act in offline space. Online density is out of scope, handled by the engine's own `respawn_radius`.
+The threshold sits at 60, deliberately below any online-cull trigger, so offline and online density control keep a dead zone and do not meet at one line.
+That separation is only an assumption in a comment, not read from any other system at runtime.
 
 ## Pipeline
 
@@ -184,9 +183,4 @@ All debug logging noops at WARN. Counters are plain field writes.
 | Mod | Interaction |
 |-----|-------------|
 | Vanilla `try_respawn` | Both directions move `last_respawn_update`. Capacity and budget eval mirror the engine's per-recipe selection |
-| ZCP | `_resolve_idle` reads ZCP's gate cvar. Slot units make its `squad_size` post-scaling invisible to verdicts. `smr_handle_spawn` substitution means a slot's occupant can be another species, so verdicts regulate DECLARED slots and occupants drift (documented, not fought) |
-| AlifePlus | Conquest and infestation mutate `respawn_params`, and the set-point follows within a model refresh. AP never writes `last_respawn_update` |
-| AlifeGuard | Culls free slots or thin members like any loss. The crowded-area dead zone keeps refill and cull spatially separated |
-| Squad Filler | Superseded (readme Conflicts). Ungated flat-size fill vs verdict-gated declared-bounded repair |
-| Warfare | Not supported alongside Smart Balance (readme Compatibility) |
 | Mods patching `create_npc` | ab_spawn_size wraps at `on_game_start`. Fn-patches compose, and a full-file override that wins MO2 still composes, so the wrap applies to the winning body |
