@@ -139,3 +139,5 @@ Diagnostics and reporting:
 Development > Log level: set to DEBUG, reproduce, then back to WARN. Writes the debug log.
 Development > Map markers: green PDA spot on each smart that got a cooldown advance or delay, 5 minutes; right-click to teleport or show its correction history.
 Report at https://github.com/damiansirbu-stalker/AlifeBalance/issues/new/choose or the EFP, Anomaly, and Zona Discord. Include repro steps, engine build, modlist, load order, xray.log, and the debug log.
+
+Tags: alife, population-balance, dynamic-spawning, semi-elastic-recovery, engine-canon, engine-native, homeostasis, feedback-control, performance, equilibrium, realistic
