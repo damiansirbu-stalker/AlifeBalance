@@ -1,1 +1,1 @@
-A-Life population balance for STALKER Anomaly, a feedback controller steering each map to its own declared population. Respawns pace to the deficit: wiped factions return first, crowded areas idle, every map keeps its shape. Realistic equilibrium, homeostasis, engine-native, performance-first.
+A-Life population balance for STALKER Anomaly, a feedback controller steering each map to its own declared numbers. Respawns pace to the deficit: wiped factions return first, crowded areas idle, every map keeps its shape. Realistic equilibrium, engine-native, performant, save-safe.
