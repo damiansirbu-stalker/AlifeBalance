@@ -1,0 +1,35 @@
+direction: down
+
+style.fill: "#1f2421"
+
+**.style.fill: "#262c27"
+**.style.stroke: "#ece7d8"
+**.style.font-color: "#ece7d8"
+**.style.stroke-width: 2
+
+title: "AlifeBalance - steer each level to the population its configs declare" {
+  near: top-center
+  style: { stroke-width: 0; fill: "#1f2421"; font-color: "#ece7d8"; font-size: 28 }
+}
+
+sensor: "Sensor - the respawn slot ledger\nalive count vs declared capacity, per level and faction bin -> UNDER / OVER + error" {
+  style.stroke: "#c9d8b6"
+}
+
+levers: "Three proportional levers" {
+  grid-columns: 3
+  grid-gap: 18
+  pace: "Respawn Pacing\nadvance or delay a smart's cooldown"
+  size: "Spawn Size\nbigger new squads where a faction is thin"
+  refill: "Squad Refill\ntop weakened squads back to their floor"
+}
+
+gate: "A crowded-area check gates every lever"
+
+engine: "The engine still owns the spawn\nAlifeBalance writes one field and adds members, never releases anything" {
+  style.stroke: "#c9d8b6"
+}
+
+sensor -> levers: "verdict + error" { style: { stroke: "#c9d8b6"; font-color: "#c9d8b6" } }
+levers -> gate: "each gated by" { style: { stroke: "#c9d8b6"; font-color: "#c9d8b6" } }
+gate -> engine: "nudge" { style: { stroke: "#c9d8b6"; font-color: "#c9d8b6" } }
