@@ -303,11 +303,6 @@ function run_smart_balance_test()
     _log_info("[TEARDOWN] smart=%s cooldown restored (%s)", name, lever.saved and "original CTime" or "fresh nil")
 end
 
---- One-shot alias: the system test IS the full end-to-end test.
-function run_full_test()
-    run_system_test()
-end
-
 --- Staged end-to-end system test. SYNTHETIC MASSACRE: releases real NPCs offline; run on a throwaway save with log_level DEBUG.
 function run_system_test()
     if _sys then
