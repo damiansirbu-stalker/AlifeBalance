@@ -135,8 +135,11 @@ Usage and License:
 Keep the Zone alive while letting vanilla A-Life remain vanilla.
 
 Diagnostics and reporting:
-Development > Log level: set to DEBUG, reproduce, then back to WARN. Writes the debug log.
-Development > Map markers: green PDA spot on each smart that got a cooldown advance or delay, 5 minutes; right-click to teleport or show its correction history.
-Report at https://github.com/damiansirbu-stalker/AlifeBalance/issues/new/choose or the EFP, Anomaly, and Zona Discord. Include repro steps, engine build, modlist, load order, xray.log, and the debug log.
+Every release goes through careful engineering and testing, but bugs can still slip through.
+To report one, reproduce with debug logging on, and the world log where the mod has one.
+First rule this mod out: reproduce with it off, then on. The cleanest test is this mod alone on vanilla and xlibs.
+Send the traces on the Anomaly Discord, or file a defect on GitHub with the same information.
+Attach xray.log, the mod log, the engine build, the modlist, and the load order.
+For deep technical details and mechanisms, check the architecture docs on GitHub.
 
 Tags: alife, population-balance, dynamic-spawning, semi-elastic-recovery, engine-canon, engine-native, homeostasis, feedback-control, performance, equilibrium, realistic, save-safe
