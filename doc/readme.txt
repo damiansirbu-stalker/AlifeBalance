@@ -1,6 +1,5 @@
 Version: 1.1.4-snapshot (xlibs 1.8.3, demonized 20250908)
-Changelog: https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/changelog
-Russian / Na russkom: https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/readme_ru.txt
+Changelog: https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/changelog | Health: https://damiansirbu-stalker.github.io/AlifeBalance/health/ | JitProfiler: https://damiansirbu-stalker.github.io/AlifeBalance/jitprofiler/ | Bugs: https://github.com/damiansirbu-stalker/AlifeBalance/issues | Russian / На русском: https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/readme_ru.txt
 
 My work:
 GitHub: https://github.com/orgs/damiansirbu-stalker/repositories
@@ -11,7 +10,6 @@ My contributions:
 X-Ray Monolith: https://github.com/themrdemonized/xray-monolith
 
 ! Reset MCM settings to defaults after updating !
-! Disable the Squad Filler addon if you use it, its flat squad top-up fights Squad Refill !
 
 AlifeBalance is a balance layer for vanilla A-Life:
   - Smart Balance: keeps each map's population near what the map's own spawn configs declare.
@@ -93,16 +91,14 @@ Uninstall (MO2):
 Disable or remove in MO2.
 
 Compatibility:
-  Tested with vanilla Anomaly 1.5.3, GAMMA, Forgotten Zone, ZCP, Redone, AlifeGuard, AlifePlus, Night Mutants, Nocturnal Mutants, GAMMA Dynamic Despawner, and Guards Spawner.
-  - Supersedes: Squad Filler - Smart Balance's refill covers the same squads, skips crowded areas, works for mutants too, and respects each squad's own configured size. Disable Squad Filler when running AlifeBalance.
-  - Conflicts: Warfare - its population model fights any external balancing. Disable AlifeBalance when running Warfare.
-  - Coexists (Smart Balance):
-    - Vanilla, ZCP: same cooldown field, gate, and spawner records, so they compose. ZCP keeps deciding which species or faction spawns and how squad sizes scale; Smart Balance counts declared slots, so that scaling cannot skew its verdicts.
-    - Redone, GAMMA NPC Spawns: pure config, which is the declared population Smart Balance steers toward.
-    - AlifePlus: territory conquest and infestation change what a smart spawns; the balance target follows automatically.
-    - Night Mutants: spawn path outside the spawner records, neither boosted nor suppressed.
-    - Nocturnal Mutants: spawn outside smart terrains, no interaction.
-    - Dynamic Despawner, AlifeGuard: despawns free spawner slots like any other loss; recovery follows, and the refill skips crowded areas so it never fights a density cull.
+Depends only on xlibs. Install and uninstall mid-save work. Tested: Anomaly 1.5.3, GAMMA, EFP, Zona, Forgotten Zone.
+Disable (conflict, superseded, problematic):
+- Squad Filler - tops up the same squads Squad Refill repairs, to a flat size of 2, ignoring each squad's own configured size.
+- Warfare, old or new - Smart Balance steers population back to each map's declared design, while Warfare drives attrition and territory swings, so the two pull it in opposite directions.
+Coexists:
+- ZCP - shares the cooldown field and spawner records, so the two compose: ZCP picks the species and squad sizes, Smart Balance counts declared slots against them.
+- Night Mutants, Nocturnal Mutants - spawn outside the spawner ledger, so Smart Balance neither boosts nor suppresses them.
+It coexists with everything else.
 
 How It's Built:
 
@@ -120,8 +116,7 @@ The mod avoids writing engine values, holding its own state in parallel. Any val
 The family runs on one rulebook through xlibs. Every rule, policy, and check is one shared implementation, the same protection, distances, faction logic, and combat reads in every mod.
 It depends on no other mod, not even my own. The only shared layers are X-Ray and xlibs.
 
-[Screenshot: AlifeBalance under JitProfiler, a live CPU and allocation capture]
-Project Health: https://damiansirbu-stalker.github.io/AlifeBalance/
+That pipeline runs on every commit and publishes what it finds. The header links a live health page and a JitProfiler capture of the mod's real CPU and allocation cost.
 
 Credits:
 Altogolik provided support, ideas, and source materials.
