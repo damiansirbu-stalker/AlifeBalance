@@ -30,7 +30,7 @@ Smart Balance:
   Vanilla respawn cooldowns run on a fixed schedule that ignores the state of the world.
   A faction you wipe out waits its full turn while an untouched faction keeps cycling, and maps drift away from how they were designed.
 
-  Smart Balance reads the game's own spawner records: every smart terrain already tracks how many squads it is allowed and how many are alive right now.
+  Smart Balance reads the game's own spawner records. Every smart terrain already tracks how many squads it is allowed and how many are alive right now.
   Summed per faction per map, with all mutants as one group, that is the declared population and the actual one, in the engine's own numbers.
   A faction below its declared count gets its respawn cooldowns advanced in proportion to how depleted it is: wiped means full speed, dented means a nudge.
   A faction losing across the whole Zone also spawns fuller squads, up to their own configured maximum (Spawn Size).
