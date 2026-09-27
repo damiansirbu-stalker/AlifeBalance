@@ -21,7 +21,7 @@ AlifeBalance is a balance layer for vanilla A-Life:
 It runs alongside the engine without rewriting it.
 Inventory bounding (formerly Inventory Balance) now lives in AlifeGuard as Inventory Guard.
 
-Built as a companion to AlifePlus, which adds reactive A-Life behavior across the Zone.
+It works alongside AlifePlus, which adds reactive A-Life behavior across the Zone.
 More activity means more losses, and AlifeBalance steers recovery back to each map's designed population.
 Both mods are independent and can be used separately.
 
