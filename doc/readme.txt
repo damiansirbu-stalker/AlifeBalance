@@ -1,4 +1,4 @@
-Version: 1.1.4-snapshot (xlibs 1.9.0, demonized 20250908)
+Version: 1.1.5-snapshot (xlibs 1.9.0, demonized 20250908)
 Changelog: https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/changelog
 Health: https://damiansirbu-stalker.github.io/AlifeBalance/health/
 JitProfiler: https://damiansirbu-stalker.github.io/AlifeBalance/jitprofiler/
