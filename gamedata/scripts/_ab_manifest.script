@@ -3,5 +3,5 @@
 MANIFEST = {
     name    = "AlifeBalance",
     version = "1.1.4-snapshot",
-    xlibs   = "1.8.3",
+    xlibs   = "1.9.0",
 }

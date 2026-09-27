@@ -1,4 +1,4 @@
-Версия: 1.1.4-snapshot (xlibs 1.8.3, demonized 20250908)
+Версия: 1.1.4-snapshot (xlibs 1.9.0, demonized 20250908)
 Changelog: https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/changelog
 Health: https://damiansirbu-stalker.github.io/AlifeBalance/health/
 JitProfiler: https://damiansirbu-stalker.github.io/AlifeBalance/jitprofiler/
@@ -82,7 +82,7 @@ Smart Balance:
 Требования:
 Anomaly 1.5.3
 Modded exes: themrdemonized 20250908 или новее, либо AOEngine v0.55 или новее. Полный набор возможностей требует последней сборки demonized. Возможность, которой нужна более новая сборка, остаётся неактивной на старых exe.
-xlibs 1.8.3 или новее (https://www.moddb.com/mods/stalker-anomaly/addons/xlibs-1001)
+xlibs 1.9.0 или новее (https://www.moddb.com/mods/stalker-anomaly/addons/xlibs-1001)
 MCM
 
 Установка (MO2):
