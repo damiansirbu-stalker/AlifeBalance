@@ -1,21 +1,12 @@
-Version: 1.1.4 (xlibs 1.9.0, demonized 20250908)<br />
-<a href="https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/changelog">Changelog</a><br />
-<a href="https://damiansirbu-stalker.github.io/AlifeBalance/health/">Health</a><br />
-<a href="https://damiansirbu-stalker.github.io/AlifeBalance/jitprofiler/">JitProfiler</a><br />
-<a href="https://github.com/damiansirbu-stalker/AlifeBalance/issues">Bugs</a><br />
-<a href="https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/readme_ru.txt">Russian / На русском</a><br />
-<br />
-My work:<br />
-<a href="https://github.com/orgs/damiansirbu-stalker/repositories">GitHub</a><br />
-<a href="https://www.moddb.com/members/damian-sirbu/addons">ModDB</a><br />
-<a href="https://www.nexusmods.com/profile/damiansirbu/mods">Nexus</a><br />
-<br />
-My contributions:<br />
-<a href="https://github.com/themrdemonized/xray-monolith">X-Ray Monolith</a><br />
-<br />
-<br />
-! Reset MCM settings to defaults after updating !<br />
-<br />
+<div style="border-top:1px solid #555555;width:40%;margin:20px auto;">&#8203;</div>
+<div style="text-align:center;">
+<h2>Version 1.1.4 (xlibs 1.9.0, demonized 20250908)</h2>
+<h3><a href="https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/changelog">Changelog</a>&nbsp;&middot;&nbsp;<a href="https://damiansirbu-stalker.github.io/AlifeBalance/health/">Health</a>&nbsp;&middot;&nbsp;<a href="https://damiansirbu-stalker.github.io/AlifeBalance/jitprofiler/">JitProfiler</a>&nbsp;&middot;&nbsp;<a href="https://github.com/damiansirbu-stalker/AlifeBalance/issues">Bugs</a>&nbsp;&middot;&nbsp;<a href="https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/readme_ru.txt">Russian / На русском</a></h3>
+<div><span style="font-weight:bold;">My work:</span>&nbsp;&nbsp;<a href="https://github.com/orgs/damiansirbu-stalker/repositories">GitHub</a>&nbsp;&middot;&nbsp;<a href="https://www.moddb.com/members/damian-sirbu/addons">ModDB</a>&nbsp;&middot;&nbsp;<a href="https://www.nexusmods.com/profile/damiansirbu/mods">Nexus</a></div>
+<div style="margin-top:6px;"><span style="font-weight:bold;">My contributions:</span>&nbsp;&nbsp;<a href="https://github.com/themrdemonized/xray-monolith">X-Ray Monolith</a></div>
+<h3><span style="color:#e03b2f;">! Reset MCM settings to defaults after updating !</span></h3>
+</div>
+<div style="border-top:1px solid #555555;width:40%;margin:20px auto;">&#8203;</div>
 AlifeBalance is a balance layer for vanilla A-Life:<br />
   - Smart Balance: keeps each map's population near what the map's own spawn configs declare.<br />
 <br />
@@ -25,9 +16,9 @@ Inventory bounding (formerly Inventory Balance) now lives in AlifeGuard as Inven
 It works alongside AlifePlus, which adds reactive A-Life behavior across the Zone.<br />
 More activity means more losses, and AlifeBalance steers recovery back to each map's designed population.<br />
 Both mods are independent and can be used separately.<br />
+<div style="border-top:1px solid #555555;width:40%;margin:20px auto;">&#8203;</div>
+<h3>Smart Balance</h3>
 <br />
-<br />
-Smart Balance:<br />
   Vanilla respawn cooldowns run on a fixed schedule that ignores the state of the world.<br />
   A faction you wipe out waits its full turn while an untouched faction keeps cycling, and maps drift away from how they were designed.<br />
 <br />
@@ -41,21 +32,21 @@ Smart Balance:<br />
   Corrections only go to spawners the game will actually fire, never into crowded areas, so recovery flows toward the empty parts of a map.<br />
   Factions near their declared count are left completely alone.<br />
 <br />
-  What you'll notice:<br />
+<span style="font-weight:bold;">What you'll notice</span><br />
     Massacre a faction and it returns first, while overgrown factions idle.<br />
     Squads ground down to lone survivors regain their members and stop wandering the map as one-man ghosts.<br />
     Mutant maps stay mutant-heavy and war zones stay contested. Each map drifts back to its designed character.<br />
     A depleted map as a whole recovers faster. A healthy map runs exactly like vanilla.<br />
     Vanilla A-Life still owns every spawn.<br />
 <br />
-  Important:<br />
+<span style="font-weight:bold;">Important</span><br />
     Smart Balance never blocks a spawn and never removes an NPC.<br />
     The pacing shifts a timestamp the engine was always going to read on its next alife update.<br />
     Spawn Size and Squad Refill only add members inside a squad's own configured range, never beyond it.<br />
     Populations the spawners do not own are neither boosted nor suppressed. Those are the starting population, and event and mod spawns.<br />
     The engine still owns spawning, recipes, squad selection, and budget caps.<br />
 <br />
-  Example:<br />
+<span style="font-weight:bold;">Example</span><br />
     A firefight kills every bandit on Cordon.<br />
     The next pass sees Cordon's bandit spawner slots freed and far below their declared count.<br />
     Every Cordon smart terrain that can spawn bandits gets its cooldown advanced at full strength.<br />
@@ -64,7 +55,7 @@ Smart Balance:<br />
     Recovery arrives over the next game-hours as the engine reaches each shortened wait. Once bandits are back near their declared count, Smart Balance goes silent.<br />
     If instead a faction holds more spawner-born squads than currently allowed, those cooldowns are delayed up to the configured ceiling until the excess clears.<br />
 <br />
-  Settings (MCM, Respawn Pacing tab):<br />
+<span style="font-weight:bold;">Settings (MCM, Respawn Pacing tab)</span><br />
     Correction passes (2-8, default 6): how many passes carry one smart terrain from full cooldown to the floor at maximum depletion.<br />
     Lower corrects harder per pass. Higher corrects more gradually. Partial depletion scales each push down. Delays use the same step size.<br />
     Minimum cooldown remaining (30-360 game-minutes, default 120): the floor the advance direction never pushes below.<br />
@@ -75,28 +66,28 @@ Smart Balance:<br />
     Squad Refill (own tab, default on): squads below their own minimum size regain one member per pass.<br />
     Crowded area threshold (General tab): how many off-screen NPCs make an area count as crowded.<br />
 <br />
-  Presets:<br />
+<span style="font-weight:bold;">Presets</span><br />
     Aggressive: correction passes 2, minimum cooldown 30, spawn size strength 100.<br />
     Default (mild): correction passes 6, minimum cooldown 120 (2 game-hours), maximum 720 (12 game-hours), spawn size strength 50.<br />
     Conservative: correction passes 8, minimum cooldown 360, spawn size strength 25.<br />
-<br />
-Requirements:<br />
+<div style="border-top:1px solid #555555;width:40%;margin:20px auto;">&#8203;</div>
+<h3>Requirements</h3>
 Anomaly 1.5.3<br />
 Modded exes: themrdemonized 20250908 or newer, or AOEngine v0.55 or newer. The full feature set needs the latest demonized build. A feature that needs a newer one stays inactive on older exes.<br />
 xlibs 1.9.0 or newer (https://www.moddb.com/mods/stalker-anomaly/addons/xlibs-1001)<br />
 MCM<br />
 <br />
-Compatibility:<br />
+<h3>Compatibility</h3>
 Depends only on xlibs. Install and uninstall mid-save work. Tested: Anomaly 1.5.3, GAMMA, EFP, Zona, Forgotten Zone.<br />
-Disable (conflict, superseded, problematic):<br />
+<span style="font-weight:bold;">Disable (conflict, superseded, problematic):</span><br />
 - Squad Filler - tops up the same squads Squad Refill repairs, to a flat size of 2, ignoring each squad's own configured size.<br />
 - Warfare, old or new - Smart Balance steers population back to each map's declared design, while Warfare drives attrition and territory swings, so the two pull it in opposite directions.<br />
-Coexists:<br />
+<span style="font-weight:bold;">Coexists:</span><br />
 - ZCP - shares the cooldown field and spawner records, so the two compose: ZCP picks the species and squad sizes, Smart Balance counts declared slots against them.<br />
 - Night Mutants, Nocturnal Mutants - spawn outside the spawner ledger, so Smart Balance neither boosts nor suppresses them.<br />
 It coexists with everything else.<br />
-<br />
-How It's Built:<br />
+<div style="border-top:1px solid #555555;width:40%;margin:20px auto;">&#8203;</div>
+<span style="font-weight:bold;">How It's Built</span><br />
 <br />
 The code and patterns are original, built on best practices from the best STALKER modders and hands-on reverse-engineering of X-Ray.<br />
 The design stays engine-native and minimal, with event-native pub/sub not polling, work spread across frames via deferred queues and rate limiters, and per-level caches replacing world scans.<br />
@@ -110,17 +101,17 @@ Every rate, threshold, and toggle is exposed through MCM or LTX with nothing lef
 It runs on one xlibs rulebook shared across the whole mod family, the same protection, distances, faction logic, and combat reads in every mod.<br />
 It depends on no other mod, not even the author's own, and needs only X-Ray and xlibs beneath it.<br />
 See the Health and JitProfiler links up top for every test and smoke result, and the mod's real CPU and allocation cost.<br />
-<br />
-Credits:<br />
+<div style="border-top:1px solid #555555;width:40%;margin:20px auto;">&#8203;</div>
+<h3>Credits</h3>
 Altogolik provided support, ideas, and source materials.<br />
 <br />
-Usage and License:<br />
+<h3>Usage and License</h3>
   Modpacks: allowed and encouraged. Keep the readme and license files.<br />
   Addons, patches, integrations: allowed. Credit "AlifeBalance by Damian Sirbu" visibly on your mod page.<br />
   Reproducing the implementation in other software: not allowed, even with credit.<br />
   The full license is in the LICENSE file and on GitHub.<br />
 <br />
-Diagnostics and reporting:<br />
+<h3>Diagnostics and reporting</h3>
 Every release goes through careful engineering and testing, but bugs can still slip through.<br />
 To report one, reproduce with debug logging on, and the world log where the mod has one.<br />
 First rule this mod out: reproduce with it off, then on. The cleanest test is this mod alone on vanilla and xlibs.<br />
