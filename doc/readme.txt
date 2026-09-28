@@ -13,6 +13,8 @@ Nexus: https://www.nexusmods.com/profile/damiansirbu/mods
 My contributions:
 X-Ray Monolith: https://github.com/themrdemonized/xray-monolith
 
+[ Hero image: alifebalance-hero.gif - each map recovers to its design ]
+
 ! Reset MCM settings to defaults after updating !
 
 AlifeBalance is a balance layer for vanilla A-Life:
@@ -85,15 +87,6 @@ Modded exes: themrdemonized 20250908 or newer, or AOEngine v0.55 or newer. The f
 xlibs 1.9.0 or newer (https://www.moddb.com/mods/stalker-anomaly/addons/xlibs-1001)
 MCM
 
-Install (MO2):
-1. Install xlibs
-2. Install AlifeBalance
-3. Load order does not matter
-4. Configure via MCM
-
-Uninstall (MO2):
-Disable or remove in MO2.
-
 Compatibility:
 Depends only on xlibs. Install and uninstall mid-save work. Tested: Anomaly 1.5.3, GAMMA, EFP, Zona, Forgotten Zone.
 Disable (conflict, superseded, problematic):
@@ -107,7 +100,7 @@ It coexists with everything else.
 How It's Built:
 
 The code and patterns are original, built on best practices from the best STALKER modders and hands-on reverse-engineering of X-Ray.
-The design stays engine-native and minimal, with event-native pub/sub over polling, work spread across frames through deferred queues and rate limiters, and per-level caches that replace world scans.
+The design stays engine-native and minimal, with event-native pub/sub not polling, work spread across frames via deferred queues and rate limiters, and per-level caches replacing world scans.
 The raycasting and range math are hand-written and load-tested live, following the engine's own standards and flags.
 Where scripting hits an engine limit, the fix is made in X-Ray itself, in the modded exes.
 Performance is the first invariant, so every flow stays under 2ms or the build rewrites or drops it, profiled continuously with JitProfiler and hand-tested on unoptimized, single-threaded exes.
@@ -127,8 +120,6 @@ Usage and License:
   Addons, patches, integrations: allowed. Credit "AlifeBalance by Damian Sirbu" visibly on your mod page.
   Reproducing the implementation in other software: not allowed, even with credit.
   The full license is in the LICENSE file and on GitHub.
-
-Keep the Zone alive while letting vanilla A-Life remain vanilla.
 
 Diagnostics and reporting:
 Every release goes through careful engineering and testing, but bugs can still slip through.
