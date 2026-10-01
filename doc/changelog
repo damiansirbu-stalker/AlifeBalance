@@ -1,4 +1,8 @@
 1.1.5-snapshot
+  Summary: squad refill crash fix
+
+  Squad Refill
+    - Fixed a rare crash caused by the engine recycling a dead squad's id to another object while a refill pass was still running.
 
 1.1.4
   Summary: performance and infrastructure

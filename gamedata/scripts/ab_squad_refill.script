@@ -48,7 +48,7 @@ end
 -- Skips: gone, empty, permanent, companion.
 local function _collect_squad(squad_id)
     local squad = xobject.get_se(squad_id)
-    if not squad or not squad.npc_count then return end
+    if not xsquad.is_squad(squad) then return end
     local npc_count = squad:npc_count()
     if npc_count == 0 then return end
     if xsquad.is_permanent_squad(squad) or xsquad.is_companion(squad) then return end
@@ -75,7 +75,7 @@ end
 -- Every decline path counts its reason into acc so the [DRAIN] completion line explains the batch from the log alone.
 local function _add_member(squad_id, acc)
     local squad = xobject.get_se(squad_id)
-    if not squad then acc.gone = acc.gone + 1; return end
+    if not xsquad.is_squad(squad) then acc.gone = acc.gone + 1; return end
     if squad.online then acc.online = acc.online + 1; return end
     local npc_count = squad:npc_count()
     if npc_count == 0 then acc.gone = acc.gone + 1; return end
