@@ -23,21 +23,28 @@ English / По-английски: https://github.com/damiansirbu-stalker/AlifeB
   X-Ray Monolith: https://github.com/themrdemonized/xray-monolith/pulls?q=is%3Apr+author%3Adamiansirbu+is%3Amerged
   OpenXRay: https://github.com/OpenXRay/xray-16/pulls?q=is%3Apr+author%3Adamiansirbu+is%3Amerged
   IX-Ray: https://github.com/ixray-team/ixray-1.6-stcop/commits/develop?author=damiansirbu
-Интеграции:
-  Word of Mouth: https://www.moddb.com/mods/stalker-anomaly/addons/word-of-mouth
-  Warfare (erepb): https://www.moddb.com/mods/stalker-anomaly/addons/warfare-alife-overhaul-new
-  Stealth Overhaul: https://github.com/Alex-leon1594/Stealth_Overhaul_Reworked
+Зависимые моды:
   COMPASS: https://github.com/Crimento/COMPASS
+  Nemesis Spawn System: https://github.com/SirEndet/Nemesis-Spawn-System
+  Word of Mouth: https://www.moddb.com/mods/stalker-anomaly/addons/word-of-mouth
+Интеграции:
+  Warfare (erepb): https://www.moddb.com/mods/stalker-anomaly/addons/warfare-alife-overhaul-new
+  Homestead: https://www.moddb.com/mods/stalker-anomaly/addons/homestead-stalker-settlement-builder
+  Stealth Overhaul: https://github.com/Alex-leon1594/Stealth_Overhaul_Reworked
+  TALKER: https://www.moddb.com/mods/stalker-anomaly/addons/talker-ai-powered-npc-dialogue-beta
+  Factions of the Zone: https://github.com/devinhorowitz/factionsofthezone
+  Anomaly Radios Extended: https://www.moddb.com/mods/stalker-anomaly/addons/anomaly-radios-extended-full-remaster-152
 Сотрудничество:
   xAGNA: https://www.moddb.com/mods/stalker-anomaly/addons/xagna
 
 [ Hero image: alifebalance-hero.gif - каждая карта восстанавливается к своему замыслу ]
 
-Спасибо за поддержку, но донаты мне не нужны. Куда полезнее отзывы, оценки и грамотные баг-репорты.
-Организованная группа копирует мои работы, ежедневно распространяет ложь и массово занижает оценки моим модам.
-Мой код открыт, присутствует в большинстве модпаков и интегрируется с известными проектами.
+Мои работы бесплатны и открыты, входят в большинство модпаков и интегрируются с известными проектами.
+Организованная группа копирует мои работы, клевещет на меня, выдаёт себя за меня и устраивает ревью-бомбинг на всех площадках.
+Помочь можно отзывом, оценкой, грамотным баг-репортом или кофе на Ko-fi: https://ko-fi.com/damiansirbu
 
-! После обновления: MCM > Development > Reset ALL to Defaults !
+Каждый релиз стабилен, и в нём могут появиться целые новые системы. Всегда разбирайтесь в документации.
+После каждого обновления используйте Reset ALL to Defaults в MCM, в разделе Development.
 
 AlifeBalance - это слой балансировки для ванильного A-Life:
   - Smart Balance: держит население каждой карты близко к тому, что объявляют её собственные конфиги спавна.
@@ -144,11 +151,11 @@ Altogolik помог поддержкой, идеями и исходными м
   Полная лицензия в файле LICENSE и на GitHub.
 
 Диагностика и отчёты:
-  Каждый релиз проходит тщательную разработку и тестирование, но баги всё равно могут проскользнуть.
-  Чтобы сообщить об одном, воспроизведите с включённым отладочным логированием и приложите лог мира, где у мода он есть.
-  Сначала исключите этот мод: воспроизведите с ним выключенным, затем включённым. Самый чистый тест - этот мод один на ванильной Anomaly с xlibs.
-  Отправьте трассировки в Discord Anomaly или заведите дефект на GitHub с той же информацией.
-  Приложите xray.log, лог мода, сборку движка, модлист и порядок загрузки.
-  Для глубоких технических деталей и механизмов смотрите документацию по архитектуре на GitHub.
+Каждый релиз проходит тщательную разработку и тестирование, но баги всё равно могут проскользнуть.
+Чтобы сообщить о баге, воспроизведите с включённым отладочным логированием и приложите лог мира, где у мода он есть.
+Сначала исключите этот мод: воспроизведите с ним выключенным, затем включённым. Самый чистый тест - этот мод один на ванильной Anomaly с xlibs.
+Отправьте трассировки в Discord Anomaly или заведите дефект на GitHub с той же информацией.
+Приложите xray.log, лог мода, сборку движка, модлист и порядок загрузки.
+Для глубоких технических деталей и механизмов смотрите документацию по архитектуре на GitHub.
 
 Tags: alife, population-balance, dynamic-spawning, semi-elastic-recovery, engine-canon, engine-native, homeostasis, feedback-control, performance, equilibrium, realistic, save-safe, reverse-engineering
