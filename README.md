@@ -3,7 +3,7 @@
 A dynamic spawn calibrator for vanilla A-Life, steering population toward what each level's own spawn configs already declare.
 Respawn pacing, squad size and squad refill adjust per faction and per region. It rewrites nothing the engine owns, and every system toggles on its own.
 
-[ModDB](https://www.moddb.com/mods/stalker-anomaly/addons/alifebalance) | [Nexus](https://www.nexusmods.com/stalkeranomaly/mods/110) | [Releases](https://github.com/damiansirbu-stalker/AlifeBalance/releases) | [Bugs, suggestions](https://github.com/damiansirbu-stalker/AlifeBalance/issues)
+[![ModDB](https://img.shields.io/badge/ModDB-c8102e)](https://www.moddb.com/mods/stalker-anomaly/addons/alifebalance) [![Nexus Mods](https://img.shields.io/badge/Nexus_Mods-da8e35)](https://www.nexusmods.com/stalkeranomaly/mods/110) [![Releases](https://img.shields.io/badge/Releases-24292f?logo=github&logoColor=white)](https://github.com/damiansirbu-stalker/AlifeBalance/releases) [![Bugs, suggestions](https://img.shields.io/badge/Bugs%2C_suggestions-24292f?logo=github&logoColor=white)](https://github.com/damiansirbu-stalker/AlifeBalance/issues) [![Ko-fi](https://img.shields.io/badge/Ko--fi-ff5e5b?logo=kofi&logoColor=white)](https://ko-fi.com/damiansirbu)
 
 [![ci](https://github.com/damiansirbu-stalker/AlifeBalance/actions/workflows/ci.yml/badge.svg)](https://github.com/damiansirbu-stalker/AlifeBalance/actions/workflows/ci.yml) [![Project Health](https://img.shields.io/badge/project_health-dashboard-00ced1)](https://damiansirbu-stalker.github.io/AlifeBalance/)
 
