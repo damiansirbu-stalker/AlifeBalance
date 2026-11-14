@@ -21,11 +21,11 @@ AlifeBalance modulates rates and counts the engine already owns, and never relea
 - **Only the controllable population.** The slot ledger counts only spawner-owned squads. The starting population from `fill_start_position`, and event and mod spawns, are excluded.
   None of them set `respawn_point_id` (`sim_board.script:352` vs `smart_terrain.script:1720`). The mod neither boosts nor suppresses a population no lever can replace.
 - **Performance first.** Performance is the top priority and outranks features.
-  A feature that cannot meet the budget is reworked to fit or removed, including with an X-Ray engine modification. It is never kept at the cost of the budget.
+  A feature that cannot meet the budget moves its cost into the engine where the engine can carry it, otherwise we rework it to fit or remove it. It is never kept at the cost of the budget.
   Only correctness and "never break base gameplay" rank above it. See `doc/standards/stalker-code.md` "Performance is the priority".
 - **Use the engine, don't work around it.** Every capability comes from the engine and the Anomaly layer first, always through xlibs.
-  Our own code enters only where stock behavior falls short. It escalates from a nudge to a correction, and as a last resort changes the layer itself.
-  A layer change is an engine modification or a full-file override. Never reimplement in script what the engine already does.
+  Our own code enters only where stock behavior falls short. It escalates from a nudge to a correction.
+  We fix a defect in the engine or a performance cost in the engine, seam first. A full-file override is the last resort. Never reimplement in script what the engine already does.
   See `doc/standards/stalker-code.md` "Use the engine, don't work around it".
 
 ## The sensor: slot verdicts
