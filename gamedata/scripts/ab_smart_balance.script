@@ -6,7 +6,7 @@ local table_concat, table_sort = table.concat, table.sort
 local os_clock, RegisterScriptCallback = os.clock, RegisterScriptCallback
 local xlog, xprofiler = xlog, xprofiler
 local xsmart, xlevel, xtime = xsmart, xlevel, xtime
--- Never cache CreateTimeEvent/ResetTimeEvent/RemoveTimeEvent as locals; demonized swaps the globals at load (globals.md:208-219).
+-- Never cache CreateTimeEvent/ResetTimeEvent/RemoveTimeEvent as locals; modded exes replace the globals at load (modded-exes/_g_patches.script(1577-1613)).
 local log = xlog.get_logger("AB.SBAL", { outfile = "alifebalance.log" })
 
 local TIMER_EV = "ab_smart_balance"
@@ -542,7 +542,7 @@ local function _on_try_respawn(smart, _flags)
 end
 
 -- One refill sweep chunk per tick; verdicts and corrections fire in _execute_pass when the sweep wraps.
--- @src globals.md:188-191: ResetTimeEvent FIRST - a nil return without a reset refires next frame, and the disabled gate returns early.
+-- @src anomaly/_g.script(372-377), modded-exes/_g_patches.script(1663-1677): reset FIRST; the disabled gate returns nil, which refires next frame.
 local function _run_tick()
     ResetTimeEvent(TIMER_EV, TIMER_TICK, TICK_INTERVAL_SEC)
     if not cfg.enabled then return end
