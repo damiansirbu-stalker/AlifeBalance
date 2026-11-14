@@ -6,7 +6,7 @@ local string_format, math_abs = string.format, math.abs
 local alife_object, alife_release = alife_object, alife_release
 local xsquad, xlevel = xsquad, xlevel
 local ini_sys = ini_sys
--- NOTE: never cache CreateTimeEvent/RemoveTimeEvent as locals (doc/library/xray/internals/globals.md:208-219).
+-- NOTE: never cache CreateTimeEvent/RemoveTimeEvent as locals (anomaly/_g.script(339-360)).
 local log = xlog.get_logger("AB.TEST", { outfile = "alifebalance.log" })
 
 local STATUS_TIP_MS = 8000
