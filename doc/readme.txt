@@ -118,12 +118,12 @@ MCM
 
 Compatibility:
 Depends only on xlibs. Install and uninstall mid-save work. Tested: Anomaly 1.5.3, GAMMA, EFP, Zona, Forgotten Zone.
-Drop:
-- Squad Filler - tops up the same squads Squad Refill repairs, to a flat size of 2, ignoring each squad's own configured size.
+Avoid:
+- Squad Filler - it tops up the same squads Squad Refill repairs, to a flat size of 2, and ignores the size each squad is configured with in its own section.
 - Warfare, old or new - Smart Balance steers population back to each map's declared design, while Warfare drives attrition and territory swings, so the two pull it in opposite directions.
 Coexists:
 - ZCP - shares the cooldown field and spawner records, so the two compose: ZCP picks the species and squad sizes, Smart Balance counts declared slots against them.
-- Night Mutants, Nocturnal Mutants - spawn outside the spawner ledger, so Smart Balance neither boosts nor suppresses them.
+- Night Mutants, Nocturnal Mutants - their squads spawn outside the spawner ledger, so Smart Balance neither boosts nor suppresses the squads they add at night.
 Everything else coexists, as long as it extends X-Ray and Anomaly and never overrides them.
 
 How It's Built:
