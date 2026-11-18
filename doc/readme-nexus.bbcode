@@ -1,6 +1,6 @@
 [line]
 [center]
-[size=5][b]Version 1.1.4 (xlibs 1.9.0, demonized [url=https://github.com/themrdemonized/xray-monolith/releases]latest[/url])[/b][/size]
+[size=5][b]Version 1.1.5 (xlibs 1.9.0, demonized [url=https://github.com/themrdemonized/xray-monolith/releases]latest[/url])[/b][/size]
 [size=4][b][url=https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/changelog]Changelog[/url] · [url=https://damiansirbu-stalker.github.io/AlifeBalance/health/]Health[/url] · [url=https://damiansirbu-stalker.github.io/AlifeBalance/jitprofiler/]JitProfiler[/url] · [url=https://github.com/damiansirbu-stalker/AlifeBalance/issues]Bugs[/url] · [url=https://github.com/damiansirbu-stalker/AlifeBalance/blob/main/doc/readme_ru.txt]Russian[/url][/b][/size]
 [/center]
 [line]
@@ -33,7 +33,6 @@ More activity means more losses, and AlifeBalance steers recovery back to each m
 Both mods are independent and can be used separately.
 [line]
 [size=4][b]Smart Balance[/b][/size]
-
   Vanilla respawn cooldowns run on a fixed schedule that ignores the state of the world.
   A faction you wipe out waits its full turn while an untouched faction keeps cycling, and maps drift away from how they were designed.
 
@@ -47,21 +46,21 @@ Both mods are independent and can be used separately.
   Corrections only go to spawners the game will actually fire, never into crowded areas, so recovery flows toward the empty parts of a map.
   Factions near their declared count are left completely alone.
 
-[b]What you'll notice[/b]
+  [b]What you'll notice[/b]
     Massacre a faction and it returns first, while overgrown factions idle.
     Squads ground down to lone survivors regain their members and stop wandering the map as one-man ghosts.
     Mutant maps stay mutant-heavy and war zones stay contested. Each map drifts back to its designed character.
     A depleted map as a whole recovers faster. A healthy map runs exactly like vanilla.
     Vanilla A-Life still owns every spawn.
 
-[b]Important[/b]
+  [b]Important[/b]
     Smart Balance never blocks a spawn and never removes an NPC.
     The pacing shifts a timestamp the engine was always going to read on its next alife update.
     Spawn Size and Squad Refill only add members inside a squad's own configured range, never beyond it.
     Populations the spawners do not own are neither boosted nor suppressed. Those are the starting population, and event and mod spawns.
     The engine still owns spawning, recipes, squad selection, and budget caps.
 
-[b]Example[/b]
+  [b]Example[/b]
     A firefight kills every bandit on Cordon.
     The next pass sees Cordon's bandit spawner slots freed and far below their declared count.
     Every Cordon smart terrain that can spawn bandits gets its cooldown advanced at full strength.
@@ -70,7 +69,7 @@ Both mods are independent and can be used separately.
     Recovery arrives over the next game-hours as the engine reaches each shortened wait. Once bandits are back near their declared count, Smart Balance goes silent.
     If instead a faction holds more spawner-born squads than currently allowed, those cooldowns are delayed up to the configured ceiling until the excess clears.
 
-[b]Settings (MCM, Respawn Pacing tab)[/b]
+  [b]Settings (MCM, Respawn Pacing tab)[/b]
     Correction passes (2-8, default 6): how many passes carry one smart terrain from full cooldown to the floor at maximum depletion.
     Lower corrects harder per pass. Higher corrects more gradually. Partial depletion scales each push down. Delays use the same step size.
     Minimum cooldown remaining (30-360 game-minutes, default 120): the floor the advance direction never pushes below.
@@ -81,7 +80,7 @@ Both mods are independent and can be used separately.
     Squad Refill (own tab, default on): squads below their own minimum size regain one member per pass.
     Crowded area threshold (General tab): how many off-screen NPCs make an area count as crowded.
 
-[b]Presets[/b]
+  [b]Presets[/b]
     Aggressive: correction passes 2, minimum cooldown 30, spawn size strength 100.
     Default (mild): correction passes 6, minimum cooldown 120 (2 game-hours), maximum 720 (12 game-hours), spawn size strength 50.
     Conservative: correction passes 8, minimum cooldown 360, spawn size strength 25.
@@ -94,12 +93,12 @@ MCM
 
 [size=4][b]Compatibility[/b][/size]
 Depends only on xlibs. Install and uninstall mid-save work. Tested: Anomaly 1.5.3, GAMMA, EFP, Zona, Forgotten Zone.
-[b]Drop:[/b]
-- Squad Filler - tops up the same squads Squad Refill repairs, to a flat size of 2, ignoring each squad's own configured size.
+[b]Avoid:[/b]
+- Squad Filler - it tops up the same squads Squad Refill repairs, to a flat size of 2, and ignores the size each squad is configured with in its own section.
 - Warfare, old or new - Smart Balance steers population back to each map's declared design, while Warfare drives attrition and territory swings, so the two pull it in opposite directions.
 [b]Coexists:[/b]
 - ZCP - shares the cooldown field and spawner records, so the two compose: ZCP picks the species and squad sizes, Smart Balance counts declared slots against them.
-- Night Mutants, Nocturnal Mutants - spawn outside the spawner ledger, so Smart Balance neither boosts nor suppresses them.
+- Night Mutants, Nocturnal Mutants - their squads spawn outside the spawner ledger, so Smart Balance neither boosts nor suppresses the squads they add at night.
 Everything else coexists, as long as it extends X-Ray and Anomaly and never overrides them.
 [line]
 [b]How It's Built[/b]
