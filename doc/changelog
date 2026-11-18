@@ -1,117 +1,135 @@
 1.1.5-snapshot
-  Summary: squad refill crash fix
+  A squad refill crash fix
+    Squad Refill no longer stops the game when X-Ray hands a dead squad's id to another object mid-pass.
 
   Squad Refill
-    - Fixed a rare crash caused by the engine recycling a dead squad's id to another object while a refill pass was still running.
+    - Fixed a rare crash when X-Ray gave a wiped squad's id to another object before the refill reached it. The refill now checks the object is still a squad.
 
 1.1.4
-  Summary: performance and infrastructure
-
-  Performance and Infrastructure
-    - Rebuilt the validator into layered rules for crashes, unsafe engine usage, performance, best practices, smoke load, and secret leaks.
-    - The validator runs on every change, locally and in CI, and a grade gate fails the build on any finding.
-    - Profiled and tuned with JitProfiler, an engine-native, scientific profiler.
-    - Consolidated the whole engine layer into xlibs and standardized naming and structure across every mod.
-
-1.1.3
-  Summary: Spawner-record balance, spawn size, squad refill, crowded-area steering, Inventory Balance moved to AlifeGuard
-
-  General
-    - Added a crowded area threshold: areas already holding many off-screen NPCs get no accelerated respawns and no squad repairs, and their spawners are delayed.
-      This steers recovery toward the empty parts of a map and away from feeding existing piles.
-    - MCM restructured into one page per system: General, Respawn Pacing, Spawn Size, Squad Refill, Development. Reset MCM settings after updating.
-
-  Respawn Pacing
-    - Changed Smart Balance from kill-counting to a per-map balance over the game's own spawner records:
-      how many squads each spawner is allowed versus how many are alive right now, per faction, mutants as one group.
-      Depleted factions get respawn cooldowns advanced in proportion to how depleted they are, so a wiped faction returns at full speed while a dented one gets a nudge.
-      Overgrown factions and spawners in crowded areas get cooldowns delayed, never blocking a spawn, and healthy maps are left completely alone.
-    - Territory changes from other mods (conquest, infestation) shift the balance target automatically,
-      so a captured smart terrain gets populated by its new owner and drifts back after the effect expires.
-    - Added a ceiling on delayed cooldowns: a delay never leaves a smart terrain waiting longer than the configured maximum (default 12 game-hours),
-      pairing with the minimum-cooldown floor (default 2 game-hours) so every correction stays inside a configurable window.
-    - Accelerations are only spent on spawners the game will actually fire.
-      Disabled, unreachable, player-adjacent, and level-restricted spawners are skipped, as is everything while a wish for peace holds.
-    - Map markers now also mark delayed smart terrains, and the right-click stats show advances and delays.
-    - Removed the death counter, kill thresholds, and the vermin filter.
+  Faster Spawn Size, the platform line in the engine log, and xlibs 1.9.0
+    Spawn Size draws new members from a cached pool, and the platform status line now also prints to the engine log.
+    From this release the mod needs xlibs 1.9.0 or newer.
 
   Spawn Size
-    - Added Spawn Size: new squads of a faction losing across the whole Zone arrive with more members, up to their own configured maximum.
-      The boost scales with how badly the faction is losing. A faction merely dented on one map spawns normal squads.
-      The strength slider and toggle sit in MCM, on by default.
+    - Improved Spawn Size performance.
+
+  General
+    - Added the platform status line to the engine log at startup.
+    - Changed the xlibs requirement to 1.9.0.
+
+1.1.3
+  Population balance over the spawner records, Spawn Size, Squad Refill, crowded areas
+    Respawn Pacing now balances each map against the spawner records of that map. A faction short of squads respawns sooner, and an overgrown one later.
+    Spawn Size and Squad Refill are new pages. A faction losing across the Zone spawns fuller squads, and squads cut below their minimum get members back.
+    Other things you will notice. Crowded areas get no extra spawns, each system has a separate MCM page, and Inventory Balance moved to AlifeGuard.
+
+  General
+    - Added the crowded area threshold. An area already holding many off-screen NPCs gets no faster respawns and no squad repairs, and its spawners slow down.
+      Recovery goes to the empty parts of a map and stays away from existing piles.
+    - Changed the MCM to one page per system: General, Respawn Pacing, Spawn Size, Squad Refill and Development. Reset the MCM settings after updating.
+    - Changed the xlibs requirement to 1.8.3.
+
+  Respawn Pacing
+    - Changed Respawn Pacing from counting kills to a balance per map over the game's spawner records, which hold how many squads each spawner may keep against how many live.
+      A depleted faction gets its respawn cooldowns advanced in proportion to the gap. A wiped faction returns at full speed, and a dented one gets a nudge.
+      An overgrown faction, and a spawner in a crowded area, gets its cooldowns delayed, never blocked. A healthy map is left alone.
+    - Changed the balance target to follow territory changes from other mods, such as conquest and infestation. A captured smart terrain fills with its new owner.
+    - Added a ceiling for delayed cooldowns. With the minimum cooldown floor, every correction stays inside a window you set.
+    - Changed the advances to go only to spawners the game will fire. Disabled, unreachable, player-adjacent and level-restricted spawners are skipped, and so is every spawner during a wish for peace.
+    - Changed the map markers to show delayed smart terrains too, and the right-click stats to show advances and delays.
+    - Removed the death counter, the kill thresholds and the vermin filter.
+
+  Spawn Size
+    - Added Spawn Size. New squads of a faction losing across the whole Zone arrive with more members, up to the squad's configured maximum.
+      The boost follows how badly the faction is losing. A faction dented on a single map spawns normal squads.
 
   Squad Refill
-    - Added Squad Refill: squads that fell below their own minimum size regain one member per pass.
-      Nothing in the game repairs a squad once it loses members, and a surviving remnant blocks its respawn slot forever, so maps fill with one-man ghost squads.
-      The refill runs only on squads far from the player, skips crowded areas and overgrown factions, and stops at the squad's own configured minimum. The MCM toggle is on by default.
+    - Added Squad Refill. A squad below its configured minimum gets one member back per pass.
+      Vanilla never repairs a squad once it loses members, but a surviving remnant holds its respawn slot forever. Over time a map fills with squads of a single survivor.
+      The refill runs only on squads far from you, skips crowded areas and overgrown factions, and stops at the squad's configured minimum.
 
   Compatibility
-    - Warfare is no longer supported alongside Smart Balance. Its population model fights any external balancing. Disable AlifeBalance when running Warfare.
-    - Disable the Squad Filler addon if you use it. Its flat once-a-day squad top-up fights Squad Refill.
-      Squad Refill fills the same squads on the balance verdicts and stops at each squad's own configured size.
+    - Removed support for Warfare alongside Respawn Pacing. Its population model fights any outside balancing. If you run Warfare, disable AlifeBalance.
+    - Added a conflict with the Squad Filler addon, whose daily squad top-up fights Squad Refill. Disable it.
 
   Inventory Balance
-    - Removed Inventory Balance, the NPC inventory bounding. It moved to AlifeGuard, now called Inventory Guard, with identical behavior.
-      To keep bounding NPC inventories, install or update AlifeGuard. Configure it there under Inventory Guard, and reset MCM settings after updating.
-      DLTX overrides of `configs/alifebalance/ab_inventory_policy.ltx` must repoint to `configs/alifeguard/ag_inventory_policy.ltx`.
+    - Removed Inventory Balance. It moved to AlifeGuard as Inventory Guard, with the same behavior. Install or update AlifeGuard to keep bounding NPC inventories.
+      A DLTX override of ab_inventory_policy.ltx must point to ag_inventory_policy.ltx.
 
 1.1.2
-  Summary: Cull caps matched to the loot policy, respawn pacing reads the active config, platform status
-
-  - Added dynamic checking of xlibs and xray-monolith/AOEngine versions with a compatibility result.
-  - An outdated xlibs no longer crashes AlifeBalance on load. The dependency check now shows the update-xlibs message. The old behavior was a raw script error from the MCM platform footer.
-  - Matched the inventory cull caps to the AlifePlus loot policy. Rifle ammo drops from 120 to 45 and launcher grenades from 6 to 3, so culling and looting agree on how much an NPC keeps.
-  - Respawn pacing now reads the respawn cooldown actually in effect, and honors respawns being turned off.
-    It no longer accelerates smarts whose respawns are disabled, and its spawn-rate scaling matches the engine's.
-
-1.1.1
-  Summary: Smoke grenade cull, 12h scan cooldown, AOEngine compatibility, fewer engine warnings
-
-  - Added AOEngine v0.55+ support.
-  - Changed inventory balance to cull smoke grenades from NPC inventories, including one held in the grenade slot.
-    Smoke crashes the game when an NPC throws it on current exes.
-  - Changed the inventory scan cooldown to 12 game-hours (was 24), so NPCs are trimmed twice per game-day.
-  - Fixed a burst of "trying to use a destroyed object" warnings logged when a creature despawns during a scan.
-
-1.1.0
-  Summary: Inventory Balance, equipped ammo coverage, DLTX policy, Smart Balance rename, MCM split
-
-  Inventory Balance
-    - Stops NPC hoarding so anti-loot mods are no longer needed.
-      Scanner trims online stalkers one per frame, rescans each at most once per game-day.
-      Solves what anti-loot mods avoid: jackpot bodies, and saves filling toward the 65k engine cap.
-      Scans random long-lived stalkers (gulag survivors, patrols). Companions, story NPCs, traders skipped.
-    - Quest items, equipped gear, story_id items, companion gifts, player-strapped weapons never released.
-    - Equipped rifle and pistol ammo bounded per tier.
-
-  Policy
-    - `ab_inventory_policy.ltx` (DLTX-overridable) holds per-category ceilings.
-      It shares the LTX shape with AlifePlus `ap_trade_policy.ltx` and `ap_stash_policy.ltx`.
+  The ZCP respawn switch honored, ammo caps matched to the loot policy, platform status
+    Smart Balance reads the respawn cooldown in effect and leaves smart terrains alone when respawns are off.
+    The MCM footer names the xlibs and exe versions with a compatibility result, and the ammo cull caps now match the AlifePlus loot policy.
 
   Smart Balance
-    - Smart Pacing renamed to Smart Balance. Label only, no behavior change.
-    - Death counter now credits every non-vermin death (was filtered to exclude protected NPCs).
+    - Fixed Smart Balance advancing smart terrains whose respawns ZCP turned off. It reads the cooldown in effect and scales spawns the way the engine does.
+    - Fixed the cooldown shown on markers and in the stats, which read several times too long under ZCP.
 
-  MCM
-    - Split into Smart Balance and Inventory Balance tabs (was a single General tab).
-      Existing MCM settings reset to defaults on upgrade.
-    - Removed Show Status and Reset Counters buttons from the Development tab.
+  Inventory Balance
+    - Changed the ammo cull caps to whole boxes, matched to the AlifePlus loot policy. Culling and looting agree on how much an NPC keeps.
+
+  General
+    - Added the platform status to the MCM footer and the startup log, with the xlibs and exe versions and a compatibility result.
+    - Fixed an outdated xlibs raising a script error from the MCM footer. The dependency check now shows the update-xlibs message.
+    - Changed the xlibs requirement to 1.8.2.
+
+1.1.1
+  Smoke grenade cull, a twice-daily inventory scan, and AOEngine support
+    Inventory Balance takes smoke grenades out of NPC inventories, the slot included, and trims each NPC twice per game day.
+    AOEngine is supported, and the demonized floor drops to 20250908.
+
+  Inventory Balance
+    - Changed the cull to take smoke grenades, a grenade held in the slot included. An NPC throwing smoke crashes the game on current exes.
+    - Changed the scan cooldown to twice per game day.
+    - Fixed a burst of "trying to use a destroyed object" warnings when a creature despawned during a scan.
+
+  General
+    - Added AOEngine support, and changed the demonized requirement to 20250908.
+    - Changed the xlibs requirement to 1.7.7.
+
+1.1.0
+  Inventory Balance, ZCP support, the Smart Balance name, and the MCM split
+    Inventory Balance is a new tab that trims what online stalkers hoard. Bodies stop being jackpots, and saves stop growing toward the engine's object cap.
+    Smart Pacing is now Smart Balance, reads ZCP's respawn settings, and counts every non-vermin death.
+    Other things you will notice. The MCM has a reset button and a tab per system, and the mod needs the modded exes.
+
+  Smart Balance
+    - Changed the name Smart Pacing to Smart Balance, with no change in behavior.
+    - Added ZCP support. Smart Balance reads ZCP's respawn settings and budgets without changing them.
+    - Changed the death counter to credit every non-vermin death. It used to leave protected NPCs out.
+
+  Inventory Balance
+    - Added Inventory Balance. A scanner trims online stalkers one per frame and rescans each at most once per game day.
+      It favors long-lived stalkers, such as camp survivors and patrols, and skips companions, story NPCs and traders.
+      Quest items, equipped gear, story items, companion gifts and weapons you strapped to an NPC are never removed. Equipped rifle and pistol ammo is capped per tier.
+    - Added ab_inventory_policy.ltx, the ceiling per item category, overridable through DLTX. It shares its shape with the AlifePlus trade and stash policies.
+
+  Development
+    - Added the reset-to-defaults button.
+    - Removed the Show Status and Reset Counters buttons.
+
+  General
+    - Changed the MCM from a single General tab to Smart Balance, Inventory Balance and Development. Existing settings reset to defaults on this update.
+    - Added the modded exes check. The game stops at load with a message when it finds no demonized build of 20260601 or newer.
 
   Compatibility
-    - Disable any NPC anti-loot addon (NPC Stop Looting Dead Bodies, Weapons Drop on Bodies, BoltBeGone).
-      Vanilla looting is the source Inventory Balance trims, without it the scanner has nothing to do.
+    - Added a conflict with NPC anti-loot addons such as NPC Stop Looting Dead Bodies, Weapons Drop on Bodies and BoltBeGone. Inventory Balance trims what vanilla looting gathers. Disable them.
 
 1.0.2
-  Summary: Crash fix on xlibs 1.7.0
-  Fixed:
-    Fixed: Crash in Smart Pacing on xlibs 1.7.0 at ab_recipe.script:141. Adopt renamed `xsmart.find_smarts_spawning` (was `xsmart.find_smarts_with_recipe` pre-1.7.0). Requires xlibs 1.7.0+.
+  A crash fix on xlibs 1.7.0
+    Smart Pacing runs on xlibs 1.7.0 again, after xlibs renamed the function it uses to find spawning smart terrains.
+
+  - Fixed a crash in Smart Pacing on xlibs 1.7.0. The mod now needs xlibs 1.7.0 or newer.
 
 1.0.1
-  Summary: Crash fix on malformed respawn params, third-party respawn-delay compatibility
-  Fixed:
-    Fixed: Crash in Smart Pacing budget evaluation when scanning malformed or misconfigured smart terrains whose respawn_params.num condlist has no default branch.
-  Compatibility:
-    Skip smart terrains whose `last_respawn_update` is set to a future game-time by another mod. This honors third-party deferred-respawn intent and does not override it.
+  A crash fix on malformed respawn settings, and respect for other mods' respawn delays
+    Smart Pacing no longer crashes on a smart terrain with a malformed respawn condlist, and it leaves alone a respawn another mod delayed.
+
+  - Fixed a crash in Smart Pacing on a smart terrain whose respawn count condlist has no default branch.
+  - Changed Smart Pacing to skip a smart terrain whose next respawn another mod moved into the future.
 
 1.0.0
-  First release. Advances respawn cooldowns at smart terrains where combat has produced deaths, so active regions recover faster without affecting the rest of the map.
+  Faster respawns where fights happen
+    The first release advances respawn cooldowns at smart terrains where combat left deaths. An active region recovers faster, and the rest of the map stays as it was.
+
+  - Added Smart Pacing, which advances the respawn cooldown of a smart terrain where combat left deaths.
