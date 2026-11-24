@@ -5,6 +5,11 @@
   Squad Refill
     - Fixed a rare crash when X-Ray gave a wiped squad's id to another object before the refill reached it. The refill now checks the object is still a squad.
 
+  Update check
+    - Added an update check. On the first save load of each launch the mod asks GitHub for its latest release, during the loading screen.
+      A newer version shows at the foot of the MCM page, and in a PDA message once a day. It needs xlibs 1.10.1.
+    - Added Check for update to the Development page, which runs the same check right away.
+
 1.1.4
   Faster Spawn Size, the platform line in the engine log, and xlibs 1.9.0
     Spawn Size draws new members from a cached pool, and the platform status line now also prints to the engine log.

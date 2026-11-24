@@ -146,4 +146,10 @@
     <string id="st_ab_reset_all_done">
         <text>AlifeBalance: all settings restored to defaults.</text>
     </string>
+    <string id="ui_mcm_ab_development_btn_update_check">
+        <text>Check for update</text>
+    </string>
+    <string id="ui_mcm_ab_development_btn_update_check_desc">
+        <text>Asks GitHub now whether a newer version of this mod is out, the same check a save load runs. The menu closes and the answer shows on screen.</text>
+    </string>
 </string_table>
