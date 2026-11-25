@@ -1,14 +1,19 @@
 1.1.5-snapshot
-  A squad refill crash fix
+  A squad refill crash fix, an update check and a Log level for every system
     Squad Refill no longer stops the game when X-Ray hands a dead squad's id to another object mid-pass.
+    The mod looks for a newer version on each launch and names it at the foot of the MCM page, with moddb.
 
   Squad Refill
     - Fixed a rare crash when X-Ray gave a wiped squad's id to another object before the refill reached it. The refill now checks the object is still a squad.
 
   Update check
-    - Added an update check. On the first save load of each launch the mod asks GitHub for its latest release, during the loading screen.
-      A newer version shows at the foot of the MCM page, and in a PDA message once a day. It needs xlibs 1.10.1.
+    - Added an update check. On the first save load of each launch the mod looks for a newer version, during the loading screen.
+      A newer version on moddb shows at the foot of the MCM page, and in a PDA message once a day. It needs xlibs 1.10.1.
     - Added Check for update to the Development page, which runs the same check right away.
+    - Added an update line under the version line at the foot of the MCM page. It shows the installed and the latest version, or the newer version on moddb.
+
+  Development
+    - Fixed Log level skipping Smart Recipe, Squad Refill and Spawn Size, which always logged at Debug.
 
 1.1.4
   Faster Spawn Size, the platform line in the engine log, and xlibs 1.9.0

@@ -8,6 +8,8 @@ local xlog, xprofiler = xlog, xprofiler
 local xsmart, xlevel, xtime = xsmart, xlevel, xtime
 -- Never cache CreateTimeEvent/ResetTimeEvent/RemoveTimeEvent as locals; modded exes replace the globals at load (modded-exes/_g_patches.script(1577-1613)).
 local log = xlog.get_logger("AB.SBAL", { outfile = "alifebalance.log" })
+-- The other loggers the MCM Log level drives, the dependency gate's among them.
+local AB_LOGGERS = { "AB.SREC", "AB.RFIL", "AB.SIZE", _ab_manifest.MANIFEST.name }
 
 local TIMER_EV = "ab_smart_balance"
 local TIMER_TICK = "tick"
@@ -302,6 +304,7 @@ local function _load_config()
     cfg.show_markers = mcm.show_markers
     cfg.log_level    = mcm.log_level
     log.set_level(cfg.log_level)
+    for _, name in ipairs(AB_LOGGERS) do xlog.get_logger(name).set_level(cfg.log_level) end
     _dbg = log.get_level() >= 5
     _delta_cache = {}
     ab_smart_recipe.set_debug(_dbg)
