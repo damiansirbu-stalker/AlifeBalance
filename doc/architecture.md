@@ -15,18 +15,18 @@ AlifeBalance modulates rates and counts the engine already owns, and never relea
 ## Invariants
 
 - **No steady-state per-frame work.** A throttled 60s timer or discrete engine events only. The refill drain frame-spreads a bounded batch via xslice and stops.
-  Full rule: `doc/standards/stalker-code.md` "No Per-Frame Work".
+  Full rule: `doc/standards/stalker-code.md`, Performance.
 - **Never a release.** Spawn Size and Squad Refill only add members, inside each section's own `npc_in_squad` range.
 - **Spawns delayed, never blocked.** Delays never leave more than `max_minutes` remaining, clamp age >= 0, skip fresh smarts, never write the `on_try_respawn` disable flag.
 - **Only the controllable population.** The slot ledger counts only spawner-owned squads. The starting population from `fill_start_position`, and event and mod spawns, are excluded.
   None of them set `respawn_point_id` (`sim_board.script:352` vs `smart_terrain.script:1720`). The mod neither boosts nor suppresses a population no lever can replace.
 - **Performance first.** Performance is the top priority and outranks features.
   A feature that cannot meet the budget moves its cost into the engine where the engine can carry it, otherwise we rework it to fit or remove it. It is never kept at the cost of the budget.
-  Only correctness and "never break base gameplay" rank above it. See `doc/standards/stalker-code.md` "Performance is the priority".
+  Only correctness and "never break base gameplay" rank above it. See `doc/standards/stalker-code.md`, Performance.
 - **Use the engine, don't work around it.** Every capability comes from the engine and the Anomaly layer first, always through xlibs.
   Our own code enters only where stock behavior falls short. It escalates from a nudge to a correction.
   We fix a defect in the engine or a performance cost in the engine, seam first. A full-file override is the last resort. Never reimplement in script what the engine already does.
-  See `doc/standards/stalker-code.md` "Use the engine, don't work around it".
+  See `doc/standards/stalker-code.md`, Engine use.
 
 ## The sensor: slot verdicts
 
