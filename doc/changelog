@@ -7,10 +7,8 @@
     - Fixed a rare crash when X-Ray gave a wiped squad's id to another object before the refill reached it. The refill now checks the object is still a squad.
 
   Update check
-    - Added an update check. On the first save load of each launch the mod looks for a newer version, during the loading screen.
-      A newer version on moddb shows at the foot of the MCM page, and in a PDA message once a day. It needs xlibs 1.10.1.
-    - Added Check for update to the Development page, which runs the same check right away.
-    - Added an update line under the version line at the foot of the MCM page. It shows the installed and the latest version, or the newer version on moddb.
+    - Added an update check. The mod asks GitHub for a newer release and shows it at the foot of the MCM page and in a daily PDA message.
+      Check for update on the Development page asks right away.
 
   Development
     - Fixed Log level skipping Smart Recipe, Squad Refill and Spawn Size, which always logged at Debug.
